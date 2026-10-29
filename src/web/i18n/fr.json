@@ -71,5 +71,7 @@
   "mods.tip.pin": "Tu gardes volontairement cette version plus ancienne. Le mod ne sera plus signalé « pas à jour » dans les prochaines comparaisons. Mémorisé pour ce mod.",
   "mods.tip.clientOnly": "Ce mod ne sert que côté joueur. Il est ajouté à la liste noire serveur et ne sera donc pas mis dans le pack serveur.",
   "mods.tip.refCol": "Version du mod dans {a} (la référence) et nom du jar.",
-  "mods.tip.cmpCol": "Version du mod dans {b} (le profil comparé) et nom du jar."
+  "mods.tip.cmpCol": "Version du mod dans {b} (le profil comparé) et nom du jar.",
+  "nav.configs": "Configs",
+  "nav.decisions": "Décisions"
 }

@@ -124,3 +124,22 @@ export const event = sqliteTable('event', {
   before: text('before'),
   after: text('after'),
 });
+
+/** Per comparison (base profile -> other profile), what Yann chose to push: `kind` is 'mod' (key = mod id) or 'file' (key = path relative to the instance). */
+export const updatePlanItem = sqliteTable(
+  'update_plan_item',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    baseProfileId: integer('base_profile_id')
+      .notNull()
+      .references(() => profile.id),
+    otherProfileId: integer('other_profile_id')
+      .notNull()
+      .references(() => profile.id),
+    kind: text('kind').notNull(), // 'mod' | 'file'
+    key: text('key').notNull(),
+    action: text('action').notNull(), // 'take_ref': take the reference side's version
+    createdAt: text('created_at').notNull(),
+  },
+  (t) => [unique().on(t.baseProfileId, t.otherProfileId, t.kind, t.key)],
+);

@@ -3,6 +3,8 @@ import { useState } from 'react';
 import { api } from './api.js';
 import { t } from './i18n/index.js';
 import { Blacklist } from './pages/Blacklist.js';
+import { Configs } from './pages/Configs.js';
+import { Decisions } from './pages/Decisions.js';
 import { Login } from './pages/Login.js';
 import { Mods } from './pages/Mods.js';
 import { Profiles } from './pages/Profiles.js';
@@ -10,6 +12,8 @@ import { Profiles } from './pages/Profiles.js';
 const TABS = [
   { id: 'profiles', label: 'nav.profiles', view: Profiles },
   { id: 'mods', label: 'nav.mods', view: Mods },
+  { id: 'configs', label: 'nav.configs', view: Configs },
+  { id: 'decisions', label: 'nav.decisions', view: Decisions },
   { id: 'blacklist', label: 'nav.blacklist', view: Blacklist },
 ] as const;
 

@@ -8,10 +8,14 @@ import type { Db } from '../db/open.js';
 import type { JobRunner } from '../jobs/runner.js';
 import { SessionStore, verifyPassword } from './auth.js';
 import { registerEvents } from './events.js';
+import { registerConfigsRoutes } from './routes-configs.js';
+import { registerDecisionsRoutes } from './routes-decisions.js';
 import { registerModRoutes } from './routes-mods.js';
+import { registerPlanRoutes } from './routes-plan.js';
 import { registerProfileRoutes } from './routes-profiles.js';
 
-export type AppDeps = { db: Db; jobs: JobRunner; config: Config };
+/** `dataDir` is where exports and other files written by Studio go; it defaults to ./data when a caller (tests) omits it. */
+export type AppDeps = { db: Db; jobs: JobRunner; config: Config; dataDir?: string };
 
 const PUBLIC_ROUTES = new Set([`${API_PREFIX}/health`, `${API_PREFIX}/auth/login`]);
 const COOKIE = 'studio_session';
@@ -90,6 +94,9 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     registerEvents(api, deps.jobs);
     registerProfileRoutes(api, deps);
     registerModRoutes(api, deps);
+    registerPlanRoutes(api, deps);
+    registerConfigsRoutes(api, deps);
+    registerDecisionsRoutes(api, deps);
   });
   return app;
 }

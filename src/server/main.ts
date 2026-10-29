@@ -13,7 +13,7 @@ fs.mkdirSync(dataDir, { recursive: true });
 const config = loadConfig(dataDir);
 const db = openDb(path.join(dataDir, 'studio.db'), { backupDir: path.join(dataDir, 'backups') });
 const jobs = new JobRunner(db);
-const app = buildApp({ db, jobs, config });
+const app = buildApp({ db, jobs, config, dataDir });
 
 // Serve the built SPA (npm run build:web) from the same process; any non-API path falls back to index.html.
 const webRoot = path.resolve('dist/web');
