@@ -18,7 +18,13 @@ builds and boot test, deploy agent and publishing, Claude assistant.
 
 Validated read-only against real CurseForge instances (ATM10 8.3, NeoForge 21.1.259).
 
-## Run
+## Quick start (Windows)
+
+Double-click `Start.cmd` (or run `pwsh -File studio.ps1`): a menu offers first setup (Node.js check and install through winget,
+dependencies, web build, password), start, demo mode, tests, packaging and the logon task.
+Non-interactive: `studio.ps1 -Action setup|start|demo|password|build|test|package|task`.
+
+## Run by hand
 
 ```bash
 npm ci
