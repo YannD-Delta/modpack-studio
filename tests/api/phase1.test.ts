@@ -107,6 +107,18 @@ describe('phase 1 api', () => {
     expect((await call('GET', `/build/blockers?atmClient=${c}&lmp=${l}`)).json()).toEqual([]);
   });
 
+  it('does not block on a duplicate id that ATM itself ships, but blocks on a new one', async () => {
+    const twin = [jar('dup', '1.0'), jar('dup', '2.0')];
+    const atm = await writeAtmPack(path.join(tmp, 'atm'), { atm: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: [], clientMods: [...twin, jar('a')] });
+    const lmp = await writeAtmPack(path.join(tmp, 'lmp'), { atm: '1.0', neoforge: '21.1.259', mc: '1.21.1', serverMods: [], clientMods: [...twin, jar('a'), jar('mine', '1.0'), { ...jar('mine', '2.0'), fileName: 'mine-copy-2.0.jar' }] });
+    const c = await mkProfile({ pack: 'ATM10', version: '8.3', side: 'client', state: 'clean', locationKind: 'folder', location: atm.clientDir });
+    const l = await mkProfile({ pack: 'LMP', version: '1.0', side: 'client', state: 'clean', locationKind: 'folder', location: lmp.clientDir });
+    await importAndWait(c, { kind: 'folder', path: atm.clientDir });
+    await importAndWait(l, { kind: 'folder', path: lmp.clientDir });
+    const blockers = (await call('GET', `/build/blockers?atmClient=${c}&lmp=${l}`)).json() as { code: string; modId: string }[];
+    expect(blockers).toEqual([{ code: 'DUPLICATE_ID', modId: 'mine' }]);
+  });
+
   it('adopts the ATM-derived blacklist in one call', async () => {
     const { s, c } = await scenario();
     expect((await call('PUT', '/blacklist', { action: 'adopt-atm', server: s, client: c })).statusCode).toBe(200);
