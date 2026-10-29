@@ -59,5 +59,17 @@
   "blacklist.originYann": "à toi",
   "blacklist.empty": "Liste vide.",
   "common.error": "Erreur",
-  "common.loading": "Chargement…"
+  "common.loading": "Chargement…",
+  "mods.tip.anomaly": "Ce mod est dans {a} mais plus dans {b}. Tu ne retires normalement pas de mod, donc à vérifier : tant que ce n’est pas réglé, ça bloque la construction du pack.",
+  "mods.tip.removed": "Ce mod est dans {a} mais absent de {b}.",
+  "mods.tip.added": "Ce mod n’est pas dans {a} mais il est dans {b} : c’est un ajout de ta part.",
+  "mods.tip.older": "{b} a une version plus ancienne que {a} : il faut la mettre à jour.",
+  "mods.tip.newer": "{b} a une version plus récente que {a} : tu l’as déjà mise à jour.",
+  "mods.tip.different": "Les numéros de version diffèrent entre {a} et {b}, mais je ne peux pas dire laquelle est la plus récente. À vérifier à la main.",
+  "mods.tip.rebuilt": "Même numéro de version dans {a} et {b}, mais le contenu du jar est différent (recompilé ou modifié).",
+  "mods.tip.acceptRemoval": "Tu as retiré ce mod exprès. Il ne sera plus compté comme manquant et ne bloquera plus la construction du pack. Mémorisé pour ce mod.",
+  "mods.tip.pin": "Tu gardes volontairement cette version plus ancienne. Le mod ne sera plus signalé « pas à jour » dans les prochaines comparaisons. Mémorisé pour ce mod.",
+  "mods.tip.clientOnly": "Ce mod ne sert que côté joueur. Il est ajouté à la liste noire serveur et ne sera donc pas mis dans le pack serveur.",
+  "mods.tip.refCol": "Version du mod dans {a} (la référence) et nom du jar.",
+  "mods.tip.cmpCol": "Version du mod dans {b} (le profil comparé) et nom du jar."
 }

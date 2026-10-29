@@ -89,7 +89,10 @@ describe('Mods', () => {
     wrap(<Mods />);
     await userEvent.selectOptions(await screen.findByLabelText('Référence'), '2');
     await userEvent.selectOptions(screen.getByLabelText('Comparé à'), '3');
-    await userEvent.click(await screen.findByRole('button', { name: 'Accepter le retrait b' }));
+    const accept = await screen.findByRole('button', { name: 'Accepter le retrait b' });
+    expect(accept.getAttribute('title')).toMatch(/retiré ce mod exprès/);
+    expect(screen.getByText('manquant').getAttribute('title')).toMatch(/bloque la construction/);
+    await userEvent.click(accept);
     await waitFor(() => expect(calls.some((c) => c.method === 'PUT' && c.url.endsWith('/mods/b/decision'))).toBe(true));
     expect(JSON.parse(calls.find((c) => c.method === 'PUT')!.body!)).toMatchObject({ kind: 'ignore' });
   });

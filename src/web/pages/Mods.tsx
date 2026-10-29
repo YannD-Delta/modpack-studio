@@ -59,6 +59,7 @@ export function Mods() {
 
   const a = base ? `${base.pack} ${base.version}` : '';
   const b = other ? `${other.pack} ${other.version}` : '';
+  const tip = (st: Status) => tf(`mods.tip.${st}` as MessageKey, { a, b });
   const why = (r: Row) =>
     tf(`mods.why.${r.status}` as MessageKey, { a, b, from: r.ref?.version ?? '', to: r.cmp?.version ?? '', v: r.cmp?.version ?? '' });
 
@@ -69,9 +70,9 @@ export function Mods() {
 
   const actions = (r: Row) => {
     if (done.has(r.modId)) return <span className="text-xs text-emerald-400">✓</span>;
-    if (r.status === 'anomaly') return <button className={action} aria-label={`${t('mods.acceptRemoval')} ${r.modId}`} onClick={() => decide.mutate({ modId: r.modId, body: { kind: 'ignore', reason: 'retrait accepté' } })}>{t('mods.acceptRemoval')}</button>;
-    if (r.status === 'older' || r.status === 'newer' || r.status === 'different') return <button className={action} aria-label={`${t('mods.pin')} ${r.modId}`} onClick={() => decide.mutate({ modId: r.modId, body: { kind: 'pin', reason: 'version épinglée' } })}>{t('mods.pin')}</button>;
-    if (r.status === 'added') return <button className={action} aria-label={`${t('mods.clientOnly')} ${r.modId}`} onClick={() => decide.mutate({ modId: r.modId, body: { kind: 'side', side: 'client', reason: 'client uniquement' } })}>{t('mods.clientOnly')}</button>;
+    if (r.status === 'anomaly') return <button className={action} title={t('mods.tip.acceptRemoval')} aria-label={`${t('mods.acceptRemoval')} ${r.modId}`} onClick={() => decide.mutate({ modId: r.modId, body: { kind: 'ignore', reason: 'retrait accepté' } })}>{t('mods.acceptRemoval')}</button>;
+    if (r.status === 'older') return <button className={action} title={t('mods.tip.pin')} aria-label={`${t('mods.pin')} ${r.modId}`} onClick={() => decide.mutate({ modId: r.modId, body: { kind: 'pin', reason: 'version épinglée' } })}>{t('mods.pin')}</button>;
+    if (r.status === 'added') return <button className={action} title={t('mods.tip.clientOnly')} aria-label={`${t('mods.clientOnly')} ${r.modId}`} onClick={() => decide.mutate({ modId: r.modId, body: { kind: 'side', side: 'client', reason: 'client uniquement' } })}>{t('mods.clientOnly')}</button>;
     return null;
   };
 
@@ -93,7 +94,7 @@ export function Mods() {
     <div key={r.modId} style={style} className={`${GRID} items-center gap-3 border-b border-slate-800 px-4 py-2.5 text-sm hover:bg-slate-900/60`}>
       <span className="min-w-0">
         <span className="block truncate font-mono text-slate-100">{r.modId}</span>
-        <span className={`mt-0.5 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs ${BADGE[r.status]}`}><span aria-hidden>{ICON[r.status]}</span>{t(`mods.status.${r.status}` as MessageKey)}</span>
+        <span title={tip(r.status)} className={`mt-0.5 inline-flex cursor-help items-center gap-1 rounded-full border px-2 py-0.5 text-xs ${BADGE[r.status]}`}><span aria-hidden>{ICON[r.status]}</span>{t(`mods.status.${r.status}` as MessageKey)}</span>
       </span>
       {versionCell(r.ref, false)}
       {versionCell(r.cmp, r.status === 'anomaly' || r.status === 'removed')}
@@ -130,14 +131,14 @@ export function Mods() {
           <div className="flex flex-wrap gap-2">
             <button onClick={() => setFilter('all')} aria-pressed={filter === 'all'} className={`rounded-full border px-3 py-1 text-xs ${filter === 'all' ? 'border-violet-500 bg-violet-950/60 text-violet-200' : 'border-slate-700 text-slate-300 hover:bg-slate-800'}`}>{t('mods.filter.all')} · {all.length}</button>
             {STATUSES.filter((st) => counts[st] > 0).map((st) => (
-              <button key={st} onClick={() => setFilter(st)} aria-pressed={filter === st} className={`rounded-full border px-3 py-1 text-xs ${BADGE[st]} ${filter === st ? 'ring-2 ring-violet-500' : 'opacity-80 hover:opacity-100'}`}>
+              <button key={st} title={tip(st)} onClick={() => setFilter(st)} aria-pressed={filter === st} className={`rounded-full border px-3 py-1 text-xs ${BADGE[st]} ${filter === st ? 'ring-2 ring-violet-500' : 'opacity-80 hover:opacity-100'}`}>
                 {ICON[st]} {t(`mods.filter.${st}` as MessageKey)} · {counts[st]}
               </button>
             ))}
           </div>
         <div className="overflow-hidden rounded-xl border border-slate-800">
           <div className={`${GRID} gap-3 bg-slate-900 px-4 py-3 text-xs uppercase tracking-wide text-slate-400`}>
-            <span>{t('mods.col.mod')}</span><span className="normal-case" title={a && base ? profileLabel(base) : ''}>{a}</span><span className="normal-case" title={b && other ? profileLabel(other) : ''}>{b}</span><span>{t('mods.col.why')}</span><span className="text-right">{t('mods.col.action')}</span>
+            <span>{t('mods.col.mod')}</span><span className="normal-case" title={`${tf('mods.tip.refCol', { a, b })}${base ? ` (${profileLabel(base)})` : ''}`}>{a}</span><span className="normal-case" title={`${tf('mods.tip.cmpCol', { a, b })}${other ? ` (${profileLabel(other)})` : ''}`}>{b}</span><span>{t('mods.col.why')}</span><span className="text-right">{t('mods.col.action')}</span>
           </div>
           {virtual ? (
             <div ref={parentRef} className="max-h-[70vh] overflow-auto">
