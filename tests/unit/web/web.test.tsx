@@ -68,9 +68,21 @@ describe('Mods', () => {
     wrap(<Mods />);
     await userEvent.selectOptions(await screen.findByLabelText('Référence'), '2');
     await userEvent.selectOptions(screen.getByLabelText('Comparé à'), '3');
-    expect(await screen.findByText('mis à jour')).toBeTruthy();
+    expect(await screen.findByText('plus récent')).toBeTruthy();
     expect(screen.getByText('ajouté')).toBeTruthy();
-    expect(screen.getByText('anomalie')).toBeTruthy();
+    expect(screen.getByText('manquant')).toBeTruthy();
+  });
+
+  it('says exactly where each mod is missing or out of date', async () => {
+    wrap(<Mods />);
+    await userEvent.selectOptions(await screen.findByLabelText('Référence'), '2');
+    await userEvent.selectOptions(screen.getByLabelText('Comparé à'), '3');
+    expect(await screen.findByText(/Manque dans LMP 1.0 : présent dans ATM10 8\.3, absent de LMP 1.0\./)).toBeTruthy();
+    expect(screen.getByText(/Nouveau dans LMP 1.0 : absent de ATM10 8\.3\./)).toBeTruthy();
+    expect(screen.getByText(/LMP 1.0 est plus récent que ATM10 8\.3 : 1\.1 remplace 1\.0\./)).toBeTruthy();
+    expect(screen.getByText('a-1.0.jar')).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: /Manquants · 1/ }));
+    expect(screen.queryByText('mine')).toBeNull();
   });
 
   it('sends a decision when the menu action is used', async () => {
