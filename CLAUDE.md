@@ -29,6 +29,9 @@ Server: `127.0.0.1:8480`, data in `./data` (git-ignored: `studio.db`, `settings.
 - TDD: write the failing test first and watch it fail. `tsc` and `vitest` green before every commit.
 - Commit footer: `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>`. Never push or publish without the user's explicit agreement.
 - No secret anywhere in a committed file, log, error message or API response: API keys, tokens, passwords, public IPs, domains, webhooks. A key is written `apikey=(removed)`.
+- Anonymise before anything goes to GitHub: no personal name, personal path, real pack name, IP, domain, account, key, token or webhook in a tracked file, test, doc or commit message. Packs are the "base modpack" and "your modpack". Before a push run `git grep -n -i` on the personal words, scan for key and IP patterns, and read `git diff origin/main --stat`. Pushed history is public and cannot be cleaned.
+- Never hardcode what a user may want to change (pack names, ports, folders, model, thresholds, tracked or ignored lists, durations, limits): make it a setting in the Settings tab (`data/preferences.json`) with a neutral default. UI texts use `{upstream}` / `{own}` placeholders; a test forbids real names.
+- Docs follow code: update `README.md` and the matching `docs/` page in the same commit as a behaviour change.
 - Studio never writes into an instance: exports are packs with an `apply.ps1` that backs up before replacing and never deletes.
 - New table: edit `src/server/db/schema.ts`, then `npx drizzle-kit generate --name <name>`.
 - `UV_THREADPOOL_SIZE` must be set by the launcher (`studio.ps1`, `run.cmd`); setting it from code is too late.
