@@ -193,7 +193,7 @@ modpack-studio/
 **Interfaces:** Consumes `compareVersions`. Produces `type ModEntry = {modId: string; version: string; sha256: string; file: string}`; `type ModSet = Map<string, ModEntry>`;
 `diffModSets(base: ModSet, other: ModSet, opts?: {pins?: Set<string>}): {added: ModEntry[]; removed: ModEntry[]; updated: {modId: string; from: ModEntry; to: ModEntry; direction: 'newer'|'older'|'different'}[]; rebuilt: ModEntry[]; unchanged: number}`;
 `deriveAtmSides(atmS: ModSet, atmC: ModSet, versions: {server: string; client: string}): {clientOnly: string[]; serverOnly: string[]; both: string[]}` (throws `AtmVersionMismatchError` when versions differ);
-`yannLayer(lmpC: ModSet, atmC: ModSet): ReturnType<typeof diffModSets>`; `anomalies(atmC: ModSet, lmpC: ModSet, resolved?: Set<string>): ModEntry[]`; `buildBlockers(input: {anomalies: ModEntry[]; duplicateIds: {modId: string; files: string[]}[]}): {code: 'ANOMALY'|'DUPLICATE_ID'; modId: string}[]`.
+`ownLayer(lmpC: ModSet, atmC: ModSet): ReturnType<typeof diffModSets>`; `anomalies(atmC: ModSet, lmpC: ModSet, resolved?: Set<string>): ModEntry[]`; `buildBlockers(input: {anomalies: ModEntry[]; duplicateIds: {modId: string; files: string[]}[]}): {code: 'ANOMALY'|'DUPLICATE_ID'; modId: string}[]`.
 
 - [ ] **Step 1: Failing tests**: same id with a different file name is `updated`, not removed+added; same id, same version, different sha256 is `rebuilt`; a lower version is `direction: 'older'`; unorderable versions give `'different'`; a pinned id is not reported; `deriveAtmSides` computes the three sets from fixtures and throws on `versions` mismatch (`'8.2'` vs `'8.3'`); `anomalies` lists BASE client mods missing from OWN and omits resolved ones; `buildBlockers` returns one entry per unresolved anomaly and per duplicate id.
 - [ ] **Step 2:** Run (FAIL), implement, run (PASS), commit `feat: mod diff, atm side derivation, anomalies`.
@@ -215,7 +215,7 @@ Signals for boot-test proof, `@Mod(dist)`, CurseForge tags, community list and b
 
 **Files:** Create `src/server/mods/blacklist-service.ts`; Test `tests/unit/blacklist-service.test.ts`.
 
-**Interfaces:** Consumes `Db`. Produces `recomputeAtmDerived(db: Db, atmVersion: string, clientOnlyIds: string[]): void` (replaces `origin='atm_derived'` rows, never touches `origin='yann'`); `setDecision(db: Db, d: {modId: string; kind: 'side'|'pin'|'ignore'; side?: Side; reason: string}): void`; `effectiveBlacklist(db: Db, atmVersion: string): {modId: string; origin: 'atm_derived'|'yann'; stale: boolean}[]` (`stale` when `valid_for` differs from `atmVersion`).
+**Interfaces:** Consumes `Db`. Produces `recomputeAtmDerived(db: Db, atmVersion: string, clientOnlyIds: string[]): void` (replaces `origin='atm_derived'` rows, never touches `origin='user'`); `setDecision(db: Db, d: {modId: string; kind: 'side'|'pin'|'ignore'; side?: Side; reason: string}): void`; `effectiveBlacklist(db: Db, atmVersion: string): {modId: string; origin: 'atm_derived'|'user'; stale: boolean}[]` (`stale` when `valid_for` differs from `atmVersion`).
 
 - [ ] **Step 1: Failing tests**: recompute for `8.3` replaces the `8.2` derived rows and keeps a `yann` row; a `valid_for 8.2` row is `stale` when asked for `8.3`; a `pin` decision persists across recompute; every write adds an `audit_log` row.
 - [ ] **Step 2:** Run (FAIL), implement, run (PASS), commit `feat: blacklist and decisions memory`.

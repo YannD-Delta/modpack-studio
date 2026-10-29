@@ -74,7 +74,7 @@ Sets: `BASE-S` (server pack, jars), `BASE-C` (BASE client, an untouched instance
 **Precondition**: `BASE-C.version == BASE-S.version` and the same NeoForge/MC; else the side derivation is blocked.
 
 - BASE's own choices (ground truth): `BASE-C − BASE-S` client-only, `BASE-S − BASE-C` server-only, intersection both.
-  The client-only set seeds the blacklist (one click); it is **recomputed on every import** (`origin = atm_derived | yann`,
+  The client-only set seeds the blacklist (one click); it is **recomputed on every import** (`origin = atm_derived | user`,
   `valid_for` = BASE version) because BASE can change a mod's side.
 - **the user's layer = `OWN-C` vs `BASE-C`** (client vs client): updated / added / pinned. Never compare a client set with a server set.
 - **Anomaly** = `BASE-C − OWN-C` (a mod BASE has and OWN lacks; the maintainer does not remove mods). An unresolved anomaly **blocks the build**
