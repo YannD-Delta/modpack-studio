@@ -114,6 +114,16 @@ describe('decisions api', () => {
     expect((await call('PUT', '/decisions/nope/pin/reason', { reason: 'y' })).statusCode).toBe(404);
   });
 
+  it('edits the reason of a Yann blacklist entry only', async () => {
+    addToBlacklist(db, 'mine', 'before');
+    recomputeAtmDerived(db, '8.3', ['cli']);
+    expect((await call('PUT', '/blacklist/entry/mine/reason', { reason: 'after' })).statusCode).toBe(200);
+    expect((await call('GET', '/decisions')).json().blacklist[0].reason).toBe('after');
+    expect((await call('PUT', '/blacklist/entry/cli/reason', { reason: 'x' })).statusCode).toBe(409);
+    expect((await call('PUT', '/blacklist/entry/nope/reason', { reason: 'x' })).statusCode).toBe(404);
+    expect((await call('PUT', '/blacklist/entry/mine/reason', { reason: 'x'.repeat(501) })).statusCode).toBe(400);
+  });
+
   it('removes only Yann blacklist entries', async () => {
     addToBlacklist(db, 'mine', '');
     recomputeAtmDerived(db, '8.3', ['cli']);

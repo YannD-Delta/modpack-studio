@@ -2,7 +2,7 @@ import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { API_PREFIX } from '../../shared/constants.js';
-import { removeFromBlacklist } from '../mods/blacklist-service.js';
+import { removeFromBlacklist, setBlacklistReason } from '../mods/blacklist-service.js';
 import { DECISION_KINDS, debugInfo, JOB_STATUSES, listAudit, listJobs, listMemory, setDecisionReason, unsetDecision } from '../mods/decisions-service.js';
 import type { AppDeps } from './app.js';
 import { sendBadRequest } from './routes-profiles.js';
@@ -49,6 +49,17 @@ export function registerDecisionsRoutes(api: FastifyInstance, deps: AppDeps): vo
     const result = removeFromBlacklist(db, p.data.modId);
     if (result === 'absent') return reply.code(404).send({ error: `${p.data.modId} is not on your blacklist` });
     if (result === 'atm_derived') return reply.code(409).send({ error: `${p.data.modId} comes from ATM10 (client-only), it is recomputed and cannot be removed here` });
+    return { ok: true };
+  });
+
+  api.put(`${API_PREFIX}/blacklist/entry/:modId/reason`, async (req, reply) => {
+    const p = z.object({ modId }).safeParse(req.params);
+    if (!p.success) return sendBadRequest(reply, p.error);
+    const body = ReasonBody.safeParse(req.body);
+    if (!body.success) return sendBadRequest(reply, body.error);
+    const result = setBlacklistReason(db, p.data.modId, body.data.reason);
+    if (result === 'absent') return reply.code(404).send({ error: `${p.data.modId} is not on your blacklist` });
+    if (result === 'atm_derived') return reply.code(409).send({ error: `${p.data.modId} comes from ATM10 (client-only), its reason is computed` });
     return { ok: true };
   });
 

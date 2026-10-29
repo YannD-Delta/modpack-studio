@@ -36,6 +36,18 @@ export function removeFromBlacklist(db: Db, modId: string): RemoveBlacklistResul
   })();
 }
 
+/** Edits the reason of Yann's own entry (same outcomes as removeFromBlacklist, without removing anything). */
+export function setBlacklistReason(db: Db, modId: string, reason: string): RemoveBlacklistResult | 'updated' {
+  return db.sqlite.transaction((): RemoveBlacklistResult | 'updated' => {
+    const rows = db.sqlite.prepare('SELECT origin, reason FROM blacklist WHERE mod_id = ?').all(modId) as { origin: string; reason: string }[];
+    const mine = rows.find((r) => r.origin === 'yann');
+    if (!mine) return rows.length > 0 ? 'atm_derived' : 'absent';
+    db.sqlite.prepare("UPDATE blacklist SET reason = ? WHERE mod_id = ? AND origin = 'yann'").run(reason, modId);
+    audit(db, 'blacklist.reason', modId, { from: mine.reason, to: reason });
+    return 'updated';
+  })();
+}
+
 export function setDecision(db: Db, d: Decision): void {
   db.sqlite
     .prepare(

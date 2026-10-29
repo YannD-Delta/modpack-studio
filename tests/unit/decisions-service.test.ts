@@ -4,7 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { audit } from '../../src/server/db/audit.js';
 import { openDb, type Db } from '../../src/server/db/open.js';
-import { addToBlacklist, effectiveBlacklist, getPins, recomputeAtmDerived, removeFromBlacklist, setDecision } from '../../src/server/mods/blacklist-service.js';
+import { addToBlacklist, effectiveBlacklist, getPins, recomputeAtmDerived, removeFromBlacklist, setBlacklistReason, setDecision } from '../../src/server/mods/blacklist-service.js';
 import { debugInfo, listAudit, listJobs, listMemory, setDecisionReason, unsetDecision } from '../../src/server/mods/decisions-service.js';
 
 let db: Db;
@@ -101,6 +101,20 @@ describe('removeFromBlacklist', () => {
     expect(removeFromBlacklist(db, 'nope')).toBe('absent');
     expect(effectiveBlacklist(db, '8.3').map((e) => e.modId)).toEqual(['cli']);
     expect(auditRows().filter((r) => r.action === 'blacklist.remove')).toEqual([]);
+  });
+});
+
+describe('setBlacklistReason', () => {
+  it("edits only Yann's row, keeps its date and audits", () => {
+    recomputeAtmDerived(db, '8.3', ['cli']);
+    addToBlacklist(db, 'mine', 'before');
+    const createdAt = listMemory(db).blacklist[0]!.createdAt;
+    expect(setBlacklistReason(db, 'mine', 'after')).toBe('updated');
+    expect(listMemory(db).blacklist).toEqual([{ modId: 'mine', origin: 'yann', reason: 'after', createdAt }]);
+    expect(setBlacklistReason(db, 'cli', 'x')).toBe('atm_derived');
+    expect(setBlacklistReason(db, 'nope', 'x')).toBe('absent');
+    const rows = auditRows().filter((r) => r.action === 'blacklist.reason');
+    expect(rows.map((r) => [r.target, JSON.parse(r.detail)])).toEqual([['mine', { from: 'before', to: 'after' }]]);
   });
 });
 
