@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { API_PREFIX } from '../../shared/constants.js';
 import { checkClaudeKey } from '../assistant/anthropic.js';
+import { PackNamesError, readPackNames, writePackNames } from '../settings/packs.js';
 import { audit } from '../db/audit.js';
 import { EFFORTS, getSecret, isValidKey, keyStatus, MODELS, PROVIDERS, readPrefs, setSecret, writePrefs } from '../settings/secrets-store.js';
 import type { AppDeps } from './app.js';
@@ -11,6 +12,7 @@ import { sendBadRequest } from './routes-profiles.js';
 const ProviderSchema = z.enum(PROVIDERS);
 const KeyBody = z.object({ provider: ProviderSchema, key: z.string().refine(isValidKey, 'not a valid API key') });
 const ProviderBody = z.object({ provider: ProviderSchema });
+const PacksBody = z.object({ upstream: z.string().min(1).max(40), own: z.string().min(1).max(40) });
 const AssistantBody = z.object({ model: z.enum(MODELS.map((m) => m.id) as [string, ...string[]]), effort: z.enum(EFFORTS) });
 
 const TEST_TIMEOUT_MS = 10_000;
@@ -29,6 +31,7 @@ export function registerSettingsRoutes(api: FastifyInstance, deps: AppDeps): voi
   api.get(`${API_PREFIX}/settings`, async () => ({
     keys: { claude: keyStatus(dataDir, 'claude'), curseforge: keyStatus(dataDir, 'curseforge') },
     assistant: readPrefs(dataDir),
+    packs: readPackNames(dataDir),
     models: MODELS,
     efforts: EFFORTS,
   }));
@@ -73,5 +76,20 @@ export function registerSettingsRoutes(api: FastifyInstance, deps: AppDeps): voi
     writePrefs(dataDir, body.data);
     audit(db, 'settings.assistant', 'assistant', body.data);
     return { ok: true, assistant: readPrefs(dataDir) };
+  });
+
+  /** Renames the two packs everywhere: the settings and every profile already stored follow. */
+  api.put(`${API_PREFIX}/settings/packs`, async (req, reply) => {
+    const body = PacksBody.safeParse(req.body);
+    if (!body.success) return sendBadRequest(reply, body.error);
+    try {
+      const before = readPackNames(dataDir);
+      const packs = writePackNames(db, dataDir, body.data);
+      audit(db, 'settings.packs', 'packs', { from: before, to: packs });
+      return { ok: true, packs };
+    } catch (err) {
+      if (err instanceof PackNamesError) return reply.code(400).send({ error: err.message });
+      throw err;
+    }
   });
 }

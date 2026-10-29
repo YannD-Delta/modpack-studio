@@ -11,11 +11,20 @@ const messages = { ...fr, ...frPlan, ...frConfigs, ...frDecisions, ...frSettings
 
 export type MessageKey = keyof typeof messages;
 
+/** The two pack names chosen in Settings: the followed pack (ATM10 by default) and the player's own (LMP by default). */
+export type PackNames = { upstream: string; own: string };
+let packNames: PackNames = { upstream: 'ATM10', own: 'LMP' };
+export const getPackNames = (): PackNames => packNames;
+export const setPackNames = (n: PackNames): void => {
+  packNames = n;
+};
+const fill = (text: string) => text.replaceAll('{upstream}', packNames.upstream).replaceAll('{own}', packNames.own);
+
 export function t(key: MessageKey): string {
-  return messages[key];
+  return fill(messages[key]);
 }
 
 /** Like `t`, filling `{name}` placeholders from `vars`. */
 export function tf(key: MessageKey, vars: Record<string, string>): string {
-  return messages[key].replace(/\{(\w+)\}/g, (_m, name: string) => vars[name] ?? `{${name}}`);
+  return fill(messages[key]).replace(/\{(\w+)\}/g, (_m, name: string) => vars[name] ?? `{${name}}`);
 }

@@ -70,3 +70,7 @@ export function readPrefs(dataDir: string): AssistantPrefs {
 export function writePrefs(dataDir: string, prefs: AssistantPrefs): void {
   writeJson(prefsFile(dataDir), { ...readJson(prefsFile(dataDir)), assistant: prefs });
 }
+
+/** The whole preferences file, for settings that live beside the assistant ones (pack names). */
+export const readPrefsFile = (dataDir: string): Record<string, unknown> => readJson(prefsFile(dataDir));
+export const writePrefsFile = (dataDir: string, data: Record<string, unknown>): void => writeJson(prefsFile(dataDir), data);

@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { API_PREFIX } from '../../shared/constants.js';
 import { ImportBodySchema, NewProfileSchema } from '../../shared/schemas/profile.js';
 import { audit } from '../db/audit.js';
+import { knownPack, readPackNames } from '../settings/packs.js';
 import type { AppDeps } from './app.js';
 import { importModSet } from '../mods/import-modset.js';
 import { isProcessRunningFrom } from '../profiles/process-check.js';
@@ -37,6 +38,8 @@ export function registerProfileRoutes(api: FastifyInstance, deps: AppDeps): void
   api.post(`${API_PREFIX}/profiles`, async (req, reply) => {
     const body = NewProfileSchema.safeParse(req.body);
     if (!body.success) return sendBadRequest(reply, body.error);
+    const names = readPackNames(deps.dataDir ?? path.resolve('data'));
+    if (!knownPack(names, body.data.pack)) return reply.code(400).send({ error: `pack must be "${names.upstream}" or "${names.own}" (change the names in Settings)` });
     try {
       const profile = createProfile(db, body.data, { isProcessRunning: (location) => body.data.locationKind === 'folder' && isProcessRunningFrom(location) });
       audit(db, 'profile.create', String(profile.id), body.data);

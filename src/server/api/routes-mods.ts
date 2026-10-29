@@ -1,3 +1,4 @@
+import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { API_PREFIX } from '../../shared/constants.js';
@@ -16,6 +17,7 @@ import { addToBlacklist, effectiveBlacklist, getPins, recomputeAtmDerived, setDe
 import { AtmVersionMismatchError, anomalies, buildBlockers, deriveAtmSides, diffModSets } from '../mods/diff.js';
 import { findDuplicateIds, loadModSet, resolvedAnomalies } from '../mods/modset-store.js';
 import { getProfile, type Profile } from '../profiles/profile-service.js';
+import { readPackNames } from '../settings/packs.js';
 import type { AppDeps } from './app.js';
 import { sendBadRequest } from './routes-profiles.js';
 
@@ -41,12 +43,12 @@ function skippedJarsOf(db: Db, profileId: number): string[] {
   return (db.sqlite.prepare('SELECT file FROM import_issue WHERE profile_id = ? ORDER BY file').all(profileId) as { file: string }[]).map((r) => r.file);
 }
 
-/** ATM's sides can only be derived from an ATM10 server pack and an ATM10 client that are both fully imported and on the same loader. */
-async function loadAtmPair(db: Db, serverId: number, clientId: number) {
+/** The followed pack's sides can only be derived from its server pack and its client, both fully imported and on the same loader. */
+async function loadAtmPair(db: Db, serverId: number, clientId: number, upstream: string) {
   const server = profileOr404(db, serverId);
   const client = profileOr404(db, clientId);
-  if (server.pack !== 'ATM10' || server.side !== 'server' || client.pack !== 'ATM10' || client.side !== 'client') {
-    throw new HttpError(409, 'the pair must be an ATM10 server profile and an ATM10 client profile');
+  if (server.pack !== upstream || server.side !== 'server' || client.pack !== upstream || client.side !== 'client') {
+    throw new HttpError(409, `the pair must be a ${upstream} server profile and a ${upstream} client profile`);
   }
   const serverSet = loadModSet(db, server.id);
   const clientSet = loadModSet(db, client.id);
@@ -59,7 +61,7 @@ async function loadAtmPair(db: Db, serverId: number, clientId: number) {
   } catch (err) {
     throw new HttpError(409, `cannot verify the loader: ${err instanceof Error ? err.message : String(err)}`);
   }
-  if (!agreement.ok) throw new HttpError(409, `NeoForge/Minecraft differ between the ATM10 server pack and client: ${agreement.mismatches.map((m) => m.field).join(', ')}`);
+  if (!agreement.ok) throw new HttpError(409, `NeoForge/Minecraft differ between the ${upstream} server pack and client: ${agreement.mismatches.map((m) => m.field).join(', ')}`);
   return { server, client, serverSet, clientSet };
 }
 
@@ -82,7 +84,7 @@ export function registerModRoutes(api: FastifyInstance, deps: AppDeps): void {
   api.get(`${API_PREFIX}/mods/atm-sides`, async (req, reply) => {
     const q = AtmSidesQuerySchema.safeParse(req.query);
     if (!q.success) return sendBadRequest(reply, q.error);
-    const { server, client, serverSet, clientSet } = await loadAtmPair(db, q.data.server, q.data.client);
+    const { server, client, serverSet, clientSet } = await loadAtmPair(db, q.data.server, q.data.client, readPackNames(deps.dataDir ?? path.resolve('data')).upstream);
     try {
       return deriveAtmSides(serverSet, clientSet, { server: server.version, client: client.version });
     } catch (err) {
@@ -119,7 +121,7 @@ export function registerModRoutes(api: FastifyInstance, deps: AppDeps): void {
     if (!q.success) return sendBadRequest(reply, q.error);
     profileOr404(db, q.data.atmClient);
     profileOr404(db, q.data.lmp);
-    // A duplicate id that the ATM10 client already ships (seen on ATM10 8.3: two cc-tweaked jars) is inherited, not Yann's mistake.
+    // A duplicate id that the followed pack's client already ships (seen on ATM10 8.3: two cc-tweaked jars) is inherited, not the player's mistake.
     const inherited = new Set(findDuplicateIds(db, q.data.atmClient).map((d) => d.modId));
     return buildBlockers({
       anomalies: anomalies(loadModSet(db, q.data.atmClient), loadModSet(db, q.data.lmp), resolvedAnomalies(db)),
@@ -141,7 +143,7 @@ export function registerModRoutes(api: FastifyInstance, deps: AppDeps): void {
       addToBlacklist(db, body.data.modId, body.data.reason);
       return { ok: true };
     }
-    const { server, client, serverSet, clientSet } = await loadAtmPair(db, body.data.server, body.data.client);
+    const { server, client, serverSet, clientSet } = await loadAtmPair(db, body.data.server, body.data.client, readPackNames(deps.dataDir ?? path.resolve('data')).upstream);
     try {
       const sides = deriveAtmSides(serverSet, clientSet, { server: server.version, client: client.version });
       recomputeAtmDerived(db, server.version, sides.clientOnly);

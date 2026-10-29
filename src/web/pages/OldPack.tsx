@@ -2,12 +2,12 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { api, flattenProfiles, profileLabel, type MatrixRow } from '../api.js';
 import { ClaudeActions } from '../components/ClaudeActions.js';
-import { t, tf } from '../i18n/index.js';
+import { getPackNames, t, tf } from '../i18n/index.js';
 
 const field = 'rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-sm text-slate-100 outline-none focus:border-violet-500';
 const action = 'rounded-md border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-200 hover:bg-slate-700 disabled:opacity-50';
 
-/** First version of the new LMP: the old pack against ATM10, analysed by Claude (missing mods, equivalents, NeoForge on the right Minecraft). */
+/** First version of the new pack: the old pack against the followed one, analysed by Claude (missing mods, equivalents, NeoForge on the right Minecraft). */
 export function OldPack() {
   const matrix = useQuery({ queryKey: ['matrix'], queryFn: () => api<MatrixRow[]>('/profiles/matrix') });
   const profiles = useMemo(() => flattenProfiles(matrix.data ?? []), [matrix.data]);
@@ -39,8 +39,8 @@ export function OldPack() {
       <h2 className="text-lg font-semibold text-slate-100">{t('oldpack.title')}</h2>
       <p className="max-w-3xl text-sm text-slate-400">{t('oldpack.intro')}</p>
       <div className="flex flex-wrap items-end gap-4">
-        {select(atmId, setAtmId, t('oldpack.reference'), (p) => p.pack === 'ATM10')}
-        {select(oldId, setOldId, t('oldpack.old'), (p) => p.pack === 'LMP')}
+        {select(atmId, setAtmId, t('oldpack.reference'), (p) => p.pack === getPackNames().upstream)}
+        {select(oldId, setOldId, t('oldpack.old'), (p) => p.pack === getPackNames().own)}
         <button className={action} disabled={!atmId || !oldId || refresh.isPending} title={t('oldpack.refreshTip')} onClick={() => refresh.mutate()}>{t('oldpack.refresh')}</button>
         {note && <span role="status" className="pb-1.5 text-xs text-slate-400">{note}</span>}
       </div>

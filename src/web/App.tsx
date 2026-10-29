@@ -1,7 +1,8 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { api } from './api.js';
-import { t } from './i18n/index.js';
+import { setPackNames, t } from './i18n/index.js';
+import { settingsApi } from './api-settings.js';
 import { Blacklist } from './pages/Blacklist.js';
 import { ConfigsHome } from './pages/ConfigsHome.js';
 import { Decisions } from './pages/Decisions.js';
@@ -26,6 +27,8 @@ const TABS = [
 export function App() {
   const qc = useQueryClient();
   const me = useQuery({ queryKey: ['me'], queryFn: () => api('/auth/me'), retry: false });
+  const settings = useQuery({ queryKey: ['settings'], queryFn: settingsApi.get, enabled: me.isSuccess, retry: false });
+  if (settings.data?.packs) setPackNames(settings.data.packs); // pages read the names while they render
   const [tab, setTab] = useState<(typeof TABS)[number]['id']>('profiles');
 
   if (me.isLoading) return <div className="flex min-h-screen items-center justify-center bg-slate-950 text-slate-400">{t('common.loading')}</div>;

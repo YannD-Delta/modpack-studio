@@ -9,6 +9,7 @@ import { audit } from '../db/audit.js';
 import type { Db } from '../db/open.js';
 import { effectiveBlacklist, getPins } from '../mods/blacklist-service.js';
 import { diffModSets } from '../mods/diff.js';
+import { readPackNames } from '../settings/packs.js';
 import { findDuplicateIds, loadModSet } from '../mods/modset-store.js';
 import { EXPORT_NAME, buildUpdatePack, listExports, openSource, profileTitle, readExportResult, sha256Hex } from '../mods/update-pack.js';
 import { actionableMods, isSafePlanFileKey, MAX_FILE_KEY_LENGTH } from '../plan/plan-keys.js';
@@ -189,14 +190,14 @@ export function registerPlanRoutes(api: FastifyInstance, deps: AppDeps): void {
     } catch (err) {
       return send(reply, err);
     }
-    const doc = await modDebug(db, modId.data, base, other);
+    const doc = await modDebug(db, modId.data, base, other, readPackNames(deps.dataDir ?? path.resolve('data')).upstream);
     if (!doc) return reply.code(404).send({ error: `mod ${modId.data} is in neither profile` });
     return doc;
   });
 }
 
 /** Everything Studio knows about one mod of a comparison, for troubleshooting a row of the Mods page. */
-async function modDebug(db: Db, modId: string, base: Profile, other: Profile) {
+async function modDebug(db: Db, modId: string, base: Profile, other: Profile, upstream: string) {
   const baseSet = loadModSet(db, base.id);
   const otherSet = loadModSet(db, other.id);
   const ref = baseSet.get(modId) ?? null;
@@ -214,7 +215,7 @@ async function modDebug(db: Db, modId: string, base: Profile, other: Profile) {
     const r = decisionRows.find((d) => d.kind === kind);
     return r ? { side: r.side, reason: r.reason, createdAt: r.created_at } : null;
   };
-  const atmVersion = base.pack === 'ATM10' ? base.version : other.pack === 'ATM10' ? other.version : base.version;
+  const atmVersion = base.pack === upstream ? base.version : other.pack === upstream ? other.version : base.version;
   const bl = effectiveBlacklist(db, atmVersion).find((e) => e.modId === modId) ?? null;
 
   const actionable = actionableMods(diffModSets(baseSet, otherSet, { pins: getPins(db) }));

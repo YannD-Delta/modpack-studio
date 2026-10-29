@@ -5,6 +5,7 @@ import { getSources, type CfSource } from '../mods/curseforge-sources.js';
 import { diffModSets, type ModEntry } from '../mods/diff.js';
 import { loadModSet } from '../mods/modset-store.js';
 import type { Profile } from '../profiles/profile-service.js';
+import type { PackNames } from '../settings/packs.js';
 import type { RunDetail } from '../testbench/runs.js';
 
 export const PAIR_ACTIONS = ['review-updates', 'review-added', 'review-missing', 'migrate-old-pack'] as const;
@@ -20,21 +21,24 @@ export const ACTION_INFO: Record<ActionId, { label: string; tip: string }> = {
   },
   'review-added': {
     label: 'Mods ajoutés',
-    tip: 'Claude dit si les mods que tu as ajoutés sont vraiment utiles, s’ils font doublon avec ceux d’ATM10 ou s’ils risquent de poser problème.',
+    tip: 'Claude dit si les mods que tu as ajoutés sont vraiment utiles, s’ils font doublon avec ceux de {upstream} ou s’ils risquent de poser problème.',
   },
   'review-missing': {
     label: 'Mods manquants',
-    tip: 'Claude regarde les mods d’ATM10 absents de ton pack : retrait volontaire probable ou oubli, et si un équivalent existe déjà.',
+    tip: 'Claude regarde les mods de {upstream} absents de ton pack : retrait volontaire probable ou oubli, et si un équivalent existe déjà.',
   },
   'analyze-test-run': {
     label: 'Analyser ce test',
-    tip: 'Claude lit le journal et le rapport de plantage du test : ce qui bloque, ce qui vient d\u2019ATM10 et se retrouve chez tout le monde, ce qui est sans importance, et la correction à essayer.',
+    tip: 'Claude lit le journal et le rapport de plantage du test : ce qui bloque, ce qui vient de {upstream} et se retrouve chez tout le monde, ce qui est sans importance, et la correction à essayer.',
   },
   'migrate-old-pack': {
-    label: 'Ancien pack contre ATM10',
-    tip: 'Claude compare ton ancien pack avec ATM10 : mods manquants, équivalents déjà dans ATM10, disponibilité NeoForge sur la bonne version de Minecraft, priorités.',
+    label: 'Ancien pack contre {upstream}',
+    tip: 'Claude compare ton ancien pack avec {upstream} : mods manquants, équivalents déjà dans {upstream}, disponibilité NeoForge sur la bonne version de Minecraft, priorités.',
   },
 };
+
+/** Fills the `{upstream}` and `{own}` placeholders with the pack names chosen in Settings. */
+export const fillNames = (text: string, names: PackNames): string => text.replaceAll('{upstream}', names.upstream).replaceAll('{own}', names.own);
 
 export type BuiltPrompt = { action: ActionId; title: string; prompt: string; rows: number; shown: number };
 
@@ -44,13 +48,13 @@ const link = (s: CfSource | undefined) => (s ? s.url : 'lien inconnu');
 
 type Row = { modId: string; text: string };
 
-function intro(mode: PromptMode): string {
+function intro(mode: PromptMode): string {  // placeholders are filled when the whole prompt is assembled
   const web =
     mode === 'chat'
       ? 'Tu as accès à la recherche web : ouvre les liens CurseForge fournis pour lire la page, les changements récents et la compatibilité avant de conclure.'
       : 'Tu n’as pas accès à internet dans cet échange : base-toi sur tes connaissances, dis clairement ce dont tu n’es pas sûr, et indique ce que je dois vérifier sur la page CurseForge (les liens sont donnés).';
   return [
-    'Tu m’aides à maintenir LMP, mon modpack Minecraft personnel construit sur ATM10 (All the Mods 10, NeoForge).',
+    'Tu m’aides à maintenir {own}, mon modpack Minecraft personnel construit sur {upstream}.',
     web,
     'Réponds en français, de façon concrète.',
   ].join('\n');
@@ -63,12 +67,12 @@ function cap(rows: Row[], maxRows: number): { shown: Row[]; note: string } {
 
 /**
  * Builds the ready-made prompt of one action from the comparison of two imported profiles.
- * `base` is the reference (ATM10), `other` the compared one (LMP, or the old pack for `migrate-old-pack`).
+ * `base` is the reference (the followed pack), `other` the compared one (the player's pack, or the old pack for `migrate-old-pack`).
  * The same text serves both uses: sent through the API, or copied into claude.ai.
  */
 export function buildPrompt(
   db: Db,
-  args: { action: PairActionId; base: Profile; other: Profile; baseLoader: LoaderInfo | null; otherLoader: LoaderInfo | null; mode: PromptMode; maxRows?: number },
+  args: { action: PairActionId; base: Profile; other: Profile; baseLoader: LoaderInfo | null; otherLoader: LoaderInfo | null; mode: PromptMode; names: PackNames; maxRows?: number },
 ): BuiltPrompt {
   const { action, base, other, mode } = args;
   const maxRows = args.maxRows ?? 400;
@@ -104,8 +108,8 @@ export function buildPrompt(
     case 'review-added': {
       rows = diff.added.map((e) => ({ modId: e.modId, text: `- ${e.modId} ${e.version} | page : ${link(srcOf(otherSrc, e))}` }));
       task = [
-        'Voici les mods présents seulement dans le comparé (ceux que j’ai ajoutés à ATM10).',
-        'Pour chacun : à quoi sert-il, est-il vraiment utile, fait-il doublon avec un mod d’ATM10, risque-t-il de poser un problème (performances, compatibilité, côté client ou serveur) ?',
+        'Voici les mods présents seulement dans le comparé (ceux que j’ai ajoutés à {upstream}).',
+        'Pour chacun : à quoi sert-il, est-il vraiment utile, fait-il doublon avec un mod de {upstream}, risque-t-il de poser un problème (performances, compatibilité, côté client ou serveur) ?',
         'Verdict par mod : garder, à vérifier ou retirer, puis un résumé des mods les moins utiles.',
       ].join('\n');
       break;
@@ -113,7 +117,7 @@ export function buildPrompt(
     case 'review-missing': {
       rows = diff.removed.map((e) => ({ modId: e.modId, text: `- ${e.modId} ${e.version} | page : ${link(srcOf(baseSrc, e))}` }));
       task = [
-        'Voici les mods présents dans la référence (ATM10) mais absents du comparé.',
+        'Voici les mods présents dans la référence ({upstream}) mais absents du comparé.',
         'Pour chacun : retrait probablement volontaire ou oubli ? Un autre mod du comparé joue-t-il le même rôle ? Son absence peut-elle casser quelque chose (dépendance, quêtes, recettes) ?',
         'Verdict par mod : remettre, laisser retiré ou à vérifier.',
       ].join('\n');
@@ -123,10 +127,10 @@ export function buildPrompt(
       rows = diff.added.map((e) => ({ modId: e.modId, text: `- ${e.modId} ${e.version} | page : ${link(srcOf(otherSrc, e))}` }));
       const shared = diff.unchanged + diff.updated.length + diff.rebuilt.length;
       task = [
-        `Le comparé est mon ancien pack. Il a ${shared} mods en commun avec ATM10 (par identifiant de mod) et ${diff.added.length} mods qu’ATM10 n’a pas : ce sont les candidats à reprendre dans mon nouveau LMP.`,
+        `Le comparé est mon ancien pack. Il a ${shared} mods en commun avec {upstream} (par identifiant de mod) et ${diff.added.length} mods que {upstream} n’a pas : ce sont les candidats à reprendre dans mon nouveau {own}.`,
         `Compare aussi les loaders : l’ancien pack tourne sur ${loaderText(args.otherLoader)}, le nouveau sur ${loaderText(args.baseLoader)}.`,
-        'Pour chaque mod de la liste : (1) existe-t-il une version NeoForge pour la version de Minecraft de la référence ? (2) un mod d’ATM10 fait-il déjà la même chose (équivalent) ? (3) vaut-il la peine d’être repris ?',
-        'Réponds avec un tableau (Mod, Disponible en NeoForge, Équivalent dans ATM10, Verdict : reprendre, équivalent suffisant, abandonner, à vérifier), puis les priorités : les 10 mods à reprendre d’abord.',
+        'Pour chaque mod de la liste : (1) existe-t-il une version NeoForge pour la version de Minecraft de la référence ? (2) un mod de {upstream} fait-il déjà la même chose (équivalent) ? (3) vaut-il la peine d’être repris ?',
+        'Réponds avec un tableau (Mod, Disponible en NeoForge, Équivalent dans {upstream}, Verdict : reprendre, équivalent suffisant, abandonner, à vérifier), puis les priorités : les 10 mods à reprendre d’abord.',
       ].join('\n');
       break;
     }
@@ -134,14 +138,14 @@ export function buildPrompt(
 
   const { shown, note } = cap(rows, maxRows);
   const list = shown.length ? shown.map((r) => r.text).join('\n') : '(aucun mod dans cette liste)';
-  const prompt = [intro(mode), '', header, '', task, '', 'Liste :', list + note].join('\n');
-  return { action, title: ACTION_INFO[action].label, prompt, rows: rows.length, shown: shown.length };
+  const prompt = fillNames([intro(mode), '', header, '', task, '', 'Liste :', list + note].join('\n'), args.names);
+  return { action, title: fillNames(ACTION_INFO[action].label, args.names), prompt, rows: rows.length, shown: shown.length };
 }
 
 const TAIL_LINES = 150;
 
 /** Prompt that asks Claude to read one server test: summary, first errors, crash report head and the end of the console log. */
-export function buildTestRunPrompt(args: { run: RunDetail; logTail: string[]; crashHead: string | null; mode: PromptMode }): BuiltPrompt {
+export function buildTestRunPrompt(args: { run: RunDetail; logTail: string[]; crashHead: string | null; mode: PromptMode; names: PackNames }): BuiltPrompt {
   const { run, mode } = args;
   const r = run.result;
   const facts = [
@@ -155,11 +159,11 @@ export function buildTestRunPrompt(args: { run: RunDetail; logTail: string[]; cr
   const tail = args.logTail.slice(-TAIL_LINES).join('\n') || '(journal vide)';
   const task = [
     'Analyse ce test de démarrage d\u2019un serveur Minecraft modé (NeoForge).',
-    'Dis d\u2019abord s\u2019il est sain. Puis sépare : ce qui bloque, ce qui est hérité d\u2019ATM10 (présent chez tout le monde, à ignorer), et ce qui est sans importance.',
+    'Dis d\u2019abord s\u2019il est sain. Puis sépare : ce qui bloque, ce qui est hérité de {upstream} (présent chez tout le monde, à ignorer), et ce qui est sans importance.',
     'Pour chaque problème bloquant : la cause probable (mod, version, dépendance, config) et la correction à essayer (mettre à jour, épingler, retirer, changer une valeur).',
     'Termine par les trois actions à faire en premier.',
   ].join('\n');
-  const prompt = [
+  const prompt = fillNames([
     intro(mode),
     '',
     ...facts,
@@ -172,6 +176,6 @@ export function buildTestRunPrompt(args: { run: RunDetail; logTail: string[]; cr
     args.crashHead ? `Début du rapport de plantage :\n${args.crashHead}\n` : '',
     `Fin du journal (${Math.min(TAIL_LINES, args.logTail.length)} dernières lignes) :`,
     tail,
-  ].join('\n');
-  return { action: 'analyze-test-run', title: ACTION_INFO['analyze-test-run'].label, prompt, rows: r?.summary.errorLines ?? 0, shown: r?.summary.firstErrors.length ?? 0 };
+  ].join('\n'), args.names);
+  return { action: 'analyze-test-run', title: fillNames(ACTION_INFO['analyze-test-run'].label, args.names), prompt, rows: r?.summary.errorLines ?? 0, shown: r?.summary.firstErrors.length ?? 0 };
 }

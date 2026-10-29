@@ -127,6 +127,42 @@ function AssistantCard(props: { model: string; effort: Effort; models: { id: str
   );
 }
 
+function PacksCard(props: { upstream: string; own: string }) {
+  const qc = useQueryClient();
+  const [upstream, setUpstream] = useState(props.upstream);
+  const [own, setOwn] = useState(props.own);
+  const [note, setNote] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+  useEffect(() => {
+    setUpstream(props.upstream);
+    setOwn(props.own);
+  }, [props.upstream, props.own]);
+  const save = useMutation({
+    mutationFn: () => settingsApi.setPacks(upstream.trim(), own.trim()),
+    onSuccess: () => {
+      setNote({ kind: 'ok', text: t('settings.packs.saved') });
+      // every page shows the names: refetch what depends on them
+      void qc.invalidateQueries();
+    },
+    onError: (e: Error) => setNote({ kind: 'err', text: e instanceof ApiError && e.status === 400 ? t('settings.packs.invalid') : e.message }),
+  });
+  return (
+    <section className={card}>
+      <h3 className="font-semibold text-slate-100">{t('settings.packs.title')}</h3>
+      <p className="text-sm text-slate-400">{t('settings.packs.help')}</p>
+      <div className="flex flex-wrap items-end gap-4">
+        <label className="text-sm text-slate-300">{t('settings.packs.upstream')}
+          <input value={upstream} maxLength={40} onChange={(e) => setUpstream(e.target.value)} className={`${field} mt-1 block w-56`} />
+        </label>
+        <label className="text-sm text-slate-300">{t('settings.packs.own')}
+          <input value={own} maxLength={40} onChange={(e) => setOwn(e.target.value)} className={`${field} mt-1 block w-56`} />
+        </label>
+        <button className={primary} disabled={save.isPending || !upstream.trim() || !own.trim() || (upstream.trim() === props.upstream && own.trim() === props.own)} onClick={() => save.mutate()}>{t('settings.packs.save')}</button>
+      </div>
+      {note && <p role="status" className={`text-xs ${note.kind === 'ok' ? 'text-emerald-400' : 'text-rose-300'}`}>{note.text}</p>}
+    </section>
+  );
+}
+
 export function Settings() {
   const settings = useQuery({ queryKey: ['settings'], queryFn: settingsApi.get });
   if (settings.isLoading) return <p className="text-slate-400">{t('common.loading')}</p>;
@@ -140,6 +176,7 @@ export function Settings() {
         <KeyCard provider="claude" status={s.keys.claude} />
         <KeyCard provider="curseforge" status={s.keys.curseforge} />
       </div>
+      <PacksCard upstream={s.packs?.upstream ?? 'ATM10'} own={s.packs?.own ?? 'LMP'} />
       <AssistantCard model={s.assistant.model} effort={s.assistant.effort} models={s.models} efforts={s.efforts} />
     </section>
   );

@@ -17,8 +17,8 @@ const SCRIPT = String.raw`<#
   To undo, move the files of the backup folder back to their place.
 
 .EXAMPLE
-  .\apply.ps1 -InstanceDir "D:\Instances\LMP"            # dry run, changes nothing
-  .\apply.ps1 -InstanceDir "D:\Instances\LMP" -Apply     # does it
+  .\apply.ps1 -InstanceDir "D:\Instances\MyPack"            # dry run, changes nothing
+  .\apply.ps1 -InstanceDir "D:\Instances\MyPack" -Apply     # does it
 #>
 [CmdletBinding()]
 param(

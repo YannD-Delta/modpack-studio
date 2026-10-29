@@ -71,7 +71,7 @@ afterAll(() => closePool());
 const call = (method: 'GET' | 'POST', url: string, payload?: unknown) => app.inject({ method, url: `/api/v1${url}`, headers: { cookie }, payload: payload as object | undefined });
 
 describe('prompt builder', () => {
-  const ctx = () => ({ base: getProfile(db, atm), other: getProfile(db, lmp), baseLoader: { loader: 'neoforge' as const, loaderVersion: '21.1.259', mcVersion: '1.21.1' }, otherLoader: null });
+  const ctx = () => ({ base: getProfile(db, atm), other: getProfile(db, lmp), baseLoader: { loader: 'neoforge' as const, loaderVersion: '21.1.259', mcVersion: '1.21.1' }, otherLoader: null, names: { upstream: 'ATM10', own: 'LMP' } });
 
   it('lists the out-of-date mods with both versions and the CurseForge page, and nothing else', () => {
     const b = buildPrompt(db, { action: 'review-updates', ...ctx(), mode: 'chat' });
@@ -107,6 +107,18 @@ describe('prompt builder', () => {
   it('tells a chat model to open the links and an API model that it has no web access', () => {
     expect(buildPrompt(db, { action: 'review-added', ...ctx(), mode: 'chat' }).prompt).toContain('recherche web');
     expect(buildPrompt(db, { action: 'review-added', ...ctx(), mode: 'api' }).prompt).toContain('pas accès à internet');
+  });
+
+  it('speaks with the pack names chosen in Settings instead of ATM10 and LMP', () => {
+    const names = { upstream: 'All the Mods', own: 'MonPack' };
+    const p = buildPrompt(db, { action: 'migrate-old-pack', ...ctx(), names, mode: 'chat' }).prompt;
+    expect(p).toContain('maintenir MonPack');
+    expect(p).toContain('construit sur All the Mods');
+    expect(p).toContain('en commun avec All the Mods');
+    // the profile header lines still show the names stored with the profiles; every sentence of the prompt follows the settings
+    expect(p.split('\n').filter((l) => !l.startsWith('Référence') && !l.startsWith('Comparé')).join('\n')).not.toMatch(/ATM10|\bLMP\b/);
+    expect(p).not.toContain('{upstream}');
+    expect(p).not.toContain('{own}');
   });
 
   it('caps a long list and says so', () => {

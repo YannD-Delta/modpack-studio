@@ -4,12 +4,13 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { API_PREFIX } from '../../shared/constants.js';
 import { makeClient, RefusedError, runPrompt } from '../assistant/anthropic.js';
-import { ACTION_INFO, ACTIONS, buildPrompt, buildTestRunPrompt, PAIR_ACTIONS, type BuiltPrompt, type PairActionId } from '../assistant/prompts.js';
+import { ACTION_INFO, ACTIONS, buildPrompt, buildTestRunPrompt, fillNames, PAIR_ACTIONS, type BuiltPrompt, type PairActionId } from '../assistant/prompts.js';
 import { audit } from '../db/audit.js';
 import { detectLoader, type LoaderInfo } from '../loader/detect-loader.js';
 import { readInstanceSources, storeSources } from '../mods/curseforge-sources.js';
 import { loadModSet } from '../mods/modset-store.js';
 import { getProfile, type Profile } from '../profiles/profile-service.js';
+import { readPackNames } from '../settings/packs.js';
 import { getSecret, readPrefs } from '../settings/secrets-store.js';
 import { readCrashHead, readLogTail, readRun, validRunId } from '../testbench/runs.js';
 import type { AppDeps } from './app.js';
@@ -51,7 +52,10 @@ export function registerAssistantRoutes(api: FastifyInstance, deps: AppDeps): vo
   const { db } = deps;
   const dataDir = deps.dataDir ?? path.resolve('data');
 
-  api.get(`${API_PREFIX}/assistant/actions`, async () => ACTIONS.map((id) => ({ id, ...ACTION_INFO[id] })));
+  api.get(`${API_PREFIX}/assistant/actions`, async () => {
+    const names = readPackNames(dataDir);
+    return ACTIONS.map((id) => ({ id, label: fillNames(ACTION_INFO[id].label, names), tip: fillNames(ACTION_INFO[id].tip, names) }));
+  });
 
   /** Builds the prompt of an action: for two imported profiles, or for one finished server test (shared by "copy" and "run"). */
   const build = async (data: AnyBody, mode: 'chat' | 'api', reply: FastifyReply): Promise<BuiltPrompt | null> => {
@@ -65,7 +69,7 @@ export function registerAssistantRoutes(api: FastifyInstance, deps: AppDeps): vo
         void reply.code(409).send({ error: 'this test is not finished yet' });
         return null;
       }
-      return buildTestRunPrompt({ run, logTail: readLogTail(dataDir, data.runId, 150)?.lines ?? [], crashHead: readCrashHead(dataDir, data.runId), mode });
+      return buildTestRunPrompt({ run, logTail: readLogTail(dataDir, data.runId, 150)?.lines ?? [], crashHead: readCrashHead(dataDir, data.runId), mode, names: readPackNames(dataDir) });
     }
     const base = profileOr404(deps, data.base, reply);
     if (!base) return null;
@@ -76,7 +80,7 @@ export function registerAssistantRoutes(api: FastifyInstance, deps: AppDeps): vo
       return null;
     }
     const [baseLoader, otherLoader] = await Promise.all([loaderOf(base), loaderOf(other)]);
-    return buildPrompt(db, { action: data.action as PairActionId, base, other, baseLoader, otherLoader, mode });
+    return buildPrompt(db, { action: data.action as PairActionId, base, other, baseLoader, otherLoader, mode, names: readPackNames(dataDir) });
   };
 
   api.post(`${API_PREFIX}/assistant/prompt`, async (req, reply) => {

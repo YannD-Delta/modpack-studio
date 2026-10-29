@@ -1,14 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { api, flattenProfiles, type BlacklistEntry, type MatrixRow } from '../api.js';
-import { t } from '../i18n/index.js';
+import { t, getPackNames } from '../i18n/index.js';
 
 const field = 'rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-sm text-slate-100 outline-none focus:border-violet-500';
 
 export function Blacklist() {
   const qc = useQueryClient();
   const matrix = useQuery({ queryKey: ['matrix'], queryFn: () => api<MatrixRow[]>('/profiles/matrix') });
-  const atm = useMemo(() => flattenProfiles(matrix.data ?? []).filter((p) => p.pack === 'ATM10'), [matrix.data]);
+  const atm = useMemo(() => flattenProfiles(matrix.data ?? []).filter((p) => p.pack === getPackNames().upstream), [matrix.data]);
   const [serverId, setServerId] = useState('');
   const [clientId, setClientId] = useState('');
   const server = atm.find((p) => String(p.id) === serverId);

@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState, type FormEvent } from 'react';
 import { api, CELL_KEYS, type MatrixRow, type Profile } from '../api.js';
-import { t } from '../i18n/index.js';
+import { t, getPackNames } from '../i18n/index.js';
 
 const STATE_STYLE: Record<string, string> = {
   clean: 'border-emerald-700/60 bg-emerald-950/50 text-emerald-300',
@@ -29,7 +29,7 @@ export function Profiles() {
   const qc = useQueryClient();
   const matrix = useQuery({ queryKey: ['matrix'], queryFn: () => api<MatrixRow[]>('/profiles/matrix') });
   const events = useJobEvents();
-  const [form, setForm] = useState({ pack: 'ATM10', version: '', side: 'server', state: 'clean', locationKind: 'zip', location: '' });
+  const [form, setForm] = useState({ pack: getPackNames().upstream, version: '', side: 'server', state: 'clean', locationKind: 'zip', location: '' });
   const [notice, setNotice] = useState<string | null>(null);
 
   const create = useMutation({
@@ -100,7 +100,7 @@ export function Profiles() {
 
       <form onSubmit={submit} className="flex flex-wrap items-end gap-3 rounded-xl border border-slate-800 bg-slate-900/50 p-4">
         <select aria-label="Pack" value={form.pack} onChange={(e) => setForm({ ...form, pack: e.target.value })} className={field}>
-          <option>ATM10</option><option>LMP</option>
+          <option>{getPackNames().upstream}</option><option>{getPackNames().own}</option>
         </select>
         <input aria-label={t('profiles.version')} placeholder={t('profiles.version')} value={form.version} onChange={(e) => setForm({ ...form, version: e.target.value })} className={`${field} w-28`} />
         <select aria-label="Côté" value={form.side} onChange={(e) => setForm({ ...form, side: e.target.value })} className={field}>

@@ -44,7 +44,7 @@
   "configs.status.onlyInOther": "ajout",
   "configs.status.cosmetic": "forme seulement",
   "configs.status.identical": "identique",
-  "configs.tip.onlyInBase": "Ce fichier existe dans {a} mais pas dans {b}. S'il s'agit d'une config d'ATM que tu n'as pas reprise, tu peux l'ajouter au plan d'update.",
+  "configs.tip.onlyInBase": "Ce fichier existe dans {a} mais pas dans {b}. S'il s'agit d'une config de {upstream} que tu n'as pas reprise, tu peux l'ajouter au plan d'update.",
   "configs.tip.modified": "Le contenu diffère entre {a} et {b}, au-delà de la mise en forme. Ouvre « Détails » pour voir les lignes.",
   "configs.tip.binaryDiffers": "Fichier binaire (image, NBT…) différent entre {a} et {b} : pas de comparaison ligne à ligne possible.",
   "configs.tip.tooLarge": "Fichier de plus de 5 Mo : seule son empreinte est comparée, il est différent entre {a} et {b}.",

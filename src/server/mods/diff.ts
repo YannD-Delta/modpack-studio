@@ -8,7 +8,7 @@ export type ModDiff = { added: ModEntry[]; removed: ModEntry[]; updated: ModUpda
 
 export class AtmVersionMismatchError extends Error {
   constructor(server: string, client: string) {
-    super(`ATM10 server pack is ${server} but the client is ${client}: sides cannot be derived`);
+    super(`the followed pack's server pack is ${server} but its client is ${client}: sides cannot be derived`);
     this.name = 'AtmVersionMismatchError';
   }
 }
@@ -65,7 +65,7 @@ export function yannLayer(lmpC: ModSet, atmC: ModSet): ModDiff {
   return diffModSets(atmC, lmpC);
 }
 
-/** Mods ATM's client has that LMP lacks (Yann does not remove mods), minus the ones already resolved. */
+/** Mods the followed pack's client has that the player's pack lacks (the player does not remove mods), minus the ones already resolved. */
 export function anomalies(atmC: ModSet, lmpC: ModSet, resolved: Set<string> = new Set()): ModEntry[] {
   return [...atmC.values()].filter((e) => !lmpC.has(e.modId) && !resolved.has(e.modId)).sort(byId);
 }

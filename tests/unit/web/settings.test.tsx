@@ -42,6 +42,7 @@ beforeEach(() => {
       state.keys.curseforge = { configured: false, last4: null };
       return { body: { ok: true } };
     }
+    if (url.endsWith('/settings/packs')) return { body: { ok: true, packs: JSON.parse(init!.body as string) } };
     if (url.endsWith('/settings/assistant')) {
       state.assistant = JSON.parse(init!.body as string);
       return { body: { ok: true } };
@@ -95,5 +96,20 @@ describe('Settings page', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Enregistrer l’assistant' }));
     await waitFor(() => expect(calls.some((c) => c.url.endsWith('/settings/assistant'))).toBe(true));
     expect(JSON.parse(calls.find((c) => c.url.endsWith('/settings/assistant'))!.body!)).toEqual({ model: 'claude-opus-5-5', effort: 'high' });
+  });
+
+  it('renames the two packs from Settings', async () => {
+    wrap(<Settings />);
+    const own = await screen.findByLabelText('Ton pack');
+    expect((own as HTMLInputElement).value).toBe('LMP');
+    expect((screen.getByLabelText('Pack suivi (référence)') as HTMLInputElement).value).toBe('ATM10');
+    const save = screen.getByRole('button', { name: 'Enregistrer les noms' }) as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+    await userEvent.clear(own);
+    await userEvent.type(own, 'MonPack');
+    await userEvent.click(save);
+    await waitFor(() => expect(calls.some((c) => c.url.endsWith('/settings/packs'))).toBe(true));
+    expect(JSON.parse(calls.find((c) => c.url.endsWith('/settings/packs'))!.body!)).toEqual({ upstream: 'ATM10', own: 'MonPack' });
+    expect(await screen.findByText('Noms enregistrés')).toBeTruthy();
   });
 });

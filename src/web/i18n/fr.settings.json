@@ -34,5 +34,12 @@
   "settings.assistant.saved": "Réglages enregistrés",
   "settings.effort.low": "faible",
   "settings.effort.medium": "moyen",
-  "settings.effort.high": "élevé"
+  "settings.effort.high": "élevé",
+  "settings.packs.title": "Noms des packs",
+  "settings.packs.help": "Studio travaille avec deux packs : celui que tu suis (la référence) et le tien. Les noms sont libres ; changer un nom met aussi à jour tous les profils déjà créés.",
+  "settings.packs.upstream": "Pack suivi (référence)",
+  "settings.packs.own": "Ton pack",
+  "settings.packs.save": "Enregistrer les noms",
+  "settings.packs.saved": "Noms enregistrés",
+  "settings.packs.invalid": "1 à 40 caractères (lettres, chiffres, espaces, . _ + -), commençant par une lettre ou un chiffre, et deux noms différents."
 }

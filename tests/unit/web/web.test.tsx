@@ -109,7 +109,7 @@ describe('Blacklist', () => {
     await userEvent.selectOptions(await screen.findByLabelText('Pack serveur ATM10'), '1');
     await userEvent.selectOptions(screen.getByLabelText('Client ATM10'), '2');
     expect(await screen.findByText('périmé')).toBeTruthy();
-    await userEvent.click(screen.getByRole('button', { name: 'Ajouter tout (ATM)' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Ajouter tout (ATM10)' }));
     await waitFor(() => expect(calls.filter((c) => c.method === 'PUT').length).toBe(1));
     expect(JSON.parse(calls.find((c) => c.method === 'PUT')!.body!)).toEqual({ action: 'adopt-atm', server: 1, client: 2 });
   });

@@ -18,7 +18,7 @@ import {
   type PlanState,
 } from '../api-plan.js';
 import { ClaudeActions } from '../components/ClaudeActions.js';
-import { t, tf, type MessageKey } from '../i18n/index.js';
+import { getPackNames, t, tf, type MessageKey } from '../i18n/index.js';
 
 type Status = 'anomaly' | 'removed' | 'added' | 'older' | 'newer' | 'different' | 'rebuilt';
 type Row = { modId: string; status: Status; ref?: ModEntry; cmp?: ModEntry };
@@ -78,8 +78,8 @@ export function Mods() {
 
   const base = profiles.find((p) => String(p.id) === baseId);
   const other = profiles.find((p) => String(p.id) === otherId);
-  // Against an ATM10 reference, a mod LMP no longer has is an anomaly (Yann does not remove mods).
-  const removedIsAnomaly = base?.pack === 'ATM10' && other?.pack === 'LMP';
+  // Against the followed pack, a mod the player's pack no longer has is an anomaly (the player does not remove mods).
+  const removedIsAnomaly = base?.pack === getPackNames().upstream && other?.pack === getPackNames().own;
 
   const all: Row[] = useMemo(() => {
     const d = diff.data;

@@ -4,7 +4,7 @@ export const packVersion = sqliteTable(
   'pack_version',
   {
     id: integer('id').primaryKey({ autoIncrement: true }),
-    pack: text('pack').notNull(), // 'ATM10' | 'LMP'
+    pack: text('pack').notNull(), // one of the two configured pack names
     version: text('version').notNull(),
     mc: text('mc'),
     loader: text('loader'),

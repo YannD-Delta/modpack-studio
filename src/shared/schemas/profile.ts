@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 export const NewProfileSchema = z.object({
-  pack: z.enum(['ATM10', 'LMP']),
+  pack: z.string().min(1).max(40),
   version: z.string().min(1),
   side: z.enum(['client', 'server']),
   state: z.enum(['clean', 'launched', 'run']),

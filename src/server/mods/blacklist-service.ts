@@ -9,7 +9,7 @@ export type Decision = { modId: string; kind: 'side' | 'pin' | 'ignore'; side?: 
 export function recomputeAtmDerived(db: Db, atmVersion: string, clientOnlyIds: string[]): void {
   db.sqlite.transaction(() => {
     db.sqlite.prepare("DELETE FROM blacklist WHERE origin = 'atm_derived'").run();
-    const insert = db.sqlite.prepare("INSERT INTO blacklist (mod_id, origin, valid_for, reason) VALUES (?, 'atm_derived', ?, 'client-only in ATM10 (client minus server pack)')");
+    const insert = db.sqlite.prepare("INSERT INTO blacklist (mod_id, origin, valid_for, reason) VALUES (?, 'atm_derived', ?, 'client-only in the followed pack (client minus server pack)')");
     for (const id of clientOnlyIds) insert.run(id, atmVersion);
     audit(db, 'blacklist.recompute_atm_derived', atmVersion, { count: clientOnlyIds.length });
   })();
