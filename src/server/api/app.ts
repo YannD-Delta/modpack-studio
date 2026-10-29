@@ -8,6 +8,8 @@ import type { Db } from '../db/open.js';
 import type { JobRunner } from '../jobs/runner.js';
 import { SessionStore, verifyPassword } from './auth.js';
 import { registerEvents } from './events.js';
+import { registerModRoutes } from './routes-mods.js';
+import { registerProfileRoutes } from './routes-profiles.js';
 
 export type AppDeps = { db: Db; jobs: JobRunner; config: Config };
 
@@ -76,6 +78,8 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     api.get(`${API_PREFIX}/auth/me`, async () => ({ ok: true }));
 
     registerEvents(api, deps.jobs);
+    registerProfileRoutes(api, deps);
+    registerModRoutes(api, deps);
   });
   return app;
 }

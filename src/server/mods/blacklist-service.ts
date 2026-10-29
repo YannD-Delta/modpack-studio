@@ -1,14 +1,9 @@
+import { audit } from '../db/audit.js';
 import type { Db } from '../db/open.js';
 import type { Side } from './side-classifier.js';
 
 export type BlacklistEntry = { modId: string; origin: 'atm_derived' | 'yann'; stale: boolean };
 export type Decision = { modId: string; kind: 'side' | 'pin' | 'ignore'; side?: Side; reason: string };
-
-function audit(db: Db, action: string, target: string, detail: unknown, actor = 'user'): void {
-  db.sqlite
-    .prepare('INSERT INTO audit_log (at, actor, action, target, detail) VALUES (?, ?, ?, ?, ?)')
-    .run(new Date().toISOString(), actor, action, target, JSON.stringify(detail));
-}
 
 /** Replaces every ATM-derived row with the client-only set of this ATM version; Yann's own entries are never touched. */
 export function recomputeAtmDerived(db: Db, atmVersion: string, clientOnlyIds: string[]): void {
