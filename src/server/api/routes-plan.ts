@@ -130,7 +130,8 @@ export function registerPlanRoutes(api: FastifyInstance, deps: AppDeps): void {
     try {
       const baseProfile = profileOr404(db, base);
       profileOr404(db, other);
-      if (loadModSet(db, base).size === 0 || loadModSet(db, other).size === 0) throw new PlanHttpError(409, 'both profiles must be imported first');
+      // A plan made only of config files (what the player changed) does not need the jars imported.
+      if (getPlanItems(db, base, other, 'mod').length > 0 && (loadModSet(db, base).size === 0 || loadModSet(db, other).size === 0)) throw new PlanHttpError(409, 'both profiles must be imported first');
       if (getPlanItems(db, base, other).length === 0) throw new PlanHttpError(409, 'the plan is empty: select mods or files to update first');
       try {
         fs.accessSync(baseProfile.location, fs.constants.R_OK);

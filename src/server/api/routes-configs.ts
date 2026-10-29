@@ -2,6 +2,7 @@ import path from 'node:path';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { API_PREFIX } from '../../shared/constants.js';
+import { analyzeCustomizations, INCLUDE_STATUSES } from '../configs/customizations.js';
 import { compareProfiles, inventoryOrThrow, NotScannedError, pairLoader, sourceOf } from '../configs/compare.js';
 import { diffInventories, PLANNABLE, type FileStatus } from '../configs/diff.js';
 import { needsScan, readInventoryCache, writeInventoryCache } from '../configs/inventory-cache.js';
@@ -38,6 +39,14 @@ const FileDiffQuery = PairQuery.extend({ path: RelPath });
 const ScanBody = z.object({ profile: z.number().int().positive(), force: z.boolean().optional(), deep: z.boolean().optional() });
 const PlanBody = z.object({ base: z.number().int().positive(), other: z.number().int().positive(), paths: z.array(RelPath).max(20000), selected: z.boolean() });
 const JobParams = z.object({ jobId: z.uuid() });
+const TriadQuery = z.object({ clean: Id, launched: Id, played: Id, untouched: z.enum(['0', '1']).optional() });
+const TriadPlanBody = z.object({
+  clean: z.number().int().positive(),
+  launched: z.number().int().positive(),
+  played: z.number().int().positive(),
+  paths: z.array(RelPath).max(20000),
+  selected: z.boolean(),
+});
 
 function profileOr404(db: Db, id: number): Profile {
   try {
@@ -250,5 +259,39 @@ export function registerConfigsRoutes(api: FastifyInstance, deps: AppDeps): void
     setPlanItems(db, baseId, otherId, 'file', keys, selected);
     audit(db, 'configs.plan', `${baseId}->${otherId}`, { selected, count: keys.length });
     return { ok: true, paths: getPlanItems(db, baseId, otherId, 'file').map((i) => i.key) };
+  }));
+
+  /** What the player changed: the played instance against the launched one, told apart from files the clean pack ships. */
+  api.get(`${API_PREFIX}/configs/customizations`, guarded(async (req, reply) => {
+    const q = TriadQuery.safeParse(req.query);
+    if (!q.success) return sendBadRequest(reply, q.error);
+    if (new Set([q.data.clean, q.data.launched, q.data.played]).size !== 3) throw new ConfigsHttpError(400, 'pick three different profiles');
+    const profiles = { clean: profileOr404(db, q.data.clean), launched: profileOr404(db, q.data.launched), played: profileOr404(db, q.data.played) };
+    return analyzeCustomizations(dataDir, profiles, { includeUntouched: q.data.untouched === '1' });
+  }));
+
+  /** Files to keep in the pack are stored as a plan from the played instance (the source) against the launched one. */
+  api.put(`${API_PREFIX}/configs/customizations/plan`, guarded(async (req, reply) => {
+    const body = TriadPlanBody.safeParse(req.body);
+    if (!body.success) return sendBadRequest(reply, body.error);
+    const { clean, launched, played, paths, selected } = body.data;
+    if (new Set([clean, launched, played]).size !== 3) throw new ConfigsHttpError(400, 'pick three different profiles');
+    const profiles = { clean: profileOr404(db, clean), launched: profileOr404(db, launched), played: profileOr404(db, played) };
+    let keys = paths;
+    if (selected) {
+      const found = await analyzeCustomizations(dataDir, profiles);
+      const byKey = new Map(found.files.map((f) => [f.path.toLowerCase(), f]));
+      const rejected: { path: string; status: string }[] = [];
+      keys = [];
+      for (const p of paths) {
+        const f = byKey.get(p.toLowerCase());
+        if (f && INCLUDE_STATUSES.has(f.status)) keys.push(f.path);
+        else rejected.push({ path: p, status: f?.status ?? 'untouched' });
+      }
+      if (rejected.length > 0) throw new ConfigsHttpError(400, `only changed or added files can go into the pack: ${rejected.map((r) => `${r.path} (${r.status})`).join(', ')}`, { rejected });
+    }
+    setPlanItems(db, played, launched, 'file', keys, selected);
+    audit(db, 'configs.customizations.plan', `${played}->${launched}`, { selected, count: keys.length });
+    return { ok: true, paths: getPlanItems(db, played, launched, 'file').map((i) => i.key) };
   }));
 }

@@ -103,7 +103,7 @@ function useScanJob(jobId: string | null, onEnd: (job: ScanJob) => void): ScanJo
   return job;
 }
 
-function ProfileCard(props: {
+export function ProfileCard(props: {
   label: string;
   profiles: Profile[];
   value: string;
@@ -215,7 +215,7 @@ export function collapseUnchanged(lines: DiffLine[], ctx = CONTEXT): Item[] {
 const LINE_STYLE = { equal: 'text-slate-300', del: 'bg-rose-950/50 text-rose-200', add: 'bg-emerald-950/50 text-emerald-200' } as const;
 const SIGN = { equal: ' ', del: '−', add: '+' } as const;
 
-function FileDiffView(props: { base: string; other: string; path: string; onCount: (path: string, n: number) => void }) {
+export function FileDiffView(props: { base: string; other: string; path: string; onCount: (path: string, n: number) => void }) {
   const { base, other, path, onCount } = props;
   const q = useQuery({ queryKey: ['configs-filediff', base, other, path], queryFn: () => configsApi.fileDiff(base, other, path), retry: false });
   const [opened, setOpened] = useState<Set<number>>(new Set());

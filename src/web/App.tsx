@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { api } from './api.js';
 import { t } from './i18n/index.js';
 import { Blacklist } from './pages/Blacklist.js';
-import { Configs } from './pages/Configs.js';
+import { ConfigsHome } from './pages/ConfigsHome.js';
 import { Decisions } from './pages/Decisions.js';
 import { Login } from './pages/Login.js';
 import { Mods } from './pages/Mods.js';
@@ -15,7 +15,7 @@ import { TestBench } from './pages/TestBench.js';
 const TABS = [
   { id: 'profiles', label: 'nav.profiles', view: Profiles },
   { id: 'mods', label: 'nav.mods', view: Mods },
-  { id: 'configs', label: 'nav.configs', view: Configs },
+  { id: 'configs', label: 'nav.configs', view: ConfigsHome },
   { id: 'oldpack', label: 'nav.oldpack', view: OldPack },
   { id: 'testbench', label: 'nav.testbench', view: TestBench },
   { id: 'decisions', label: 'nav.decisions', view: Decisions },

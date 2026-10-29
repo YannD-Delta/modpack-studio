@@ -57,3 +57,27 @@ export const configsApi = {
   setPlan: (base: number, other: number, paths: string[], selected: boolean) =>
     api<{ ok: true; paths: string[] }>('/configs/plan', { method: 'PUT', body: { base, other, paths, selected } }),
 };
+
+export type CustomStatus = 'modifiedGenerated' | 'modifiedShipped' | 'added' | 'removed' | 'untouched';
+export const CUSTOM_STATUSES: CustomStatus[] = ['modifiedGenerated', 'modifiedShipped', 'added', 'removed', 'untouched'];
+export type CustomFile = {
+  path: string;
+  root: string;
+  ext: string;
+  kind: 'text' | 'binary';
+  status: CustomStatus;
+  include: boolean;
+  inClean: boolean;
+  launchedSize: number | null;
+  playedSize: number | null;
+};
+export type Customizations = {
+  files: CustomFile[];
+  summary: { perStatus: Record<CustomStatus, number>; include: number; perRoot: Record<string, Record<CustomStatus, number>> };
+  total: number;
+};
+export const customizationsApi = {
+  get: (clean: string, launched: string, played: string) => api<Customizations>(`/configs/customizations?clean=${clean}&launched=${launched}&played=${played}`),
+  setPlan: (clean: number, launched: number, played: number, paths: string[], selected: boolean) =>
+    api<{ ok: boolean; paths: string[] }>('/configs/customizations/plan', { method: 'PUT', body: { clean, launched, played, paths, selected } }),
+};
