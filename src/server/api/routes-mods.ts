@@ -10,6 +10,7 @@ import {
   DiffQuerySchema,
   LoaderCheckQuerySchema,
 } from '../../shared/schemas/mods.js';
+import type { Db } from '../db/open.js';
 import { checkLoaderAgreement, detectLoader, type LoaderInfo } from '../loader/detect-loader.js';
 import { addToBlacklist, effectiveBlacklist, getPins, recomputeAtmDerived, setDecision } from '../mods/blacklist-service.js';
 import { AtmVersionMismatchError, anomalies, buildBlockers, deriveAtmSides, diffModSets } from '../mods/diff.js';
@@ -18,28 +19,74 @@ import { getProfile, type Profile } from '../profiles/profile-service.js';
 import type { AppDeps } from './app.js';
 import { sendBadRequest } from './routes-profiles.js';
 
+class HttpError extends Error {
+  constructor(public readonly status: number, message: string) {
+    super(message);
+  }
+}
+
 async function loaderOf(profile: Profile): Promise<LoaderInfo> {
   return detectLoader(profile.locationKind === 'zip' ? { kind: 'serverZip', path: profile.location } : { kind: 'curseforgeInstance', path: profile.location });
+}
+
+function profileOr404(db: Db, id: number): Profile {
+  try {
+    return getProfile(db, id);
+  } catch {
+    throw new HttpError(404, `profile ${id} not found`);
+  }
+}
+
+function skippedJarsOf(db: Db, profileId: number): string[] {
+  return (db.sqlite.prepare('SELECT file FROM import_issue WHERE profile_id = ? ORDER BY file').all(profileId) as { file: string }[]).map((r) => r.file);
+}
+
+/** ATM's sides can only be derived from an ATM10 server pack and an ATM10 client that are both fully imported and on the same loader. */
+async function loadAtmPair(db: Db, serverId: number, clientId: number) {
+  const server = profileOr404(db, serverId);
+  const client = profileOr404(db, clientId);
+  if (server.pack !== 'ATM10' || server.side !== 'server' || client.pack !== 'ATM10' || client.side !== 'client') {
+    throw new HttpError(409, 'the pair must be an ATM10 server profile and an ATM10 client profile');
+  }
+  const serverSet = loadModSet(db, server.id);
+  const clientSet = loadModSet(db, client.id);
+  if (serverSet.size === 0 || clientSet.size === 0) throw new HttpError(409, 'both profiles must be imported first');
+  const skipped = [...skippedJarsOf(db, server.id), ...skippedJarsOf(db, client.id)];
+  if (skipped.length > 0) throw new HttpError(409, `import incomplete, unreadable jars: ${skipped.join(', ')}`);
+  let agreement;
+  try {
+    agreement = checkLoaderAgreement({ server: await loaderOf(server), client: await loaderOf(client) });
+  } catch (err) {
+    throw new HttpError(409, `cannot verify the loader: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  if (!agreement.ok) throw new HttpError(409, `NeoForge/Minecraft differ between the ATM10 server pack and client: ${agreement.mismatches.map((m) => m.field).join(', ')}`);
+  return { server, client, serverSet, clientSet };
 }
 
 export function registerModRoutes(api: FastifyInstance, deps: AppDeps): void {
   const { db } = deps;
 
+  api.setErrorHandler((err, _req, reply) => {
+    if (err instanceof HttpError) return reply.code(err.status).send({ error: err.message });
+    return reply.send(err);
+  });
+
   api.get(`${API_PREFIX}/mods/diff`, async (req, reply) => {
     const q = DiffQuerySchema.safeParse(req.query);
     if (!q.success) return sendBadRequest(reply, q.error);
+    profileOr404(db, q.data.base);
+    profileOr404(db, q.data.other);
     return diffModSets(loadModSet(db, q.data.base), loadModSet(db, q.data.other), { pins: getPins(db) });
   });
 
   api.get(`${API_PREFIX}/mods/atm-sides`, async (req, reply) => {
     const q = AtmSidesQuerySchema.safeParse(req.query);
     if (!q.success) return sendBadRequest(reply, q.error);
-    const server = getProfile(db, q.data.server);
-    const client = getProfile(db, q.data.client);
+    const { server, client, serverSet, clientSet } = await loadAtmPair(db, q.data.server, q.data.client);
     try {
-      return deriveAtmSides(loadModSet(db, server.id), loadModSet(db, client.id), { server: server.version, client: client.version });
+      return deriveAtmSides(serverSet, clientSet, { server: server.version, client: client.version });
     } catch (err) {
-      if (err instanceof AtmVersionMismatchError) return reply.code(409).send({ error: err.message });
+      if (err instanceof AtmVersionMismatchError) throw new HttpError(409, err.message);
       throw err;
     }
   });
@@ -47,6 +94,8 @@ export function registerModRoutes(api: FastifyInstance, deps: AppDeps): void {
   api.get(`${API_PREFIX}/mods/anomalies`, async (req, reply) => {
     const q = AnomaliesQuerySchema.safeParse(req.query);
     if (!q.success) return sendBadRequest(reply, q.error);
+    profileOr404(db, q.data.atmClient);
+    profileOr404(db, q.data.lmp);
     return anomalies(loadModSet(db, q.data.atmClient), loadModSet(db, q.data.lmp), resolvedAnomalies(db));
   });
 
@@ -55,8 +104,12 @@ export function registerModRoutes(api: FastifyInstance, deps: AppDeps): void {
     if (!q.success) return sendBadRequest(reply, q.error);
     const infos: Record<string, LoaderInfo> = {};
     for (const id of q.data.profiles.split(',').map(Number)) {
-      const p = getProfile(db, id);
-      infos[`${p.pack} ${p.version} ${p.side}`] = await loaderOf(p);
+      const p = profileOr404(db, id);
+      try {
+        infos[`${p.pack} ${p.version} ${p.side}`] = await loaderOf(p);
+      } catch (err) {
+        throw new HttpError(409, `cannot read the loader of profile ${id}: ${err instanceof Error ? err.message : String(err)}`);
+      }
     }
     return checkLoaderAgreement(infos);
   });
@@ -64,9 +117,12 @@ export function registerModRoutes(api: FastifyInstance, deps: AppDeps): void {
   api.get(`${API_PREFIX}/build/blockers`, async (req, reply) => {
     const q = AnomaliesQuerySchema.safeParse(req.query);
     if (!q.success) return sendBadRequest(reply, q.error);
+    profileOr404(db, q.data.atmClient);
+    profileOr404(db, q.data.lmp);
     return buildBlockers({
       anomalies: anomalies(loadModSet(db, q.data.atmClient), loadModSet(db, q.data.lmp), resolvedAnomalies(db)),
       duplicateIds: findDuplicateIds(db, q.data.lmp),
+      skippedJars: [...skippedJarsOf(db, q.data.atmClient), ...skippedJarsOf(db, q.data.lmp)],
     });
   });
 
@@ -83,14 +139,13 @@ export function registerModRoutes(api: FastifyInstance, deps: AppDeps): void {
       addToBlacklist(db, body.data.modId, body.data.reason);
       return { ok: true };
     }
-    const server = getProfile(db, body.data.server);
-    const client = getProfile(db, body.data.client);
+    const { server, client, serverSet, clientSet } = await loadAtmPair(db, body.data.server, body.data.client);
     try {
-      const sides = deriveAtmSides(loadModSet(db, server.id), loadModSet(db, client.id), { server: server.version, client: client.version });
+      const sides = deriveAtmSides(serverSet, clientSet, { server: server.version, client: client.version });
       recomputeAtmDerived(db, server.version, sides.clientOnly);
       return { ok: true, added: sides.clientOnly.length };
     } catch (err) {
-      if (err instanceof AtmVersionMismatchError) return reply.code(409).send({ error: err.message });
+      if (err instanceof AtmVersionMismatchError) throw new HttpError(409, err.message);
       throw err;
     }
   });

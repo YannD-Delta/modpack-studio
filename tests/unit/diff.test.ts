@@ -33,6 +33,14 @@ describe('diffModSets', () => {
     expect(d.unchanged).toBe(1);
   });
 
+  it('a pin only silences an intentional downgrade: newer, added and removed ids are still reported', () => {
+    const pins = new Set(['up', 'new', 'gone']);
+    const d = diffModSets(set([['up', '1.0', 'h1'], ['gone', '1', 'g']]), set([['up', '2.0', 'h2'], ['new', '1', 'n']]), { pins });
+    expect(d.updated.map((u) => u.modId)).toEqual(['up']);
+    expect(d.added.map((e) => e.modId)).toEqual(['new']);
+    expect(d.removed.map((e) => e.modId)).toEqual(['gone']);
+  });
+
   it('lists added and removed ids and counts unchanged ones', () => {
     const d = diffModSets(set([['keep', '1', 'k'], ['gone', '1', 'g']]), set([['keep', '1', 'k'], ['new', '1', 'n']]));
     expect(d.added.map((e) => e.modId)).toEqual(['new']);

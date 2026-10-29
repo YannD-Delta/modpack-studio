@@ -47,9 +47,18 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   });
 
   app.addHook('onRequest', async (req, reply) => {
-    const url = req.url.split('?')[0]!;
-    if (!url.startsWith(`${API_PREFIX}/`)) return; // the SPA shell (login page, assets) must load before a session exists
-    if (PUBLIC_ROUTES.has(url)) return;
+    // Fastify decodes the path before routing, so decide on the matched route (or the decoded path for a 404), never on the raw URL.
+    const raw = req.url.split('?')[0]!;
+    let decoded = raw;
+    try {
+      decoded = decodeURIComponent(raw);
+    } catch {
+      // an undecodable path matches no route and falls through to the raw check below
+    }
+    const route = req.routeOptions?.url ?? decoded;
+    const isApi = route.startsWith(`${API_PREFIX}/`) || decoded.startsWith(`${API_PREFIX}/`) || raw.startsWith(`${API_PREFIX}/`);
+    if (!isApi) return; // the SPA shell (login page, assets) must load before a session exists
+    if (PUBLIC_ROUTES.has(route)) return;
     if (!sessions.isValid(req.cookies[COOKIE])) return reply.code(401).send({ error: 'unauthorized' });
   });
 

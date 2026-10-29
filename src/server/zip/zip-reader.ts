@@ -16,6 +16,8 @@ export type ZipLimits = {
   maxEntryBytes: number;
   maxRatio: number;
   maxDepth: number;
+  // 'allow' is for jars: obfuscated mods ship `a.class` and `A.class`, which only collide when extracted on Windows.
+  caseCollision: 'error' | 'allow';
 };
 
 const DEFAULT_LIMITS: ZipLimits = {
@@ -24,6 +26,7 @@ const DEFAULT_LIMITS: ZipLimits = {
   maxEntryBytes: 512 * 1024 ** 2,
   maxRatio: 200,
   maxDepth: 3,
+  caseCollision: 'error',
 };
 
 // The ratio check only applies above this size: small text files can legitimately compress very well.
@@ -71,7 +74,7 @@ async function openAtDepth(source: string | Buffer, limits: ZipLimits, depth: nu
           total += e.uncompressedSize;
           if (total > limits.maxTotalBytes) throw new ZipLimitError(`uncompressed size above ${limits.maxTotalBytes} bytes`);
           const key = name.toLowerCase();
-          if (lowered.has(key)) throw new CaseCollisionError(`entries differ only by case: ${name}`);
+          if (lowered.has(key) && limits.caseCollision === 'error') throw new CaseCollisionError(`entries differ only by case: ${name}`);
           lowered.add(key);
           byName.set(name, e);
           zipfile.readEntry();

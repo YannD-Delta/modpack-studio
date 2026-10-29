@@ -4,7 +4,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { openDb } from '../../src/server/db/open.js';
 
-const TABLES = ['pack_version', 'profile', 'jar', 'jar_mod', 'mod_decision', 'blacklist', 'blob', 'job', 'setting', 'audit_log', 'event'];
+const TABLES = ['pack_version', 'profile', 'jar', 'jar_mod', 'mod_decision', 'blacklist', 'blob', 'job', 'setting', 'audit_log', 'event', 'import_issue'];
 
 function tmpDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'db-'));

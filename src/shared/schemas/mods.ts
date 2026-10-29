@@ -8,11 +8,13 @@ export const AnomaliesQuerySchema = z.object({ atmClient: id, lmp: id });
 export const LoaderCheckQuerySchema = z.object({ profiles: z.string().regex(/^\d+(,\d+)*$/) });
 export const BlacklistQuerySchema = z.object({ atmVersion: z.string().min(1) });
 
-export const DecisionBodySchema = z.object({
-  kind: z.enum(['side', 'pin', 'ignore']),
-  side: z.enum(['client', 'server', 'both']).optional(),
-  reason: z.string().default(''),
-});
+export const DecisionBodySchema = z
+  .object({
+    kind: z.enum(['side', 'pin', 'ignore']),
+    side: z.enum(['client', 'server', 'both']).optional(),
+    reason: z.string().default(''),
+  })
+  .refine((d) => d.kind !== 'side' || d.side !== undefined, { message: 'side is required when kind is "side"', path: ['side'] });
 
 export const BlacklistPutSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('adopt-atm'), server: id, client: id }),

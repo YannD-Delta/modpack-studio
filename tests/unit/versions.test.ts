@@ -19,6 +19,18 @@ describe('compareVersions (a relative to b)', () => {
   });
 
   it.each([
+    ['1.0-abc123f', '1.0-def456a'],
+    ['1.0-foo', '1.0-bar'],
+    ['2.1.0+a1b2c3d4', '2.1.0+e5f6a7b8'],
+  ])('%s vs %s is incomparable (unknown qualifiers or commit hashes are not an order)', (a, b) => {
+    expect(compareVersions(a, b)).toBe('incomparable');
+  });
+
+  it('still equals itself with an unknown qualifier', () => {
+    expect(compareVersions('1.0-foo', '1.0-foo')).toBe('equal');
+  });
+
+  it.each([
     ['ABC', 'DEF'],
     ['', '1.0'],
     ['1.0', ''],

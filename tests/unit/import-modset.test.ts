@@ -6,7 +6,7 @@ import { openDb, type Db } from '../../src/server/db/open.js';
 import { closePool } from '../../src/server/jobs/pool.js';
 import { importModSet } from '../../src/server/mods/import-modset.js';
 import { createProfile } from '../../src/server/profiles/profile-service.js';
-import { makeJar, type JarSpec } from '../fixtures-gen/jar.js';
+import { makeJar, makeZip, type JarSpec } from '../fixtures-gen/jar.js';
 import { writeAtmPack } from '../fixtures-gen/packs.js';
 
 let db: Db;
@@ -90,6 +90,32 @@ describe('importModSet', () => {
     expect(r1.skipped.length).toBeGreaterThan(0);
     const r2 = await importModSet(db, { kind: 'folder', path: path.join(tmp, 'missing') }, profile('launched').id, ctx);
     expect(r2.imported).toBe(0);
+  });
+
+  it('imports a jar whose entries differ only by case (obfuscated class files)', async () => {
+    const { clientDir } = await writeAtmPack(tmp, { atm: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: [], clientMods: [] });
+    const toml = '[[mods]]\nmodId = "obf"\nversion = "1.0"\n';
+    fs.writeFileSync(path.join(clientDir, 'mods', 'obf-1.0.jar'), await makeZip({ 'META-INF/neoforge.mods.toml': toml, 'a.class': 'x', 'A.class': 'y' }));
+    const r = await importModSet(db, { kind: 'folder', path: clientDir }, profile().id, ctx);
+    expect(r.imported).toBe(1);
+    expect(r.skipped).toEqual([]);
+  });
+
+  it('keeps the previous import when the folder turns out to be missing or empty (nothing scanned, nothing deleted)', async () => {
+    const { clientDir } = await writeAtmPack(tmp, { atm: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: [], clientMods: five });
+    const p = profile();
+    await importModSet(db, { kind: 'folder', path: clientDir }, p.id, ctx);
+    await importModSet(db, { kind: 'folder', path: path.join(tmp, 'does-not-exist') }, p.id, ctx);
+    expect(modRows(p.id)).toBe(5);
+  });
+
+  it('records skipped jars in import_issue so they can block a build', async () => {
+    const { clientDir } = await writeAtmPack(tmp, { atm: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: [], clientMods: five });
+    fs.writeFileSync(path.join(clientDir, 'mods', 'broken.jar'), 'not a zip');
+    const p = profile();
+    await importModSet(db, { kind: 'folder', path: clientDir }, p.id, ctx);
+    const rows = db.sqlite.prepare('SELECT file FROM import_issue WHERE profile_id = ?').all(p.id) as { file: string }[];
+    expect(rows.map((r) => r.file)).toEqual(['broken.jar']);
   });
 
   it('records the library jar without a mod id as a library row', async () => {

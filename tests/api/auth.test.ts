@@ -59,6 +59,16 @@ describe('auth and request guards', () => {
     expect((await app.inject({ url: '/' })).statusCode).toBe(404);
   });
 
+  it.each(['/%61pi/v1/auth/me', '/api/v1/%61uth/me', '/api%2Fv1/auth/me'])('still requires a session on the percent-encoded path %s', async (url) => {
+    const res = await app.inject({ url });
+    expect([401, 404]).toContain(res.statusCode);
+    expect(res.statusCode).not.toBe(200);
+  });
+
+  it('keeps /health public even when its path is encoded', async () => {
+    expect((await app.inject({ url: '/%61pi/v1/health' })).statusCode).toBe(200);
+  });
+
   it('returns 403 when Origin does not match Host', async () => {
     const res = await login('secret', { origin: 'http://evil.example' });
     expect(res.statusCode).toBe(403);

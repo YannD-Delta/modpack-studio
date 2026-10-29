@@ -18,7 +18,8 @@ export type ImportResult = {
 type Scanned = { fileName: string; sha256: string; size: number; info: JarInfo };
 
 async function scanBuffer(fileName: string, buf: Buffer): Promise<Scanned> {
-  const zip = await openZip(buf);
+  // Jars are only read, never extracted: tolerate case-colliding class names and large asset counts.
+  const zip = await openZip(buf, { caseCollision: 'allow', maxEntries: 200000 });
   try {
     return { fileName, sha256: crypto.createHash('sha256').update(buf).digest('hex'), size: buf.length, info: await readJarInfo(zip, fileName) };
   } finally {
@@ -73,6 +74,10 @@ export async function importModSet(db: Db, source: ModSetSource, profileId: numb
     }
   }
 
+  // Nothing could be scanned (missing folder, empty mods/, unreadable zip): keep whatever this profile already has.
+  if (scanned.length === 0) return { imported: 0, skipped, duplicateIds: [] };
+
+  const insertIssue = db.sqlite.prepare('INSERT INTO import_issue (profile_id, file, reason) VALUES (?, ?, ?)');
   const insertJar = db.sqlite.prepare('INSERT INTO jar (sha256, filename, size) VALUES (?, ?, ?) ON CONFLICT(sha256) DO NOTHING');
   const insertMod = db.sqlite.prepare(
     'INSERT INTO jar_mod (jar_sha256, profile_id, mod_id, version, declared_side, is_jij, parent_jar, library_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
@@ -81,6 +86,8 @@ export async function importModSet(db: Db, source: ModSetSource, profileId: numb
 
   db.sqlite.transaction(() => {
     db.sqlite.prepare('DELETE FROM jar_mod WHERE profile_id = ?').run(profileId); // idempotent re-import
+    db.sqlite.prepare('DELETE FROM import_issue WHERE profile_id = ?').run(profileId);
+    for (const s of skipped) insertIssue.run(profileId, s.file, s.reason);
     for (const s of scanned) {
       insertJar.run(s.sha256, s.fileName, s.size);
       if (s.info.kind === 'library') {

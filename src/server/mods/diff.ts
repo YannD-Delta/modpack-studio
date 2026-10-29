@@ -21,10 +21,6 @@ export function diffModSets(base: ModSet, other: ModSet, opts: { pins?: Set<stri
   const diff: ModDiff = { added: [], removed: [], updated: [], rebuilt: [], unchanged: 0 };
 
   for (const [id, to] of other) {
-    if (pins.has(id)) {
-      if (base.has(id)) diff.unchanged++;
-      continue;
-    }
     const from = base.get(id);
     if (!from) {
       diff.added.push(to);
@@ -34,12 +30,14 @@ export function diffModSets(base: ModSet, other: ModSet, opts: { pins?: Set<stri
     if (order === 'equal' || (from.version === to.version)) {
       if (from.sha256 === to.sha256) diff.unchanged++;
       else diff.rebuilt.push(to);
+    } else if (order === 'older' && pins.has(id)) {
+      diff.unchanged++; // a pin only silences an intentional downgrade
     } else {
       diff.updated.push({ modId: id, from, to, direction: order === 'newer' ? 'newer' : order === 'older' ? 'older' : 'different' });
     }
   }
   for (const [id, from] of base) {
-    if (!other.has(id) && !pins.has(id)) diff.removed.push(from);
+    if (!other.has(id)) diff.removed.push(from);
   }
 
   diff.added.sort(byId);
@@ -72,11 +70,12 @@ export function anomalies(atmC: ModSet, lmpC: ModSet, resolved: Set<string> = ne
   return [...atmC.values()].filter((e) => !lmpC.has(e.modId) && !resolved.has(e.modId)).sort(byId);
 }
 
-export type Blocker = { code: 'ANOMALY' | 'DUPLICATE_ID'; modId: string };
+export type Blocker = { code: 'ANOMALY' | 'DUPLICATE_ID' | 'SKIPPED_JAR'; modId: string };
 
-export function buildBlockers(input: { anomalies: ModEntry[]; duplicateIds: { modId: string; files: string[] }[] }): Blocker[] {
+export function buildBlockers(input: { anomalies: ModEntry[]; duplicateIds: { modId: string; files: string[] }[]; skippedJars?: string[] }): Blocker[] {
   return [
     ...input.anomalies.map((a) => ({ code: 'ANOMALY' as const, modId: a.modId })),
     ...input.duplicateIds.map((d) => ({ code: 'DUPLICATE_ID' as const, modId: d.modId })),
+    ...(input.skippedJars ?? []).map((file) => ({ code: 'SKIPPED_JAR' as const, modId: file })),
   ];
 }

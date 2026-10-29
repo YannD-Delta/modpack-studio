@@ -51,8 +51,18 @@ async function importAndWait(profileId: number, source: unknown): Promise<void> 
   throw new Error('import job timed out');
 }
 
-async function scenario() {
+async function finalStatus(jobId: string): Promise<string> {
+  for (let i = 0; i < 100; i++) {
+    const row = db.sqlite.prepare('SELECT status FROM job WHERE id = ?').get(jobId) as { status: string };
+    if (!['queued', 'running'].includes(row.status)) return row.status;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  return 'timeout';
+}
+
+async function scenario(opts: { brokenInAtmClient?: boolean } = {}) {
   const atm = await writeAtmPack(path.join(tmp, 'atm'), { atm: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: [jar('a'), jar('b'), jar('srv')], clientMods: [jar('a'), jar('b'), jar('cli')] });
+  if (opts.brokenInAtmClient) fs.writeFileSync(path.join(atm.clientDir, 'mods', 'broken.jar'), 'not a zip');
   const lmp = await writeAtmPack(path.join(tmp, 'lmp'), { atm: '1.0', neoforge: '21.1.251', mc: '1.21.1', serverMods: [], clientMods: [jar('a', '1.1'), jar('cli'), jar('mine')] });
   const mk = async (body: object) => ((await call('POST', '/profiles', body)).json() as { id: number }).id;
   const s = await mk({ pack: 'ATM10', version: '8.3', side: 'server', state: 'clean', locationKind: 'zip', location: atm.serverZip });
@@ -61,8 +71,10 @@ async function scenario() {
   await importAndWait(s, { kind: 'zip', path: atm.serverZip });
   await importAndWait(c, { kind: 'folder', path: atm.clientDir });
   await importAndWait(l, { kind: 'folder', path: lmp.clientDir });
-  return { s, c, l };
+  return { s, c, l, atm, lmp };
 }
+
+const mkProfile = async (body: object) => ((await call('POST', '/profiles', body)).json() as { id: number }).id;
 
 describe('phase 1 api', () => {
   it('rejects unauthenticated calls and bad bodies', async () => {
@@ -100,6 +112,67 @@ describe('phase 1 api', () => {
     expect((await call('PUT', '/blacklist', { action: 'adopt-atm', server: s, client: c })).statusCode).toBe(200);
     const list = (await call('GET', `/blacklist?atmVersion=8.3`)).json();
     expect(list.map((e: { modId: string }) => e.modId)).toEqual(['cli']);
+  });
+
+  it('refuses an import whose path differs from the profile location', async () => {
+    const atm = await writeAtmPack(path.join(tmp, 'atm'), { atm: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: [jar('a')], clientMods: [jar('a')] });
+    const c = await mkProfile({ pack: 'ATM10', version: '8.3', side: 'client', state: 'clean', locationKind: 'folder', location: atm.clientDir });
+    const res = await call('POST', `/profiles/${c}/import`, { source: { kind: 'folder', path: path.join(tmp, 'somewhere-else') } });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('refuses to import again into an immutable profile that already has mods', async () => {
+    const { c, atm } = await scenario();
+    const res = await call('POST', `/profiles/${c}/import`, { source: { kind: 'folder', path: atm.clientDir } });
+    expect(res.statusCode).toBe(409);
+  });
+
+  it('fails the import job when the folder holds no jar', async () => {
+    const c = await mkProfile({ pack: 'ATM10', version: '9.9', side: 'client', state: 'clean', locationKind: 'folder', location: path.join(tmp, 'missing') });
+    const res = await call('POST', `/profiles/${c}/import`, { source: { kind: 'folder', path: path.join(tmp, 'missing') } });
+    expect(await finalStatus((res.json() as { jobId: string }).jobId)).toBe('failed');
+  });
+
+  it('re-checks launch artifacts of a clean folder at import time', async () => {
+    const atm = await writeAtmPack(path.join(tmp, 'atm'), { atm: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: [jar('a')], clientMods: [jar('a')] });
+    const c = await mkProfile({ pack: 'ATM10', version: '8.3', side: 'client', state: 'clean', locationKind: 'folder', location: atm.clientDir });
+    fs.mkdirSync(path.join(atm.clientDir, 'logs')); // the game was started after the profile was registered
+    const res = await call('POST', `/profiles/${c}/import`, { source: { kind: 'folder', path: atm.clientDir } });
+    expect(res.statusCode).toBe(422);
+  });
+
+  it('turns skipped jars into build blockers and refuses ATM sides until the import is complete', async () => {
+    const { s, c, l } = await scenario({ brokenInAtmClient: true });
+    const blockers = (await call('GET', `/build/blockers?atmClient=${c}&lmp=${l}`)).json() as { code: string; modId: string }[];
+    expect(blockers).toContainEqual({ code: 'SKIPPED_JAR', modId: 'broken.jar' });
+    expect((await call('GET', `/mods/atm-sides?server=${s}&client=${c}`)).statusCode).toBe(409);
+    expect((await call('PUT', '/blacklist', { action: 'adopt-atm', server: s, client: c })).statusCode).toBe(409);
+  });
+
+  it('refuses ATM sides when the profiles are not an ATM10 server and an ATM10 client', async () => {
+    const { c, l } = await scenario();
+    expect((await call('GET', `/mods/atm-sides?server=${l}&client=${c}`)).statusCode).toBe(409);
+  });
+
+  it('refuses ATM sides for a profile with no imported mods', async () => {
+    const atm = await writeAtmPack(path.join(tmp, 'atm'), { atm: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: [jar('a')], clientMods: [jar('a')] });
+    const s = await mkProfile({ pack: 'ATM10', version: '8.3', side: 'server', state: 'clean', locationKind: 'zip', location: atm.serverZip });
+    const c = await mkProfile({ pack: 'ATM10', version: '8.3', side: 'client', state: 'clean', locationKind: 'folder', location: atm.clientDir });
+    expect((await call('GET', `/mods/atm-sides?server=${s}&client=${c}`)).statusCode).toBe(409);
+  });
+
+  it('refuses ATM sides when NeoForge differs between the ATM server pack and client', async () => {
+    const srv = await writeAtmPack(path.join(tmp, 'srv'), { atm: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: [jar('a')], clientMods: [] });
+    const cli = await writeAtmPack(path.join(tmp, 'cli'), { atm: '8.3', neoforge: '21.1.251', mc: '1.21.1', serverMods: [], clientMods: [jar('a')] });
+    const s = await mkProfile({ pack: 'ATM10', version: '8.3', side: 'server', state: 'clean', locationKind: 'zip', location: srv.serverZip });
+    const c = await mkProfile({ pack: 'ATM10', version: '8.3', side: 'client', state: 'clean', locationKind: 'folder', location: cli.clientDir });
+    await importAndWait(s, { kind: 'zip', path: srv.serverZip });
+    await importAndWait(c, { kind: 'folder', path: cli.clientDir });
+    expect((await call('GET', `/mods/atm-sides?server=${s}&client=${c}`)).statusCode).toBe(409);
+  });
+
+  it('rejects a side decision that carries no side', async () => {
+    expect((await call('PUT', '/mods/x/decision', { kind: 'side', reason: 'oops' })).statusCode).toBe(400);
   });
 
   it('refuses sides when the ATM client and server versions differ', async () => {

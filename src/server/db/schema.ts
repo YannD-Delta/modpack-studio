@@ -51,6 +51,15 @@ export const jarMod = sqliteTable('jar_mod', {
   libraryKey: text('library_key'),
 });
 
+export const importIssue = sqliteTable('import_issue', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  profileId: integer('profile_id')
+    .notNull()
+    .references(() => profile.id),
+  file: text('file').notNull(),
+  reason: text('reason').notNull(),
+});
+
 export const modDecision = sqliteTable(
   'mod_decision',
   {
