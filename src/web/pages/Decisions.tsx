@@ -85,12 +85,40 @@ function MemoryRow(props: { modId: string; reason: string; createdAt: string | n
   });
 
   return (
-    <li className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2.5 text-sm hover:bg-slate-900/60">
-      <span className="flex min-w-48 items-center gap-2">
-        <span className="font-mono text-slate-100">{props.modId}</span>
+    <li className="space-y-1 px-4 py-2.5 text-sm hover:bg-slate-900/60">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <span className="min-w-0 truncate font-mono text-slate-100">{props.modId}</span>
         {props.badge}
-      </span>
-      <span className="min-w-0 flex-1">
+        {props.createdAt ? (
+          <span className="ml-auto text-xs text-slate-500" title={t('decisions.dateTip')}>{tf('decisions.date', { date: fmtDate(props.createdAt) })}</span>
+        ) : (
+          <span className="ml-auto text-xs italic text-slate-500" title={t('decisions.dateUnknownTip')}>{t('decisions.dateUnknown')}</span>
+        )}
+        <span className="flex items-center gap-2">
+          {confirming ? (
+            <>
+              <button type="button" disabled={undo.isPending} onClick={() => undo.mutate()} title={t('decisions.confirmTip')} className="rounded-md border border-rose-700/70 bg-rose-900/60 px-2 py-0.5 text-xs font-medium text-rose-100 hover:bg-rose-800 disabled:opacity-40">
+                {t('decisions.confirm')}
+              </button>
+              <button type="button" onClick={() => setConfirming(false)} title={t('decisions.keepTip')} className={action}>{t('decisions.keep')}</button>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                undo.reset();
+                setConfirming(true);
+              }}
+              title={props.undoTip}
+              aria-label={`${t('decisions.undo')} ${props.modId}`}
+              className={action}
+            >
+              {t('decisions.undo')}
+            </button>
+          )}
+        </span>
+      </div>
+      <div className="min-w-0">
         {editing ? (
           <form
             className="flex items-center gap-2"
@@ -127,36 +155,8 @@ function MemoryRow(props: { modId: string; reason: string; createdAt: string | n
             {props.reason || t('decisions.noReason')}
           </button>
         )}
-      </span>
-      {props.createdAt ? (
-        <span className="text-xs text-slate-500" title={t('decisions.dateTip')}>{tf('decisions.date', { date: fmtDate(props.createdAt) })}</span>
-      ) : (
-        <span className="text-xs italic text-slate-500" title={t('decisions.dateUnknownTip')}>{t('decisions.dateUnknown')}</span>
-      )}
-      <span className="flex items-center gap-2">
-        {confirming ? (
-          <>
-            <button type="button" disabled={undo.isPending} onClick={() => undo.mutate()} title={t('decisions.confirmTip')} className="rounded-md border border-rose-700/70 bg-rose-900/60 px-2 py-0.5 text-xs font-medium text-rose-100 hover:bg-rose-800 disabled:opacity-40">
-              {t('decisions.confirm')}
-            </button>
-            <button type="button" onClick={() => setConfirming(false)} title={t('decisions.keepTip')} className={action}>{t('decisions.keep')}</button>
-          </>
-        ) : (
-          <button
-            type="button"
-            onClick={() => {
-              undo.reset();
-              setConfirming(true);
-            }}
-            title={props.undoTip}
-            aria-label={`${t('decisions.undo')} ${props.modId}`}
-            className={action}
-          >
-            {t('decisions.undo')}
-          </button>
-        )}
-      </span>
-      {(undo.isError || save.isError) && <span className="w-full text-xs text-rose-300">{errorText(undo.error ?? save.error)}</span>}
+      </div>
+      {(undo.isError || save.isError) && <p className="text-xs text-rose-300">{errorText(undo.error ?? save.error)}</p>}
     </li>
   );
 }

@@ -1,6 +1,6 @@
 {
   "decisions.title": "Décisions mémorisées",
-  "decisions.intro": "Une décision, c'est un choix que tu as fait une fois et que Studio retient pour toutes les versions suivantes. Elles viennent de la page Mods : « Garder » épingle une version plus ancienne, « Retrait accepté » marque un mod d'ATM volontairement absent de LMP, « Client uniquement » force le côté d'un mod. La liste noire « à toi » vient de la page Liste noire. Ici tu peux les relire, corriger leur raison ou les annuler.",
+  "decisions.intro": "Une décision, c'est un choix que tu as fait une fois et que Studio retient pour toutes les versions suivantes. Elles viennent de la page Mods : « Épingler » garde une version plus ancienne, « Accepter le retrait » marque un mod d'ATM volontairement absent de LMP, « Client uniquement » force le côté d'un mod. La liste noire « à toi » vient de la page Liste noire. Ici tu peux les relire, corriger leur raison ou les annuler.",
   "decisions.section.pin": "Épinglés",
   "decisions.section.ignore": "Retraits acceptés",
   "decisions.section.side": "Côté forcé",

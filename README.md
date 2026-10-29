@@ -14,9 +14,29 @@ builds and boot test, deploy agent and publishing, Claude assistant.
 - Mod diff by mod id (updated / added / removed / rebuilt, version ordering), anomalies (ATM mods missing from LMP) as build blockers
 - NeoForge/Minecraft version agreement check across profiles
 - ATM-derived server blacklist, decisions memory (side, pin, accept removal)
-- French web UI (login, profiles, mods diff, blacklist), SSE job events
+- French web UI (login, profiles, mods diff, blacklist, decisions and debug journal), SSE job events
 
 Validated read-only against real CurseForge instances (ATM10 8.3, NeoForge 21.1.259).
+
+## Decisions and debug journal
+
+The **Décisions** page lists everything Studio remembers on Yann's behalf: pinned older versions, accepted removals,
+forced sides and his own blacklist entries (ATM-derived rows are only counted, they are recomputed from the packs).
+Each row can have its reason edited or be undone (inline confirmation); every change is written to the audit log, and
+the diff and the blacklist read the database on every request, so an undo applies at once.
+The **Débogage** area shows app facts (versions, data dir, database size, counts; never the config or any secret),
+the audit log (search, paging, raw payload) and the jobs (status, progress, full error message, refreshed every 5 s).
+
+| Method and path (under `/api/v1`) | Purpose |
+| --- | --- |
+| `GET /decisions` | decisions + Yann's blacklist rows + `atmDerivedCount` |
+| `DELETE /decisions/:modId/:kind` | undo a `side`, `pin` or `ignore` decision (404 when absent) |
+| `PUT /decisions/:modId/:kind/reason` | edit its reason (`{reason}`, 500 chars max) |
+| `DELETE /blacklist/entry/:modId` | remove Yann's entry (404 absent, 409 ATM-derived) |
+| `PUT /blacklist/entry/:modId/reason` | edit the reason of Yann's entry |
+| `GET /debug/audit?limit=&before=&q=` | audit log newest first, `nextBefore` cursor, literal text search |
+| `GET /debug/jobs?limit=&status=` | jobs newest first, params text capped at 2000 chars |
+| `GET /debug/info` | versions, platform, uptime, data dir, database file/size/migrations, row counts |
 
 ## Quick start (Windows)
 
