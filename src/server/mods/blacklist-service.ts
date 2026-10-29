@@ -22,6 +22,20 @@ export function addToBlacklist(db: Db, modId: string, reason: string): void {
   audit(db, 'blacklist.add', modId, { reason });
 }
 
+export type RemoveBlacklistResult = 'removed' | 'absent' | 'atm_derived';
+
+/** Removes Yann's own entry; an ATM-derived row is computed from the packs and is never removed here. */
+export function removeFromBlacklist(db: Db, modId: string): RemoveBlacklistResult {
+  return db.sqlite.transaction((): RemoveBlacklistResult => {
+    const rows = db.sqlite.prepare('SELECT origin, reason FROM blacklist WHERE mod_id = ?').all(modId) as { origin: string; reason: string }[];
+    const mine = rows.find((r) => r.origin === 'yann');
+    if (!mine) return rows.length > 0 ? 'atm_derived' : 'absent';
+    db.sqlite.prepare("DELETE FROM blacklist WHERE mod_id = ? AND origin = 'yann'").run(modId);
+    audit(db, 'blacklist.remove', modId, { reason: mine.reason });
+    return 'removed';
+  })();
+}
+
 export function setDecision(db: Db, d: Decision): void {
   db.sqlite
     .prepare(
