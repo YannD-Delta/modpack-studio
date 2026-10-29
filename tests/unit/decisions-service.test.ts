@@ -31,13 +31,13 @@ describe('listMemory', () => {
     ]);
     expect(m.decisions[0]!.reason).toBe('dropped');
     expect(m.decisions[0]!.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
-    expect(m.blacklist).toEqual([{ modId: 'mine', origin: 'yann', reason: 'crashes the server', createdAt: expect.stringMatching(/^\d{4}-/) }]);
+    expect(m.blacklist).toEqual([{ modId: 'mine', origin: 'user', reason: 'crashes the server', createdAt: expect.stringMatching(/^\d{4}-/) }]);
     expect(m.atmDerivedCount).toBe(2);
   });
 
   it('gives a null createdAt to a blacklist row that has no audit trace', () => {
-    db.sqlite.prepare("INSERT INTO blacklist (mod_id, origin, valid_for, reason) VALUES ('legacy', 'yann', NULL, '')").run();
-    expect(listMemory(db).blacklist).toEqual([{ modId: 'legacy', origin: 'yann', reason: '', createdAt: null }]);
+    db.sqlite.prepare("INSERT INTO blacklist (mod_id, origin, valid_for, reason) VALUES ('legacy', 'user', NULL, '')").run();
+    expect(listMemory(db).blacklist).toEqual([{ modId: 'legacy', origin: 'user', reason: '', createdAt: null }]);
   });
 });
 
@@ -110,7 +110,7 @@ describe('setBlacklistReason', () => {
     addToBlacklist(db, 'mine', 'before');
     const createdAt = listMemory(db).blacklist[0]!.createdAt;
     expect(setBlacklistReason(db, 'mine', 'after')).toBe('updated');
-    expect(listMemory(db).blacklist).toEqual([{ modId: 'mine', origin: 'yann', reason: 'after', createdAt }]);
+    expect(listMemory(db).blacklist).toEqual([{ modId: 'mine', origin: 'user', reason: 'after', createdAt }]);
     expect(setBlacklistReason(db, 'cli', 'x')).toBe('atm_derived');
     expect(setBlacklistReason(db, 'nope', 'x')).toBe('absent');
     const rows = auditRows().filter((r) => r.action === 'blacklist.reason');
@@ -191,7 +191,7 @@ describe('debugInfo', () => {
     expect(info.db.sizeBytes).toBeNull();
     expect(info.db.migrations).toBeGreaterThanOrEqual(1);
     expect(info.counts.decisions).toEqual({ pin: 1, ignore: 0, side: 1 });
-    expect(info.counts.blacklist).toEqual({ yann: 1, atmDerived: 1 });
+    expect(info.counts.blacklist).toEqual({ user: 1, atmDerived: 1 });
     expect(info.counts.jobs).toEqual({ queued: 0, running: 0, done: 2, failed: 1, cancelled: 0, interrupted: 0 });
     expect(info.counts.profiles).toBe(0);
     expect(info.counts.jars).toBe(0);

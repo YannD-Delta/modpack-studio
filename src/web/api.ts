@@ -27,7 +27,7 @@ export type ModDiff = {
   rebuilt: ModEntry[];
   unchanged: number;
 };
-export type BlacklistEntry = { modId: string; origin: 'atm_derived' | 'yann'; stale: boolean };
+export type BlacklistEntry = { modId: string; origin: 'atm_derived' | 'user'; stale: boolean };
 
 export const CELL_KEYS = ['client-clean', 'client-launched', 'client-run', 'server-clean', 'server-launched', 'server-run'] as const;
 

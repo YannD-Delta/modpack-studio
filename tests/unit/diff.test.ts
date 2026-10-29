@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AtmVersionMismatchError, anomalies, buildBlockers, deriveAtmSides, diffModSets, yannLayer, type ModSet } from '../../src/server/mods/diff.js';
+import { AtmVersionMismatchError, anomalies, buildBlockers, deriveAtmSides, diffModSets, ownLayer, type ModSet } from '../../src/server/mods/diff.js';
 
 const set = (rows: [id: string, version: string, sha: string, file?: string][]): ModSet =>
   new Map(rows.map(([modId, version, sha256, file]) => [modId, { modId, version, sha256, file: file ?? `${modId}-${version}.jar` }]));
@@ -62,17 +62,17 @@ describe('deriveAtmSides', () => {
   });
 });
 
-describe('yannLayer, anomalies and blockers', () => {
+describe('ownLayer, anomalies and blockers', () => {
   const atmC = set([['a', '1', 'x'], ['b', '1', 'y'], ['c', '1', 'z']]);
   const lmpC = set([['a', '2', 'x2'], ['c', '1', 'z'], ['mine', '1', 'm']]);
 
   it("computes the user's layer client against client", () => {
-    const layer = yannLayer(lmpC, atmC);
+    const layer = ownLayer(lmpC, atmC);
     expect(layer.updated.map((u) => u.modId)).toEqual(['a']);
     expect(layer.added.map((e) => e.modId)).toEqual(['mine']);
   });
 
-  it('lists ATM client mods missing from LMP as anomalies, minus resolved ones', () => {
+  it('lists ATM client mods missing from Own as anomalies, minus resolved ones', () => {
     expect(anomalies(atmC, lmpC).map((e) => e.modId)).toEqual(['b']);
     expect(anomalies(atmC, lmpC, new Set(['b']))).toEqual([]);
   });

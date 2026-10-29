@@ -24,7 +24,7 @@ afterAll(() => closePool());
 const ctx = { params: null, signal: new AbortController().signal, progress: () => undefined };
 const spec = (id: string, version = '1.0'): JarSpec => ({ fileName: `${id}-${version}.jar`, loader: 'neoforge', mods: [{ modId: id, version }] });
 const five = ['a', 'b', 'c', 'd', 'e'].map((id) => spec(id));
-const profile = (state: 'clean' | 'launched' = 'clean') => createProfile(db, { pack: 'ATM10', version: '8.3', side: 'server', state, locationKind: 'zip', location: 'x' });
+const profile = (state: 'clean' | 'launched' = 'clean') => createProfile(db, { pack: 'Base', version: '8.3', side: 'server', state, locationKind: 'zip', location: 'x' });
 const modRows = (profileId: number) => (db.sqlite.prepare('SELECT count(*) AS n FROM jar_mod WHERE profile_id = ?').get(profileId) as { n: number }).n;
 
 describe('importModSet', () => {
@@ -37,7 +37,7 @@ describe('importModSet', () => {
   });
 
   it('finds mods/ inside a wrapper folder too', async () => {
-    const { serverZip } = await writeAtmPack(tmp, { atm: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: five, clientMods: [], wrapperDir: 'ATM10-Server-8.3' });
+    const { serverZip } = await writeAtmPack(tmp, { atm: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: five, clientMods: [], wrapperDir: 'Base-Server-8.3' });
     expect((await importModSet(db, { kind: 'zip', path: serverZip }, profile().id, ctx)).imported).toBe(5);
   });
 

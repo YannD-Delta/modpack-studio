@@ -23,7 +23,6 @@
 | Deploy | Update the played server and push it to the host panel |
 | Announce | Discord message from the changelog, through a webhook set in Settings |
 | Config | Three-way merge for files changed on both sides |
-| Quality | Neutral default pack names and fixtures in the code |
 
 ## Open questions
 

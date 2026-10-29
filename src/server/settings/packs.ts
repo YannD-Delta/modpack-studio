@@ -2,11 +2,11 @@ import type { Db } from '../db/open.js';
 import { readPrefsFile, writePrefsFile } from './secrets-store.js';
 
 /**
- * The two packs Studio works with are roles, not names: the `upstream` pack is the one you follow (default ATM10),
- * the `own` pack is yours (default LMP). Both names are settings and are stored as the `pack` of every profile.
+ * The two packs Studio works with are roles, not names: the `upstream` pack is the one you follow (default Base),
+ * the `own` pack is yours (default Own). Both names are settings and are stored as the `pack` of every profile.
  */
 export type PackNames = { upstream: string; own: string };
-export const DEFAULT_PACKS: PackNames = { upstream: 'ATM10', own: 'LMP' };
+export const DEFAULT_PACKS: PackNames = { upstream: 'Base', own: 'Own' };
 
 const NAME = /^[A-Za-z0-9][A-Za-z0-9 ._+-]{0,39}$/;
 

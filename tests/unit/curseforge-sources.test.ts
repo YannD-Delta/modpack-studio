@@ -54,8 +54,8 @@ describe('readInstanceSources', () => {
 describe('source store', () => {
   it('replaces the sources of a profile and looks them up by jar name', () => {
     const db = openDb(':memory:');
-    const p = createProfile(db, { pack: 'ATM10', version: '8.3', side: 'client', state: 'launched', locationKind: 'folder', location: '/x/a' });
-    const q = createProfile(db, { pack: 'LMP', version: 'test', side: 'client', state: 'launched', locationKind: 'folder', location: '/x/b' });
+    const p = createProfile(db, { pack: 'Base', version: '8.3', side: 'client', state: 'launched', locationKind: 'folder', location: '/x/a' });
+    const q = createProfile(db, { pack: 'Own', version: 'test', side: 'client', state: 'launched', locationKind: 'folder', location: '/x/b' });
     storeSources(db, p.id, parseMinecraftInstance(instance));
     storeSources(db, q.id, [{ fileName: 'other.jar', projectId: 9, fileId: 10, name: 'Other', url: 'https://www.curseforge.com/projects/9' }]);
     expect([...getSources(db, p.id).keys()].sort()).toEqual(['appleskin-neoforge-mc1.21-3.0.9.jar', 'nourl-1.0.jar']);

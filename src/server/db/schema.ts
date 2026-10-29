@@ -9,7 +9,7 @@ export const packVersion = sqliteTable(
     mc: text('mc'),
     loader: text('loader'),
     loaderVersion: text('loader_version'),
-    baseAtmVersion: text('base_atm_version'), // LMP only
+    baseAtmVersion: text('base_atm_version'), // Own only
     lmpHotfix: integer('lmp_hotfix'),
   },
   (t) => [unique().on(t.pack, t.version)],
@@ -76,7 +76,7 @@ export const blacklist = sqliteTable(
   'blacklist',
   {
     modId: text('mod_id').notNull(),
-    origin: text('origin').notNull(), // 'atm_derived' | 'yann'
+    origin: text('origin').notNull(), // 'atm_derived' | 'user'
     validFor: text('valid_for'),
     reason: text('reason').notNull().default(''),
   },

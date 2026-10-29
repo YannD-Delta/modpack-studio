@@ -1,3 +1,4 @@
+import path from 'node:path';
 import cookie from '@fastify/cookie';
 import rateLimit from '@fastify/rate-limit';
 import fastify, { type FastifyInstance } from 'fastify';
@@ -17,7 +18,7 @@ import { registerSettingsRoutes } from './routes-settings.js';
 import { registerTestbenchRoutes } from './routes-testbench.js';
 import { registerProfileRoutes } from './routes-profiles.js';
 
-/** `dataDir` is where exports and other files written by Studio go; it defaults to ./data when a caller (tests) omits it. */
+/** `dataDir` is where exports and other files written by Studio go; it defaults to $STUDIO_DATA, else ./data, when a caller (tests) omits it. */
 export type AppDeps = { db: Db; jobs: JobRunner; config: Config; dataDir?: string; fetchImpl?: typeof fetch; testBenchStartCommand?: { command: string; args: string[] } };
 
 const PUBLIC_ROUTES = new Set([`${API_PREFIX}/health`, `${API_PREFIX}/auth/login`]);
@@ -29,7 +30,8 @@ function hostName(hostHeader: string | undefined): string {
   return h.startsWith('[') ? h.slice(0, h.indexOf(']') + 1) : h.split(':')[0]!;
 }
 
-export function buildApp(deps: AppDeps): FastifyInstance {
+export function buildApp(given: AppDeps): FastifyInstance {
+  const deps: AppDeps = { ...given, dataDir: given.dataDir ?? path.resolve(process.env.STUDIO_DATA ?? 'data') };
   const { config } = deps;
   const app = fastify({ logger: false });
   const sessions = new SessionStore();

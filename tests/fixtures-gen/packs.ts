@@ -15,7 +15,7 @@ export async function writeAtmPack(
     'config/atm.toml': 'welcome = true\n',
   };
   for (const spec of v.serverMods) entries[`mods/${spec.fileName}`] = await makeJar(spec);
-  const serverZip = path.join(dir, `ATM10-${v.atm}-server.zip`);
+  const serverZip = path.join(dir, `Base-${v.atm}-server.zip`);
   fs.writeFileSync(serverZip, await makeZip(entries, { wrapperDir: v.wrapperDir }));
 
   const clientDir = path.join(dir, `client-${v.atm}`);

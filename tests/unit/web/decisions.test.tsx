@@ -14,7 +14,7 @@ const memory = {
     { modId: 'oldmod', kind: 'pin', side: null, reason: 'keep 1.0', createdAt: '2026-03-01T10:00:00.000Z' },
     { modId: 'hud', kind: 'side', side: 'client', reason: '', createdAt: '2026-03-02T10:00:00.000Z' },
   ],
-  blacklist: [{ modId: 'mine', origin: 'yann', reason: 'crash', createdAt: null }],
+  blacklist: [{ modId: 'mine', origin: 'user', reason: 'crash', createdAt: null }],
   atmDerivedCount: 7,
 };
 const info = {
@@ -24,7 +24,7 @@ const info = {
   uptimeSeconds: 3725,
   dataDir: 'C:\\synthetic\\data',
   db: { file: 'C:\\synthetic\\data\\studio.db', sizeBytes: 2048, migrations: 1 },
-  counts: { profiles: 3, jars: 10, modRows: 12, decisions: { pin: 1, ignore: 0, side: 1 }, blacklist: { yann: 1, atmDerived: 7 }, jobs: { queued: 0, running: 0, done: 1, failed: 1, cancelled: 0, interrupted: 0 }, auditEntries: 4 },
+  counts: { profiles: 3, jars: 10, modRows: 12, decisions: { pin: 1, ignore: 0, side: 1 }, blacklist: { user: 1, atmDerived: 7 }, jobs: { queued: 0, running: 0, done: 1, failed: 1, cancelled: 0, interrupted: 0 }, auditEntries: 4 },
 };
 const auditPage1 = {
   entries: [
@@ -114,11 +114,11 @@ describe('Decisions memory', () => {
   });
 
   it('shows the server error when an undo fails', async () => {
-    mockApi((_url, init) => (init?.method === 'DELETE' ? { status: 409, body: { error: 'comes from ATM10' } } : undefined));
+    mockApi((_url, init) => (init?.method === 'DELETE' ? { status: 409, body: { error: 'comes from Base' } } : undefined));
     wrap(<Decisions />);
     await userEvent.click(await screen.findByRole('button', { name: 'Annuler mine' }));
     await userEvent.click(screen.getByRole('button', { name: 'Confirmer ?' }));
-    expect(await screen.findByText(/Échec : comes from ATM10/)).toBeTruthy();
+    expect(await screen.findByText(/Échec : comes from Base/)).toBeTruthy();
   });
 
   it('shows French empty states for an empty memory', async () => {

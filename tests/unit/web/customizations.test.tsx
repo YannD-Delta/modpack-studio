@@ -21,9 +21,9 @@ function mockApi(handler: (url: string, init?: RequestInit) => Reply | undefined
 }
 const wrap = (ui: ReactElement) => render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>{ui}</QueryClientProvider>);
 
-const profile = (id: number, state: string) => ({ id, packVersionId: 1, pack: 'LMP', version: '8.3', side: 'client', state, locationKind: 'folder', location: `/x/${id}`, immutable: state !== 'run' });
+const profile = (id: number, state: string) => ({ id, packVersionId: 1, pack: 'Own', version: '8.3', side: 'client', state, locationKind: 'folder', location: `/x/${id}`, immutable: state !== 'run' });
 const matrix = [
-  { pack: 'LMP', version: '8.3', cells: { 'client-clean': profile(1, 'clean'), 'client-launched': profile(2, 'launched'), 'client-run': profile(3, 'run'), 'server-clean': null, 'server-launched': null, 'server-run': null } },
+  { pack: 'Own', version: '8.3', cells: { 'client-clean': profile(1, 'clean'), 'client-launched': profile(2, 'launched'), 'client-run': profile(3, 'run'), 'server-clean': null, 'server-launched': null, 'server-run': null } },
 ];
 const inventory = (id: number) => ({ profile: { id }, scannedAt: '2026-10-29T10:00:00.000Z', total: 5, bytes: 100, perRoot: {}, issueCount: 0, issues: [] });
 const empty = { modifiedGenerated: 0, modifiedShipped: 0, added: 0, removed: 0, untouched: 0 };

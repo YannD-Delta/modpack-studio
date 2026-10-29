@@ -87,9 +87,9 @@ beforeEach(async () => {
     'config/mine.toml': 'custom = true\n', // added by the player
     'config/old.toml.bak': 'ignored backup\n',
   });
-  clean = await profile('LMP', 'clean', cleanDir);
-  launched = await profile('LMP', 'launched', launchedDir);
-  played = await profile('LMP', 'run', playedDir);
+  clean = await profile('Own', 'clean', cleanDir);
+  launched = await profile('Own', 'launched', launchedDir);
+  played = await profile('Own', 'run', playedDir);
   for (const id of [clean, launched, played]) expect(await scan(id)).toBe('done');
 });
 afterEach(async () => {
@@ -136,7 +136,7 @@ describe('customizations', () => {
 
   it('refuses the same profile twice and a profile that was never scanned', async () => {
     expect((await call('GET', `/configs/customizations?clean=${clean}&launched=${clean}&played=${played}`)).statusCode).toBe(400);
-    const fresh = await profile('ATM10', 'clean', tree('fresh', { 'config/x.toml': 'x\n' }));
+    const fresh = await profile('Base', 'clean', tree('fresh', { 'config/x.toml': 'x\n' }));
     expect((await call('GET', `/configs/customizations?clean=${fresh}&launched=${launched}&played=${played}`)).statusCode).toBe(409);
     expect((await call('GET', `/configs/customizations?clean=999&launched=${launched}&played=${played}`)).statusCode).toBe(404);
   });

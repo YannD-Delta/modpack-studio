@@ -65,9 +65,9 @@ async function scenario(opts: { brokenInAtmClient?: boolean } = {}) {
   if (opts.brokenInAtmClient) fs.writeFileSync(path.join(atm.clientDir, 'mods', 'broken.jar'), 'not a zip');
   const lmp = await writeAtmPack(path.join(tmp, 'lmp'), { atm: '1.0', neoforge: '21.1.251', mc: '1.21.1', serverMods: [], clientMods: [jar('a', '1.1'), jar('cli'), jar('mine')] });
   const mk = async (body: object) => ((await call('POST', '/profiles', body)).json() as { id: number }).id;
-  const s = await mk({ pack: 'ATM10', version: '8.3', side: 'server', state: 'clean', locationKind: 'zip', location: atm.serverZip });
-  const c = await mk({ pack: 'ATM10', version: '8.3', side: 'client', state: 'clean', locationKind: 'folder', location: atm.clientDir });
-  const l = await mk({ pack: 'LMP', version: '1.0', side: 'client', state: 'clean', locationKind: 'folder', location: lmp.clientDir });
+  const s = await mk({ pack: 'Base', version: '8.3', side: 'server', state: 'clean', locationKind: 'zip', location: atm.serverZip });
+  const c = await mk({ pack: 'Base', version: '8.3', side: 'client', state: 'clean', locationKind: 'folder', location: atm.clientDir });
+  const l = await mk({ pack: 'Own', version: '1.0', side: 'client', state: 'clean', locationKind: 'folder', location: lmp.clientDir });
   await importAndWait(s, { kind: 'zip', path: atm.serverZip });
   await importAndWait(c, { kind: 'folder', path: atm.clientDir });
   await importAndWait(l, { kind: 'folder', path: lmp.clientDir });
@@ -84,7 +84,7 @@ describe('phase 1 api', () => {
     expect(String(bad.json().error)).toBeTruthy();
   });
 
-  it('derives ATM sides, diffs LMP against ATM, and checks loaders', async () => {
+  it('derives ATM sides, diffs Own against ATM, and checks loaders', async () => {
     const { s, c, l } = await scenario();
 
     const sides = (await call('GET', `/mods/atm-sides?server=${s}&client=${c}`)).json();
@@ -111,8 +111,8 @@ describe('phase 1 api', () => {
     const twin = [jar('dup', '1.0'), jar('dup', '2.0')];
     const atm = await writeAtmPack(path.join(tmp, 'atm'), { atm: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: [], clientMods: [...twin, jar('a')] });
     const lmp = await writeAtmPack(path.join(tmp, 'lmp'), { atm: '1.0', neoforge: '21.1.259', mc: '1.21.1', serverMods: [], clientMods: [...twin, jar('a'), jar('mine', '1.0'), { ...jar('mine', '2.0'), fileName: 'mine-copy-2.0.jar' }] });
-    const c = await mkProfile({ pack: 'ATM10', version: '8.3', side: 'client', state: 'clean', locationKind: 'folder', location: atm.clientDir });
-    const l = await mkProfile({ pack: 'LMP', version: '1.0', side: 'client', state: 'clean', locationKind: 'folder', location: lmp.clientDir });
+    const c = await mkProfile({ pack: 'Base', version: '8.3', side: 'client', state: 'clean', locationKind: 'folder', location: atm.clientDir });
+    const l = await mkProfile({ pack: 'Own', version: '1.0', side: 'client', state: 'clean', locationKind: 'folder', location: lmp.clientDir });
     await importAndWait(c, { kind: 'folder', path: atm.clientDir });
     await importAndWait(l, { kind: 'folder', path: lmp.clientDir });
     const blockers = (await call('GET', `/build/blockers?atmClient=${c}&lmp=${l}`)).json() as { code: string; modId: string }[];
@@ -128,7 +128,7 @@ describe('phase 1 api', () => {
 
   it('refuses an import whose path differs from the profile location', async () => {
     const atm = await writeAtmPack(path.join(tmp, 'atm'), { atm: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: [jar('a')], clientMods: [jar('a')] });
-    const c = await mkProfile({ pack: 'ATM10', version: '8.3', side: 'client', state: 'clean', locationKind: 'folder', location: atm.clientDir });
+    const c = await mkProfile({ pack: 'Base', version: '8.3', side: 'client', state: 'clean', locationKind: 'folder', location: atm.clientDir });
     const res = await call('POST', `/profiles/${c}/import`, { source: { kind: 'folder', path: path.join(tmp, 'somewhere-else') } });
     expect(res.statusCode).toBe(400);
   });
@@ -140,14 +140,14 @@ describe('phase 1 api', () => {
   });
 
   it('fails the import job when the folder holds no jar', async () => {
-    const c = await mkProfile({ pack: 'ATM10', version: '9.9', side: 'client', state: 'clean', locationKind: 'folder', location: path.join(tmp, 'missing') });
+    const c = await mkProfile({ pack: 'Base', version: '9.9', side: 'client', state: 'clean', locationKind: 'folder', location: path.join(tmp, 'missing') });
     const res = await call('POST', `/profiles/${c}/import`, { source: { kind: 'folder', path: path.join(tmp, 'missing') } });
     expect(await finalStatus((res.json() as { jobId: string }).jobId)).toBe('failed');
   });
 
   it('re-checks launch artifacts of a clean folder at import time', async () => {
     const atm = await writeAtmPack(path.join(tmp, 'atm'), { atm: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: [jar('a')], clientMods: [jar('a')] });
-    const c = await mkProfile({ pack: 'ATM10', version: '8.3', side: 'client', state: 'clean', locationKind: 'folder', location: atm.clientDir });
+    const c = await mkProfile({ pack: 'Base', version: '8.3', side: 'client', state: 'clean', locationKind: 'folder', location: atm.clientDir });
     fs.mkdirSync(path.join(atm.clientDir, 'logs')); // the game was started after the profile was registered
     fs.writeFileSync(path.join(atm.clientDir, 'logs', 'latest.log'), 'started');
     const res = await call('POST', `/profiles/${c}/import`, { source: { kind: 'folder', path: atm.clientDir } });
@@ -162,23 +162,23 @@ describe('phase 1 api', () => {
     expect((await call('PUT', '/blacklist', { action: 'adopt-atm', server: s, client: c })).statusCode).toBe(409);
   });
 
-  it('refuses ATM sides when the profiles are not an ATM10 server and an ATM10 client', async () => {
+  it('refuses ATM sides when the profiles are not an Base server and an Base client', async () => {
     const { c, l } = await scenario();
     expect((await call('GET', `/mods/atm-sides?server=${l}&client=${c}`)).statusCode).toBe(409);
   });
 
   it('refuses ATM sides for a profile with no imported mods', async () => {
     const atm = await writeAtmPack(path.join(tmp, 'atm'), { atm: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: [jar('a')], clientMods: [jar('a')] });
-    const s = await mkProfile({ pack: 'ATM10', version: '8.3', side: 'server', state: 'clean', locationKind: 'zip', location: atm.serverZip });
-    const c = await mkProfile({ pack: 'ATM10', version: '8.3', side: 'client', state: 'clean', locationKind: 'folder', location: atm.clientDir });
+    const s = await mkProfile({ pack: 'Base', version: '8.3', side: 'server', state: 'clean', locationKind: 'zip', location: atm.serverZip });
+    const c = await mkProfile({ pack: 'Base', version: '8.3', side: 'client', state: 'clean', locationKind: 'folder', location: atm.clientDir });
     expect((await call('GET', `/mods/atm-sides?server=${s}&client=${c}`)).statusCode).toBe(409);
   });
 
   it('refuses ATM sides when NeoForge differs between the ATM server pack and client', async () => {
     const srv = await writeAtmPack(path.join(tmp, 'srv'), { atm: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: [jar('a')], clientMods: [] });
     const cli = await writeAtmPack(path.join(tmp, 'cli'), { atm: '8.3', neoforge: '21.1.251', mc: '1.21.1', serverMods: [], clientMods: [jar('a')] });
-    const s = await mkProfile({ pack: 'ATM10', version: '8.3', side: 'server', state: 'clean', locationKind: 'zip', location: srv.serverZip });
-    const c = await mkProfile({ pack: 'ATM10', version: '8.3', side: 'client', state: 'clean', locationKind: 'folder', location: cli.clientDir });
+    const s = await mkProfile({ pack: 'Base', version: '8.3', side: 'server', state: 'clean', locationKind: 'zip', location: srv.serverZip });
+    const c = await mkProfile({ pack: 'Base', version: '8.3', side: 'client', state: 'clean', locationKind: 'folder', location: cli.clientDir });
     await importAndWait(s, { kind: 'zip', path: srv.serverZip });
     await importAndWait(c, { kind: 'folder', path: cli.clientDir });
     expect((await call('GET', `/mods/atm-sides?server=${s}&client=${c}`)).statusCode).toBe(409);
@@ -191,8 +191,8 @@ describe('phase 1 api', () => {
   it('refuses sides when the ATM client and server versions differ', async () => {
     const atm = await writeAtmPack(path.join(tmp, 'atm'), { atm: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: [jar('a')], clientMods: [jar('a')] });
     const mk = async (body: object) => ((await call('POST', '/profiles', body)).json() as { id: number }).id;
-    const s = await mk({ pack: 'ATM10', version: '8.2', side: 'server', state: 'clean', locationKind: 'zip', location: atm.serverZip });
-    const c = await mk({ pack: 'ATM10', version: '8.3', side: 'client', state: 'clean', locationKind: 'folder', location: atm.clientDir });
+    const s = await mk({ pack: 'Base', version: '8.2', side: 'server', state: 'clean', locationKind: 'zip', location: atm.serverZip });
+    const c = await mk({ pack: 'Base', version: '8.3', side: 'client', state: 'clean', locationKind: 'folder', location: atm.clientDir });
     expect((await call('GET', `/mods/atm-sides?server=${s}&client=${c}`)).statusCode).toBe(409);
   });
 });

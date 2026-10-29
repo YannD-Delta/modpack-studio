@@ -156,11 +156,11 @@ describe('settings api', () => {
     expect((await call('GET', '/settings')).json().assistant.effort).toBe('high');
   });
 
-  it('names the two packs ATM10 and LMP by default and lets Settings rename them, existing profiles included', async () => {
-    expect((await call('GET', '/settings')).json().packs).toEqual({ upstream: 'ATM10', own: 'LMP' });
+  it('names the two packs Base and Own by default and lets Settings rename them, existing profiles included', async () => {
+    expect((await call('GET', '/settings')).json().packs).toEqual({ upstream: 'Base', own: 'Own' });
     const mk = (pack: string, state: string) => db.sqlite.prepare('INSERT INTO pack_version (pack, version) VALUES (?, ?)').run(pack, state);
-    mk('ATM10', '8.3');
-    mk('LMP', '1.0');
+    mk('Base', '8.3');
+    mk('Own', '1.0');
     const res = await call('PUT', '/settings/packs', { upstream: 'All the Mods', own: 'MonPack' });
     expect(res.statusCode).toBe(200);
     expect((await call('GET', '/settings')).json().packs).toEqual({ upstream: 'All the Mods', own: 'MonPack' });
@@ -169,10 +169,10 @@ describe('settings api', () => {
   });
 
   it('lets the two names swap places without mixing the profiles up', async () => {
-    db.sqlite.prepare('INSERT INTO pack_version (pack, version) VALUES (?, ?)').run('ATM10', '8.3');
-    db.sqlite.prepare('INSERT INTO pack_version (pack, version) VALUES (?, ?)').run('LMP', '1.0');
-    expect((await call('PUT', '/settings/packs', { upstream: 'LMP', own: 'ATM10' })).statusCode).toBe(200);
-    expect((db.sqlite.prepare('SELECT pack, version FROM pack_version ORDER BY id').all() as { pack: string; version: string }[])).toEqual([{ pack: 'LMP', version: '8.3' }, { pack: 'ATM10', version: '1.0' }]);
+    db.sqlite.prepare('INSERT INTO pack_version (pack, version) VALUES (?, ?)').run('Base', '8.3');
+    db.sqlite.prepare('INSERT INTO pack_version (pack, version) VALUES (?, ?)').run('Own', '1.0');
+    expect((await call('PUT', '/settings/packs', { upstream: 'Own', own: 'Base' })).statusCode).toBe(200);
+    expect((db.sqlite.prepare('SELECT pack, version FROM pack_version ORDER BY id').all() as { pack: string; version: string }[])).toEqual([{ pack: 'Own', version: '8.3' }, { pack: 'Base', version: '1.0' }]);
   });
 
   it.each([
@@ -182,15 +182,15 @@ describe('settings api', () => {
     ['too long', { upstream: 'x'.repeat(41), own: 'C' }],
   ])('rejects pack names that are %s and changes nothing', async (_l, body) => {
     expect((await call('PUT', '/settings/packs', body)).statusCode).toBe(400);
-    expect((await call('GET', '/settings')).json().packs).toEqual({ upstream: 'ATM10', own: 'LMP' });
+    expect((await call('GET', '/settings')).json().packs).toEqual({ upstream: 'Base', own: 'Own' });
   });
 
   it('only accepts profiles of one of the two configured packs, and follows a rename', async () => {
     const mkProfile = (pack: string) => call('POST', '/profiles', { pack, version: '1', side: 'client', state: 'clean', locationKind: 'zip', location: '/x/a.zip' });
     expect((await mkProfile('Other')).statusCode).toBe(400);
-    expect((await mkProfile('ATM10')).statusCode).toBe(201);
+    expect((await mkProfile('Base')).statusCode).toBe(201);
     await call('PUT', '/settings/packs', { upstream: 'Followed', own: 'Mine' });
-    expect((await mkProfile('ATM10')).statusCode).toBe(400);
+    expect((await mkProfile('Base')).statusCode).toBe(400);
     expect((await call('POST', '/profiles', { pack: 'Mine', version: '2', side: 'client', state: 'clean', locationKind: 'zip', location: '/x/b.zip' })).statusCode).toBe(201);
     const matrix = (await call('GET', '/profiles/matrix')).json() as { pack: string }[];
     expect(matrix.map((m) => m.pack)).toEqual(['Followed', 'Mine']);

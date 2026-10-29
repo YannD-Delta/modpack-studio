@@ -121,7 +121,7 @@ export function registerModRoutes(api: FastifyInstance, deps: AppDeps): void {
     if (!q.success) return sendBadRequest(reply, q.error);
     profileOr404(db, q.data.atmClient);
     profileOr404(db, q.data.lmp);
-    // A duplicate id that the followed pack's client already ships (seen on ATM10 8.3: two cc-tweaked jars) is inherited, not the player's mistake.
+    // A duplicate id that the followed pack's client already ships (seen on Base 8.3: two cc-tweaked jars) is inherited, not the player's mistake.
     const inherited = new Set(findDuplicateIds(db, q.data.atmClient).map((d) => d.modId));
     return buildBlockers({
       anomalies: anomalies(loadModSet(db, q.data.atmClient), loadModSet(db, q.data.lmp), resolvedAnomalies(db)),

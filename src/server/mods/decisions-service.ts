@@ -11,7 +11,7 @@ export type DecisionKind = (typeof DECISION_KINDS)[number];
 export const JOB_STATUSES = ['queued', 'running', 'done', 'failed', 'cancelled', 'interrupted'] as const satisfies readonly JobStatus[];
 
 export type DecisionRow = { modId: string; kind: DecisionKind; side: Side | null; reason: string; createdAt: string };
-export type UserBlacklistRow = { modId: string; origin: 'yann'; reason: string; createdAt: string | null };
+export type UserBlacklistRow = { modId: string; origin: 'user'; reason: string; createdAt: string | null };
 export type Memory = { decisions: DecisionRow[]; blacklist: UserBlacklistRow[]; atmDerivedCount: number };
 
 /** Everything Studio remembers on the user's behalf. ATM-derived blacklist rows are computed, so they are only counted. */
@@ -32,10 +32,10 @@ export function listMemory(db: Db): Memory {
       .prepare(
         `SELECT b.mod_id, b.reason,
            (SELECT max(a.at) FROM audit_log a WHERE a.action = 'blacklist.add' AND a.target = b.mod_id) AS created_at
-         FROM blacklist b WHERE b.origin = 'yann' ORDER BY b.mod_id`,
+         FROM blacklist b WHERE b.origin = 'user' ORDER BY b.mod_id`,
       )
       .all() as { mod_id: string; reason: string; created_at: string | null }[]
-  ).map((r) => ({ modId: r.mod_id, origin: 'yann' as const, reason: r.reason, createdAt: r.created_at }));
+  ).map((r) => ({ modId: r.mod_id, origin: 'user' as const, reason: r.reason, createdAt: r.created_at }));
 
   const { n } = db.sqlite.prepare("SELECT count(*) AS n FROM blacklist WHERE origin = 'atm_derived'").get() as { n: number };
   return { decisions, blacklist, atmDerivedCount: n };
@@ -163,7 +163,7 @@ export type DebugInfo = {
     jars: number;
     modRows: number;
     decisions: Record<DecisionKind, number>;
-    blacklist: { yann: number; atmDerived: number };
+    blacklist: { user: number; atmDerived: number };
     jobs: Record<JobStatus, number>;
     auditEntries: number;
   };
@@ -215,7 +215,7 @@ export function debugInfo(db: Db, opts: { dataDir: string }): DebugInfo {
       modRows: count('SELECT count(*) AS n FROM jar_mod'),
       decisions,
       blacklist: {
-        yann: count("SELECT count(*) AS n FROM blacklist WHERE origin = 'yann'"),
+        user: count("SELECT count(*) AS n FROM blacklist WHERE origin = 'user'"),
         atmDerived: count("SELECT count(*) AS n FROM blacklist WHERE origin = 'atm_derived'"),
       },
       jobs,

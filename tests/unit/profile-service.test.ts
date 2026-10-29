@@ -26,7 +26,7 @@ afterEach(() => {
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
-const base: NewProfile = { pack: 'ATM10', version: '8.3', side: 'server', state: 'clean', locationKind: 'folder', location: '' };
+const base: NewProfile = { pack: 'Base', version: '8.3', side: 'server', state: 'clean', locationKind: 'folder', location: '' };
 const folder = (name: string, files: string[] = [], dirs: string[] = []) => {
   const dir = path.join(tmp, name);
   fs.mkdirSync(dir, { recursive: true });

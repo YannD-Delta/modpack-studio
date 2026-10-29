@@ -74,7 +74,7 @@
   "debug.info.auditEntries": "Entrées du journal",
   "debug.info.memoryDb": "en mémoire",
   "debug.info.decisionsValue": "{pin} épinglés · {ignore} retraits · {side} côtés",
-  "debug.info.blacklistValue": "{yann} à toi · {atm} depuis {upstream}",
+  "debug.info.blacklistValue": "{user} à toi · {atm} depuis {upstream}",
   "debug.search": "Rechercher dans le journal",
   "debug.searchPlaceholder": "action, mod, contenu…",
   "debug.searchTip": "Cherche le texte tel quel dans l'action, la cible et le contenu de chaque entrée.",

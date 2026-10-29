@@ -176,7 +176,7 @@ export function Settings() {
         <KeyCard provider="claude" status={s.keys.claude} />
         <KeyCard provider="curseforge" status={s.keys.curseforge} />
       </div>
-      <PacksCard upstream={s.packs?.upstream ?? 'ATM10'} own={s.packs?.own ?? 'LMP'} />
+      <PacksCard upstream={s.packs?.upstream ?? 'Base'} own={s.packs?.own ?? 'Own'} />
       <AssistantCard model={s.assistant.model} effort={s.assistant.effort} models={s.models} efforts={s.efforts} />
     </section>
   );

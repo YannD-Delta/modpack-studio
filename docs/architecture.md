@@ -58,7 +58,7 @@ Anything slow (import, scan, export, test) is a **job**: a database row with a s
 
 ## Database
 
-Schema in `src/server/db/schema.ts`; migrations `0000` to `0003` (initial, import issues, update plan, jar source). After editing the schema: `npx drizzle-kit generate --name <name>`. Jar bytes are never stored: only metadata and the sha256 are.
+Schema in `src/server/db/schema.ts`; migrations `0000` to `0004` (initial, import issues, update plan, jar source, user origin). After editing the schema: `npx drizzle-kit generate --name <name>`. Jar bytes are never stored: only metadata and the sha256 are.
 
 ## Running it
 

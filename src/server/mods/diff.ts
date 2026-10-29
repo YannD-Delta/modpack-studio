@@ -61,7 +61,7 @@ export function deriveAtmSides(
 }
 
 /** the user's layer on top of ATM, client against client. */
-export function yannLayer(lmpC: ModSet, atmC: ModSet): ModDiff {
+export function ownLayer(lmpC: ModSet, atmC: ModSet): ModDiff {
   return diffModSets(atmC, lmpC);
 }
 

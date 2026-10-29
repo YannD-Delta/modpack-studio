@@ -13,8 +13,8 @@ let decisions: { pins: string[]; ignored: string[]; clientOnly: string[] };
 
 const profile = (id: number, pack: string, version: string, side: string, state: string, kind = 'folder') => ({ id, packVersionId: 1, pack, version, side, state, locationKind: kind, location: 'x', immutable: true });
 const matrix = [
-  { pack: 'ATM10', version: '8.3', cells: { 'client-clean': profile(2, 'ATM10', '8.3', 'client', 'clean'), 'server-clean': null, 'client-launched': null, 'client-run': null, 'server-launched': null, 'server-run': null } },
-  { pack: 'LMP', version: '1.0', cells: { 'client-clean': profile(3, 'LMP', '1.0', 'client', 'clean'), 'client-launched': null, 'client-run': null, 'server-clean': null, 'server-launched': null, 'server-run': null } },
+  { pack: 'Base', version: '8.3', cells: { 'client-clean': profile(2, 'Base', '8.3', 'client', 'clean'), 'server-clean': null, 'client-launched': null, 'client-run': null, 'server-launched': null, 'server-run': null } },
+  { pack: 'Own', version: '1.0', cells: { 'client-clean': profile(3, 'Own', '1.0', 'client', 'clean'), 'client-launched': null, 'client-run': null, 'server-clean': null, 'server-launched': null, 'server-run': null } },
 ];
 const e = (modId: string, version: string, file = `${modId}-${version}.jar`, sha256 = `${modId}${version}`) => ({ modId, version, sha256, file });
 const diff = {
@@ -28,13 +28,13 @@ const diff = {
   unchanged: 4,
 };
 const exportResult = {
-  name: 'update-LMP-1.0-from-ATM10-8.3-20261029-130509',
-  folder: 'D:/studio/data/exports/update-LMP-1.0-from-ATM10-8.3-20261029-130509',
+  name: 'update-Own-1.0-from-Base-8.3-20261029-130509',
+  folder: 'D:/studio/data/exports/update-Own-1.0-from-Base-8.3-20261029-130509',
   zipPath: 'x.zip',
   zipBytes: 1234,
   createdAt: '2026-10-29T13:05:09.000Z',
-  base: { id: 2, label: 'ATM10 8.3 (client, clean)' },
-  other: { id: 3, label: 'LMP 1.0 (client, clean)' },
+  base: { id: 2, label: 'Base 8.3 (client, clean)' },
+  other: { id: 3, label: 'Own 1.0 (client, clean)' },
   counts: { modsUpdated: 1, modsRestored: 0, jarsToRemove: 1, files: 0, failures: 1 },
   failures: [{ kind: 'mod', key: 'b', reason: 'reference jar b-1.0.jar: not found: D:/atm/mods/b-1.0.jar' }],
   warnings: [],
@@ -43,8 +43,8 @@ const debugDoc = {
   modId: 'a',
   generatedAt: '2026-10-29T13:00:00.000Z',
   status: 'older',
-  base: { profile: { id: 2, label: 'ATM10 8.3 (client, clean)', pack: 'ATM10', version: '8.3', side: 'client', state: 'clean', locationKind: 'folder', location: 'D:/atm' }, entry: e('a', '1.1', 'a-1.1.jar', 'f'.repeat(64)) },
-  other: { profile: { id: 3, label: 'LMP 1.0 (client, clean)', pack: 'LMP', version: '1.0', side: 'client', state: 'clean', locationKind: 'folder', location: 'D:/lmp' }, entry: e('a', '1.0', 'a-1.0.jar', 'e'.repeat(64)) },
+  base: { profile: { id: 2, label: 'Base 8.3 (client, clean)', pack: 'Base', version: '8.3', side: 'client', state: 'clean', locationKind: 'folder', location: 'D:/atm' }, entry: e('a', '1.1', 'a-1.1.jar', 'f'.repeat(64)) },
+  other: { profile: { id: 3, label: 'Own 1.0 (client, clean)', pack: 'Own', version: '1.0', side: 'client', state: 'clean', locationKind: 'folder', location: 'D:/lmp' }, entry: e('a', '1.0', 'a-1.0.jar', 'e'.repeat(64)) },
   comparison: { comparedAs: 'x', a: { raw: '1.0', tokens: ['1', '0'], hashLike: false, unparsable: false }, b: { raw: '1.1', tokens: ['1', '1'], hashLike: false, unparsable: false }, result: 'older', deciding: { index: 1, tokenA: '0', tokenB: '1' }, note: 'Token 1 decides' },
   decisions: { pin: null, ignore: null, side: null, blacklisted: null },
   plan: { planned: false, actionable: true, action: 'update' },

@@ -25,7 +25,7 @@ describe('detectLoader from a server pack', () => {
   });
 
   it('works inside a wrapper folder', async () => {
-    const file = await zipWith({ 'neoforge-21.1.259-installer.jar': 'i', 'startserver.sh': 'NEOFORGE_VERSION="21.1.259"\nMINECRAFT_VERSION="1.21.1"\n' }, 'ATM10-Server');
+    const file = await zipWith({ 'neoforge-21.1.259-installer.jar': 'i', 'startserver.sh': 'NEOFORGE_VERSION="21.1.259"\nMINECRAFT_VERSION="1.21.1"\n' }, 'Base-Server');
     expect((await detectLoader({ kind: 'serverZip', path: file })).loaderVersion).toBe('21.1.259');
   });
 

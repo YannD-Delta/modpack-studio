@@ -10,14 +10,14 @@ type Handler = (url: string, init?: RequestInit) => { status?: number; body: unk
 let calls: { url: string; method: string; body?: string }[] = [];
 let startReply: { status?: number; body: unknown };
 
-const profile = (id: number, side: string, kind = 'folder') => ({ id, pack: 'LMP', version: 'test', side, state: 'launched', locationKind: kind, location: `/x/${id}`, immutable: true });
+const profile = (id: number, side: string, kind = 'folder') => ({ id, pack: 'Own', version: 'test', side, state: 'launched', locationKind: kind, location: `/x/${id}`, immutable: true });
 const matrix = [
-  { pack: 'LMP', version: 'test', cells: { 'server-launched': profile(5, 'server'), 'client-launched': profile(6, 'client'), 'server-clean': profile(7, 'server', 'zip'), 'client-clean': null, 'client-run': null, 'server-run': null } },
+  { pack: 'Own', version: 'test', cells: { 'server-launched': profile(5, 'server'), 'client-launched': profile(6, 'client'), 'server-clean': profile(7, 'server', 'zip'), 'client-clean': null, 'client-run': null, 'server-run': null } },
 ];
 const run = {
-  id: '20261029-120000_LMP-test-launched',
+  id: '20261029-120000_Own-test-launched',
   profileId: 5,
-  label: 'LMP test · server · launched',
+  label: 'Own test · server · launched',
   memoryMb: 8192,
   port: 25570,
   createdAt: '2026-10-29T12:00:00.000Z',
@@ -70,11 +70,11 @@ describe('TestBench page', () => {
   it('offers only server profiles that are folders, and starts a test with the chosen options', async () => {
     wrap(<TestBench />);
     const select = await screen.findByLabelText('Serveur à tester');
-    await screen.findByRole('option', { name: 'LMP test · server · launched' });
+    await screen.findByRole('option', { name: 'Own test · server · launched' });
     const options = Array.from((select as HTMLSelectElement).options).map((o) => o.textContent);
-    expect(options).toContain('LMP test · server · launched');
-    expect(options).not.toContain('LMP test · client · launched');
-    expect(options).not.toContain('LMP test · server · clean'); // a zip cannot be tested yet
+    expect(options).toContain('Own test · server · launched');
+    expect(options).not.toContain('Own test · client · launched');
+    expect(options).not.toContain('Own test · server · clean'); // a zip cannot be tested yet
     await userEvent.selectOptions(select, '5');
     await userEvent.click(screen.getByLabelText(/Accepter l'EULA/));
     await userEvent.click(screen.getByRole('button', { name: 'Lancer le test' }));
@@ -101,7 +101,7 @@ describe('TestBench page', () => {
     startReply = { status: 409, body: { error: 'the server folder of this profile cannot be read' } };
     wrap(<TestBench />);
     const select = await screen.findByLabelText('Serveur à tester');
-    await screen.findByRole('option', { name: 'LMP test · server · launched' });
+    await screen.findByRole('option', { name: 'Own test · server · launched' });
     await userEvent.selectOptions(select, '5');
     await userEvent.click(screen.getByRole('button', { name: 'Lancer le test' }));
     expect(await screen.findByText(/cannot be read/)).toBeTruthy();

@@ -35,8 +35,8 @@ function seedProfiles(): { base: number; other: number } {
   const pv = (pack: string, version: string) => Number(db.sqlite.prepare('INSERT INTO pack_version (pack, version) VALUES (?, ?)').run(pack, version).lastInsertRowid);
   const prof = (pvId: number) =>
     Number(db.sqlite.prepare("INSERT INTO profile (pack_version_id, side, state, location_kind, location) VALUES (?, 'client', 'clean', 'folder', 'synthetic')").run(pvId).lastInsertRowid);
-  const base = prof(pv('ATM10', '8.3'));
-  const other = prof(pv('LMP', '1.0'));
+  const base = prof(pv('Base', '8.3'));
+  const other = prof(pv('Own', '1.0'));
   const mod = (profileId: number, modId: string, version: string) => {
     const sha = `${modId}-${version}-${profileId}`;
     db.sqlite.prepare('INSERT OR IGNORE INTO jar (sha256, filename, size) VALUES (?, ?, 1)').run(sha, `${modId}-${version}.jar`);
@@ -66,7 +66,7 @@ describe('decisions api', () => {
       ['hud', 'side', 'client'],
       ['old', 'pin', null],
     ]);
-    expect(body.blacklist.map((b: { modId: string; origin: string }) => [b.modId, b.origin])).toEqual([['mine', 'yann']]);
+    expect(body.blacklist.map((b: { modId: string; origin: string }) => [b.modId, b.origin])).toEqual([['mine', 'user']]);
     expect(body.atmDerivedCount).toBe(1);
   });
 

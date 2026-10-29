@@ -28,8 +28,8 @@ afterEach(() => {
 
 const profile = (id: number, pack: string, version: string, side: string, state: string, kind = 'folder') => ({ id, packVersionId: 1, pack, version, side, state, locationKind: kind, location: 'x', immutable: true });
 const matrix = [
-  { pack: 'ATM10', version: '8.3', cells: { 'server-clean': profile(1, 'ATM10', '8.3', 'server', 'clean', 'zip'), 'client-clean': profile(2, 'ATM10', '8.3', 'client', 'clean'), 'client-launched': null, 'client-run': null, 'server-launched': null, 'server-run': null } },
-  { pack: 'LMP', version: '1.0', cells: { 'client-clean': profile(3, 'LMP', '1.0', 'client', 'clean'), 'client-launched': null, 'client-run': null, 'server-clean': null, 'server-launched': null, 'server-run': null } },
+  { pack: 'Base', version: '8.3', cells: { 'server-clean': profile(1, 'Base', '8.3', 'server', 'clean', 'zip'), 'client-clean': profile(2, 'Base', '8.3', 'client', 'clean'), 'client-launched': null, 'client-run': null, 'server-launched': null, 'server-run': null } },
+  { pack: 'Own', version: '1.0', cells: { 'client-clean': profile(3, 'Own', '1.0', 'client', 'clean'), 'client-launched': null, 'client-run': null, 'server-clean': null, 'server-launched': null, 'server-run': null } },
 ];
 
 describe('Login', () => {
@@ -46,7 +46,7 @@ describe('Profiles', () => {
   it('renders filled and empty matrix cells', async () => {
     mockApi(() => ({ body: matrix }));
     wrap(<Profiles />);
-    expect(await screen.findByText('ATM10 8.3')).toBeTruthy();
+    expect(await screen.findByText('Base 8.3')).toBeTruthy();
     expect(screen.getAllByTestId('cell-filled').length).toBe(3);
     expect(screen.getAllByTestId('cell-empty').length).toBe(9);
   });
@@ -77,9 +77,9 @@ describe('Mods', () => {
     wrap(<Mods />);
     await userEvent.selectOptions(await screen.findByLabelText('Référence'), '2');
     await userEvent.selectOptions(screen.getByLabelText('Comparé à'), '3');
-    expect(await screen.findByText(/Manque dans LMP 1.0 : présent dans ATM10 8\.3, absent de LMP 1.0\./)).toBeTruthy();
-    expect(screen.getByText(/Nouveau dans LMP 1.0 : absent de ATM10 8\.3\./)).toBeTruthy();
-    expect(screen.getByText(/LMP 1.0 est plus récent que ATM10 8.3./)).toBeTruthy();
+    expect(await screen.findByText(/Manque dans Own 1.0 : présent dans Base 8\.3, absent de Own 1.0\./)).toBeTruthy();
+    expect(screen.getByText(/Nouveau dans Own 1.0 : absent de Base 8\.3\./)).toBeTruthy();
+    expect(screen.getByText(/Own 1.0 est plus récent que Base 8.3./)).toBeTruthy();
     expect(screen.getByText('a-1.0.jar')).toBeTruthy();
     await userEvent.click(screen.getByRole('button', { name: /Manquants · 1/ }));
     expect(screen.queryByText('mine')).toBeNull();
@@ -106,10 +106,10 @@ describe('Blacklist', () => {
       return { body: { ok: true } };
     });
     wrap(<Blacklist />);
-    await userEvent.selectOptions(await screen.findByLabelText('Pack serveur ATM10'), '1');
-    await userEvent.selectOptions(screen.getByLabelText('Client ATM10'), '2');
+    await userEvent.selectOptions(await screen.findByLabelText('Pack serveur Base'), '1');
+    await userEvent.selectOptions(screen.getByLabelText('Client Base'), '2');
     expect(await screen.findByText('périmé')).toBeTruthy();
-    await userEvent.click(screen.getByRole('button', { name: 'Ajouter tout (ATM10)' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Ajouter tout (Base)' }));
     await waitFor(() => expect(calls.filter((c) => c.method === 'PUT').length).toBe(1));
     expect(JSON.parse(calls.find((c) => c.method === 'PUT')!.body!)).toEqual({ action: 'adopt-atm', server: 1, client: 2 });
   });

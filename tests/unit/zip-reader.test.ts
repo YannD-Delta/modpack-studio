@@ -46,8 +46,8 @@ describe('openZip reading', () => {
   });
 
   it('lists names unchanged when the zip has a wrapper folder', async () => {
-    const zip = await openZip(await makeZip({ 'mods/a.jar': 'x' }, { wrapperDir: 'ATM10-server' }));
-    expect(zip.entries().map((e) => e.name)).toEqual(['ATM10-server/mods/a.jar']);
+    const zip = await openZip(await makeZip({ 'mods/a.jar': 'x' }, { wrapperDir: 'Base-server' }));
+    expect(zip.entries().map((e) => e.name)).toEqual(['Base-server/mods/a.jar']);
     await zip.close();
   });
 

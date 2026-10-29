@@ -101,15 +101,15 @@ describe('Settings page', () => {
   it('renames the two packs from Settings', async () => {
     wrap(<Settings />);
     const own = await screen.findByLabelText('Ton pack');
-    expect((own as HTMLInputElement).value).toBe('LMP');
-    expect((screen.getByLabelText('Pack suivi (référence)') as HTMLInputElement).value).toBe('ATM10');
+    expect((own as HTMLInputElement).value).toBe('Own');
+    expect((screen.getByLabelText('Pack suivi (référence)') as HTMLInputElement).value).toBe('Base');
     const save = screen.getByRole('button', { name: 'Enregistrer les noms' }) as HTMLButtonElement;
     expect(save.disabled).toBe(true);
     await userEvent.clear(own);
     await userEvent.type(own, 'MonPack');
     await userEvent.click(save);
     await waitFor(() => expect(calls.some((c) => c.url.endsWith('/settings/packs'))).toBe(true));
-    expect(JSON.parse(calls.find((c) => c.url.endsWith('/settings/packs'))!.body!)).toEqual({ upstream: 'ATM10', own: 'MonPack' });
+    expect(JSON.parse(calls.find((c) => c.url.endsWith('/settings/packs'))!.body!)).toEqual({ upstream: 'Base', own: 'MonPack' });
     expect(await screen.findByText('Noms enregistrés')).toBeTruthy();
   });
 });

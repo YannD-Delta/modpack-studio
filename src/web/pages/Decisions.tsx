@@ -259,7 +259,7 @@ function InfoPanel() {
     ['debug.info.jars', String(c.jars)],
     ['debug.info.modRows', String(c.modRows)],
     ['debug.info.decisions', tf('debug.info.decisionsValue', { pin: String(c.decisions.pin), ignore: String(c.decisions.ignore), side: String(c.decisions.side) })],
-    ['debug.info.blacklist', tf('debug.info.blacklistValue', { yann: String(c.blacklist.yann), atm: String(c.blacklist.atmDerived) })],
+    ['debug.info.blacklist', tf('debug.info.blacklistValue', { user: String(c.blacklist.user), atm: String(c.blacklist.atmDerived) })],
     ['debug.info.jobs', JOB_STATUSES.filter((s) => c.jobs[s] > 0).map((s) => `${c.jobs[s]} ${t(`debug.job.status.${s}` as MessageKey)}`).join(' · ') || '0'],
     ['debug.info.auditEntries', String(c.auditEntries)],
   ];

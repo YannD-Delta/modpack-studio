@@ -56,7 +56,7 @@
   "blacklist.adopt": "Ajouter tout ({upstream})",
   "blacklist.stale": "périmé",
   "blacklist.originAtm": "ATM",
-  "blacklist.originYann": "à toi",
+  "blacklist.originUser": "à toi",
   "blacklist.empty": "Liste vide.",
   "common.error": "Erreur",
   "common.loading": "Chargement…",

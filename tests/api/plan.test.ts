@@ -55,15 +55,15 @@ async function importAndWait(profileId: number, source: unknown) {
   expect((await waitJob((res.json() as { jobId: string }).jobId)).status).toBe('done');
 }
 
-/** ATM10 client (reference) vs LMP: a older in LMP, b missing from LMP, n newer in LMP, mine added. */
+/** Base client (reference) vs Own: a older in Own, b missing from Own, n newer in Own, mine added. */
 async function scenario() {
   const atm = await writeAtmPack(path.join(tmp, 'atm'), { atm: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: [], clientMods: [jar('a', '1.1'), jar('b'), jar('n', '1.0')] });
   fs.mkdirSync(path.join(atm.clientDir, 'config'));
   fs.writeFileSync(path.join(atm.clientDir, 'config', 'x.toml'), 'ref = 1\n');
   const lmp = await writeAtmPack(path.join(tmp, 'lmp'), { atm: '1.0', neoforge: '21.1.259', mc: '1.21.1', serverMods: [], clientMods: [jar('a', '1.0'), jar('n', '2.0'), jar('mine')] });
   const mk = async (body: object) => ((await call('POST', '/profiles', body)).json() as { id: number }).id;
-  const c = await mk({ pack: 'ATM10', version: '8.3', side: 'client', state: 'clean', locationKind: 'folder', location: atm.clientDir });
-  const l = await mk({ pack: 'LMP', version: '1.0', side: 'client', state: 'clean', locationKind: 'folder', location: lmp.clientDir });
+  const c = await mk({ pack: 'Base', version: '8.3', side: 'client', state: 'clean', locationKind: 'folder', location: atm.clientDir });
+  const l = await mk({ pack: 'Own', version: '1.0', side: 'client', state: 'clean', locationKind: 'folder', location: lmp.clientDir });
   await importAndWait(c, { kind: 'folder', path: atm.clientDir });
   await importAndWait(l, { kind: 'folder', path: lmp.clientDir });
   return { c, l, atm, lmp };
@@ -118,7 +118,7 @@ describe('plan api', () => {
 
     const job = (await call('GET', `/plan/jobs/${jobId}`)).json();
     expect(job).toMatchObject({ status: 'done' });
-    expect(job.name).toMatch(/^update-LMP-1\.0-from-ATM10-8\.3-\d{8}-\d{6}$/);
+    expect(job.name).toMatch(/^update-Own-1\.0-from-Base-8\.3-\d{8}-\d{6}$/);
 
     const list = (await call('GET', '/plan/exports')).json();
     expect(list).toHaveLength(1);
@@ -155,7 +155,7 @@ describe('plan api', () => {
 
   it('refuses to export before both profiles are imported or when the reference location is gone', async () => {
     const { c, l, atm } = await scenario();
-    const empty = ((await call('POST', '/profiles', { pack: 'LMP', version: '2.0', side: 'client', state: 'clean', locationKind: 'folder', location: path.join(tmp, 'none') })).json() as { id: number }).id;
+    const empty = ((await call('POST', '/profiles', { pack: 'Own', version: '2.0', side: 'client', state: 'clean', locationKind: 'folder', location: path.join(tmp, 'none') })).json() as { id: number }).id;
     expect((await call('POST', '/plan/export', { base: c, other: empty })).statusCode).toBe(409);
     await call('PUT', '/plan', { base: c, other: l, kind: 'mod', keys: ['a'], selected: true });
     fs.renameSync(atm.clientDir, `${atm.clientDir}-moved`);
@@ -171,7 +171,7 @@ describe('plan api', () => {
     expect(dbg.status).toBe('older');
     expect(dbg.base.entry).toMatchObject({ version: '1.1', file: 'a-1.1.jar' });
     expect(dbg.other.entry).toMatchObject({ version: '1.0', file: 'a-1.0.jar' });
-    expect(dbg.base.profile).toMatchObject({ id: c, label: expect.stringContaining('ATM10 8.3'), location: atm.clientDir });
+    expect(dbg.base.profile).toMatchObject({ id: c, label: expect.stringContaining('Base 8.3'), location: atm.clientDir });
     expect(dbg.comparison).toMatchObject({ result: 'older', deciding: { index: 1, tokenA: '0', tokenB: '1' } });
     expect(dbg.plan).toEqual({ planned: true, actionable: true, action: 'update' });
     expect(dbg.decisions).toMatchObject({ pin: null, ignore: null, side: null, blacklisted: null });

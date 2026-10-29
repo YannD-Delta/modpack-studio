@@ -24,7 +24,7 @@ function makeSource(): string {
   put(src, 'world/level.dat', 'WORLD');
   put(src, 'logs/latest.log', 'old log');
   put(src, 'crash-reports/crash-old.txt', 'old crash');
-  put(src, 'server.properties', 'level-name=world\nserver-port=25565\nonline-mode=true\nmotd=LMP\n');
+  put(src, 'server.properties', 'level-name=world\nserver-port=25565\nonline-mode=true\nmotd=Own\n');
   put(src, 'user_jvm_args.txt', '-Xms24G\n-Xmx48G\n-XX:+UseG1GC\n-XX:+AlwaysPreTouch\n');
   put(src, 'eula.txt', 'eula=true\n');
   put(src, 'run.bat', '@echo off\r\n');
@@ -41,7 +41,7 @@ describe('prepareServerDir', () => {
     const props = fs.readFileSync(path.join(dest, 'server.properties'), 'utf8');
     expect(props).toMatch(/^server-port=25570$/m);
     expect(props).toMatch(/^online-mode=false$/m);
-    expect(props).toMatch(/^motd=LMP$/m);
+    expect(props).toMatch(/^motd=Own$/m);
     const jvm = fs.readFileSync(path.join(dest, 'user_jvm_args.txt'), 'utf8');
     expect(jvm).toMatch(/^-Xms8192M$/m);
     expect(jvm).toMatch(/^-Xmx8192M$/m);

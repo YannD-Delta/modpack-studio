@@ -5,8 +5,8 @@ import { createProfile } from '../../src/server/profiles/profile-service.js';
 
 function setup() {
   const db = openDb(':memory:');
-  const mk = (pack: 'ATM10' | 'LMP', version: string) => createProfile(db, { pack, version, side: 'client', state: 'launched', locationKind: 'folder', location: `/x/${pack}${version}` });
-  return { db, base: mk('ATM10', '8.3').id, other: mk('LMP', 'test').id };
+  const mk = (pack: 'Base' | 'Own', version: string) => createProfile(db, { pack, version, side: 'client', state: 'launched', locationKind: 'folder', location: `/x/${pack}${version}` });
+  return { db, base: mk('Base', '8.3').id, other: mk('Own', 'test').id };
 }
 
 describe('plan store', () => {

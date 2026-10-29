@@ -2,7 +2,7 @@ import { audit } from '../db/audit.js';
 import type { Db } from '../db/open.js';
 import type { Side } from './side-classifier.js';
 
-export type BlacklistEntry = { modId: string; origin: 'atm_derived' | 'yann'; stale: boolean };
+export type BlacklistEntry = { modId: string; origin: 'atm_derived' | 'user'; stale: boolean };
 export type Decision = { modId: string; kind: 'side' | 'pin' | 'ignore'; side?: Side; reason: string };
 
 /** Replaces every ATM-derived row with the client-only set of this ATM version; the user's own entries are never touched. */
@@ -17,7 +17,7 @@ export function recomputeAtmDerived(db: Db, atmVersion: string, clientOnlyIds: s
 
 export function addToBlacklist(db: Db, modId: string, reason: string): void {
   db.sqlite
-    .prepare("INSERT INTO blacklist (mod_id, origin, valid_for, reason) VALUES (?, 'yann', NULL, ?) ON CONFLICT(mod_id, origin) DO UPDATE SET reason = excluded.reason")
+    .prepare("INSERT INTO blacklist (mod_id, origin, valid_for, reason) VALUES (?, 'user', NULL, ?) ON CONFLICT(mod_id, origin) DO UPDATE SET reason = excluded.reason")
     .run(modId, reason);
   audit(db, 'blacklist.add', modId, { reason });
 }
@@ -28,9 +28,9 @@ export type RemoveBlacklistResult = 'removed' | 'absent' | 'atm_derived';
 export function removeFromBlacklist(db: Db, modId: string): RemoveBlacklistResult {
   return db.sqlite.transaction((): RemoveBlacklistResult => {
     const rows = db.sqlite.prepare('SELECT origin, reason FROM blacklist WHERE mod_id = ?').all(modId) as { origin: string; reason: string }[];
-    const mine = rows.find((r) => r.origin === 'yann');
+    const mine = rows.find((r) => r.origin === 'user');
     if (!mine) return rows.length > 0 ? 'atm_derived' : 'absent';
-    db.sqlite.prepare("DELETE FROM blacklist WHERE mod_id = ? AND origin = 'yann'").run(modId);
+    db.sqlite.prepare("DELETE FROM blacklist WHERE mod_id = ? AND origin = 'user'").run(modId);
     audit(db, 'blacklist.remove', modId, { reason: mine.reason });
     return 'removed';
   })();
@@ -40,9 +40,9 @@ export function removeFromBlacklist(db: Db, modId: string): RemoveBlacklistResul
 export function setBlacklistReason(db: Db, modId: string, reason: string): RemoveBlacklistResult | 'updated' {
   return db.sqlite.transaction((): RemoveBlacklistResult | 'updated' => {
     const rows = db.sqlite.prepare('SELECT origin, reason FROM blacklist WHERE mod_id = ?').all(modId) as { origin: string; reason: string }[];
-    const mine = rows.find((r) => r.origin === 'yann');
+    const mine = rows.find((r) => r.origin === 'user');
     if (!mine) return rows.length > 0 ? 'atm_derived' : 'absent';
-    db.sqlite.prepare("UPDATE blacklist SET reason = ? WHERE mod_id = ? AND origin = 'yann'").run(reason, modId);
+    db.sqlite.prepare("UPDATE blacklist SET reason = ? WHERE mod_id = ? AND origin = 'user'").run(reason, modId);
     audit(db, 'blacklist.reason', modId, { from: mine.reason, to: reason });
     return 'updated';
   })();
@@ -64,13 +64,13 @@ export function getPins(db: Db): Set<string> {
 
 /** The server blacklist: ATM-derived and the user's rows, then side decisions applied on top ('client' adds, 'server'/'both' removes). */
 export function effectiveBlacklist(db: Db, atmVersion: string): BlacklistEntry[] {
-  const rows = db.sqlite.prepare('SELECT mod_id, origin, valid_for FROM blacklist').all() as { mod_id: string; origin: 'atm_derived' | 'yann'; valid_for: string | null }[];
+  const rows = db.sqlite.prepare('SELECT mod_id, origin, valid_for FROM blacklist').all() as { mod_id: string; origin: 'atm_derived' | 'user'; valid_for: string | null }[];
   const entries = new Map<string, BlacklistEntry>();
   for (const r of rows) entries.set(r.mod_id, { modId: r.mod_id, origin: r.origin, stale: r.origin === 'atm_derived' && r.valid_for !== atmVersion });
 
   const decisions = db.sqlite.prepare("SELECT mod_id, side FROM mod_decision WHERE kind = 'side'").all() as { mod_id: string; side: Side }[];
   for (const d of decisions) {
-    if (d.side === 'client') entries.set(d.mod_id, { modId: d.mod_id, origin: 'yann', stale: false });
+    if (d.side === 'client') entries.set(d.mod_id, { modId: d.mod_id, origin: 'user', stale: false });
     else entries.delete(d.mod_id);
   }
   return [...entries.values()].sort((a, b) => a.modId.localeCompare(b.modId));

@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { getPackNames, setPackNames, t, tf } from '../../src/web/i18n/index.js';
 
-afterEach(() => setPackNames({ upstream: 'ATM10', own: 'LMP' }));
+afterEach(() => setPackNames({ upstream: 'Base', own: 'Own' }));
 
 describe('pack names in the interface', () => {
-  it('shows ATM10 and LMP until Settings says otherwise', () => {
-    expect(t('oldpack.title')).toBe('Ancien pack contre ATM10');
-    expect(getPackNames()).toEqual({ upstream: 'ATM10', own: 'LMP' });
+  it('shows Base and Own until Settings says otherwise', () => {
+    expect(t('oldpack.title')).toBe('Ancien pack contre Base');
+    expect(getPackNames()).toEqual({ upstream: 'Base', own: 'Own' });
   });
 
   it('fills the names chosen in Settings into every text, with or without other variables', () => {
@@ -20,6 +20,6 @@ describe('pack names in the interface', () => {
     const files = await Promise.all([import('../../src/web/i18n/fr.json'), import('../../src/web/i18n/fr.decisions.json'), import('../../src/web/i18n/fr.assistant.json'), import('../../src/web/i18n/fr.configs.json')]);
     setPackNames({ upstream: 'AAA', own: 'BBB' });
     const text = files.flatMap((f) => Object.values(f.default as Record<string, string>)).join('\n');
-    expect(text).not.toMatch(/ATM10|\bLMP\b/); // nothing is hardcoded: the names come from Settings
+    expect(text).not.toMatch(/Base|\bLMP\b/); // nothing is hardcoded: the names come from Settings
   });
 });

@@ -11,9 +11,9 @@ const messages = { ...fr, ...frPlan, ...frConfigs, ...frDecisions, ...frSettings
 
 export type MessageKey = keyof typeof messages;
 
-/** The two pack names chosen in Settings: the followed pack (ATM10 by default) and the player's own (LMP by default). */
+/** The two pack names chosen in Settings: the followed pack (Base by default) and the player's own (Own by default). */
 export type PackNames = { upstream: string; own: string };
-let packNames: PackNames = { upstream: 'ATM10', own: 'LMP' };
+let packNames: PackNames = { upstream: 'Base', own: 'Own' };
 export const getPackNames = (): PackNames => packNames;
 export const setPackNames = (n: PackNames): void => {
   packNames = n;

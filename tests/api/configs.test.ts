@@ -84,8 +84,8 @@ async function scenario() {
     'kubejs/server_scripts/mine.js': '// mine\n',
     'logs/latest.log': 'x',
   });
-  const atm = await mk({ pack: 'ATM10', version: '8.3', side: 'client', state: 'clean', locationKind: 'folder', location: atmDir });
-  const lmp = await mk({ pack: 'LMP', version: '1.0', side: 'client', state: 'launched', locationKind: 'folder', location: lmpDir });
+  const atm = await mk({ pack: 'Base', version: '8.3', side: 'client', state: 'clean', locationKind: 'folder', location: atmDir });
+  const lmp = await mk({ pack: 'Own', version: '1.0', side: 'client', state: 'launched', locationKind: 'folder', location: lmpDir });
   return { atm, lmp, atmDir, lmpDir };
 }
 
@@ -128,13 +128,13 @@ describe('configs api', () => {
 
   it('always rescans a run profile', async () => {
     const dir = tree(path.join(tmp, 'run'), { 'config/a.toml': 'a = 1\n' });
-    const id = await mk({ pack: 'LMP', version: '1.0', side: 'server', state: 'run', locationKind: 'folder', location: dir });
+    const id = await mk({ pack: 'Own', version: '1.0', side: 'server', state: 'run', locationKind: 'folder', location: dir });
     await scan(id);
     expect((await scan(id)).status).toBe('done');
   });
 
   it('fails the scan job of a missing location and keeps the 409', async () => {
-    const id = await mk({ pack: 'LMP', version: '2.0', side: 'client', state: 'launched', locationKind: 'folder', location: path.join(tmp, 'missing') });
+    const id = await mk({ pack: 'Own', version: '2.0', side: 'client', state: 'launched', locationKind: 'folder', location: path.join(tmp, 'missing') });
     const job = await scan(id);
     expect(job.status).toBe('failed');
     expect(job.message).toMatch(/cannot read the location/);
@@ -260,9 +260,9 @@ describe('configs api', () => {
       { name: 'Server-Files-8.3/config/changed.toml', data: Buffer.from('[general]\r\nspeed = 1\r\nname = "x"\r\n'), method: 'deflate' },
       { name: 'Server-Files-8.3/mods/a.jar', data: Buffer.from('jar') },
     ]));
-    const srv = await mk({ pack: 'ATM10', version: '8.3', side: 'server', state: 'clean', locationKind: 'zip', location: zipPath });
+    const srv = await mk({ pack: 'Base', version: '8.3', side: 'server', state: 'clean', locationKind: 'zip', location: zipPath });
     const dir = tree(path.join(tmp, 'mine'), { 'config/same.toml': 'a = 1\n', 'config/changed.toml': '[general]\nspeed = 1\nname = "x"\n' });
-    const mine = await mk({ pack: 'LMP', version: '1.0', side: 'server', state: 'clean', locationKind: 'folder', location: dir });
+    const mine = await mk({ pack: 'Own', version: '1.0', side: 'server', state: 'clean', locationKind: 'folder', location: dir });
     await scan(srv);
     await scan(mine);
     const d = (await call('GET', `/configs/diff?base=${srv}&other=${mine}`)).json();

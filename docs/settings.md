@@ -7,7 +7,7 @@
 | Password | `data/settings.json` | scrypt hash; set with `npm run set-password` or the launcher |
 | API keys (Claude, CurseForge) | `data/secrets.json` | **Write-only**: the UI shows only the last 4 characters; never returned by the API, logged or audited |
 | Assistant model and effort | `data/preferences.json` | Model list and effort levels in `src/server/settings/secrets-store.ts` |
-| Pack names (base, yours) | `data/preferences.json` | Roles `upstream` and `own`; default placeholders are replaced by your names |
+| Pack names (base, yours) | `data/preferences.json` | Roles `upstream` and `own`; defaults are `Base` and `Own` until you set your names |
 
 ## Keys
 

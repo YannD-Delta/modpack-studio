@@ -44,12 +44,12 @@ function listFiles(dir: string): string[] {
   return out.sort();
 }
 
-/** ATM10 client (reference) against an LMP client: a older, b missing, c different, d rebuilt, mine added. */
+/** Base client (reference) against an Own client: a older, b missing, c different, d rebuilt, mine added. */
 async function scenario() {
   const atm = await writeAtmPack(path.join(tmp, 'atm'), {
     atm: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: [jar('a', '1.1'), jar('b')],
     clientMods: [jar('a', '1.1'), jar('b'), jar('c', '1.0-foo'), jar('d')],
-    wrapperDir: 'ATM10-Server-8.3',
+    wrapperDir: 'Base-Server-8.3',
   });
   fs.mkdirSync(path.join(atm.clientDir, 'config'), { recursive: true });
   fs.writeFileSync(path.join(atm.clientDir, 'config', 'x.toml'), 'ref = true\n');
@@ -57,8 +57,8 @@ async function scenario() {
     atm: '1.0', neoforge: '21.1.259', mc: '1.21.1', serverMods: [],
     clientMods: [jar('a', '1.0'), jar('c', '1.0-bar'), jar('d', '1.0', { manifestVersion: 'rebuilt' }), jar('mine')],
   });
-  const base = createProfile(db, { pack: 'ATM10', version: '8.3', side: 'client', state: 'clean', locationKind: 'folder', location: atm.clientDir });
-  const other = createProfile(db, { pack: 'LMP', version: '1.0', side: 'client', state: 'clean', locationKind: 'folder', location: lmp.clientDir });
+  const base = createProfile(db, { pack: 'Base', version: '8.3', side: 'client', state: 'clean', locationKind: 'folder', location: atm.clientDir });
+  const other = createProfile(db, { pack: 'Own', version: '1.0', side: 'client', state: 'clean', locationKind: 'folder', location: lmp.clientDir });
   await importModSet(db, { kind: 'folder', path: atm.clientDir }, base.id, ctx);
   await importModSet(db, { kind: 'folder', path: lmp.clientDir }, other.id, ctx);
   return { atm, lmp, base, other, exportsDir: path.join(tmp, 'data', 'exports') };
@@ -77,8 +77,8 @@ describe('isSafePlanFileKey', () => {
 
 describe('exportSafeName', () => {
   it('builds a sortable, sanitised folder name', () => {
-    const name = exportSafeName({ pack: 'LMP', version: '1.0 beta/2' }, { pack: 'ATM10', version: '8.3' }, new Date(Date.UTC(2026, 9, 29, 13, 5, 9)));
-    expect(name).toBe('update-LMP-1.0_beta_2-from-ATM10-8.3-20261029-130509');
+    const name = exportSafeName({ pack: 'Own', version: '1.0 beta/2' }, { pack: 'Base', version: '8.3' }, new Date(Date.UTC(2026, 9, 29, 13, 5, 9)));
+    expect(name).toBe('update-Own-1.0_beta_2-from-Base-8.3-20261029-130509');
     expect(name).toMatch(/^[A-Za-z0-9._-]+$/);
   });
 });
@@ -90,7 +90,7 @@ describe('buildUpdatePack', () => {
     setPlanItems(db, base.id, other.id, 'file', ['config/x.toml'], true);
 
     const r = await build(base, other, exportsDir);
-    expect(r.name).toBe('update-LMP-1.0-from-ATM10-8.3-20261029-130509');
+    expect(r.name).toBe('update-Own-1.0-from-Base-8.3-20261029-130509');
     expect(r.folder).toBe(path.join(exportsDir, r.name));
     expect(r.failures).toEqual([]);
     expect(r.counts).toMatchObject({ modsUpdated: 3, modsRestored: 1, jarsToRemove: 3, files: 1, failures: 0 });
@@ -108,7 +108,7 @@ describe('buildUpdatePack', () => {
     expect(changes.files).toEqual([{ path: 'config/x.toml', sha256: sha(path.join(atm.clientDir, 'config', 'x.toml')), size: 11 }]);
     expect(changes.mods.find((m) => m.modId === 'a')).toMatchObject({ action: 'update', file: 'a-1.1.jar', toVersion: '1.1', fromVersion: '1.0', replaces: 'a-1.0.jar' });
     expect(changes.mods.find((m) => m.modId === 'b')).toMatchObject({ action: 'restore', replaces: null });
-    expect(changes.base.label).toMatch(/ATM10 8\.3/);
+    expect(changes.base.label).toMatch(/Base 8\.3/);
     expect(fs.readFileSync(path.join(r.folder, 'CHANGES.md'), 'utf8')).toMatch(/\| a \| 1\.0 \| 1\.1 \|/);
 
     // the zip lives next to the folder, never inside it, and holds every file under the export name
@@ -160,7 +160,7 @@ describe('buildUpdatePack', () => {
 
   it('reads jars and files from a server-pack zip with a wrapper folder', async () => {
     const { atm, other, exportsDir } = await scenario();
-    const server = createProfile(db, { pack: 'ATM10', version: '8.3', side: 'server', state: 'clean', locationKind: 'zip', location: atm.serverZip });
+    const server = createProfile(db, { pack: 'Base', version: '8.3', side: 'server', state: 'clean', locationKind: 'zip', location: atm.serverZip });
     await importModSet(db, { kind: 'zip', path: atm.serverZip }, server.id, ctx);
     setPlanItems(db, server.id, other.id, 'mod', ['a', 'b'], true);
     setPlanItems(db, server.id, other.id, 'file', ['config/atm.toml'], true);
@@ -222,7 +222,7 @@ describe.skipIf(!pwsh)('apply.ps1', () => {
     setPlanItems(db, base.id, other.id, 'file', ['config/x.toml'], true);
     const r = await build(base, other, exportsDir);
 
-    // a disposable copy of the LMP instance, with a config file that will be overwritten
+    // a disposable copy of the Own instance, with a config file that will be overwritten
     const inst = path.join(tmp, 'instance');
     fs.cpSync(lmp.clientDir, inst, { recursive: true });
     fs.mkdirSync(path.join(inst, 'config'));

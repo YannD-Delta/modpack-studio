@@ -27,14 +27,14 @@ afterEach(() => {
 
 const profile = (id: number, pack: string, version: string, side: string, state: string) => ({ id, packVersionId: 1, pack, version, side, state, locationKind: 'folder', location: 'x', immutable: state !== 'run' });
 const matrix = [
-  { pack: 'ATM10', version: '8.3', cells: { 'client-clean': profile(2, 'ATM10', '8.3', 'client', 'clean'), 'client-launched': null, 'client-run': null, 'server-clean': null, 'server-launched': null, 'server-run': null } },
-  { pack: 'LMP', version: '1.0', cells: { 'client-clean': null, 'client-launched': profile(3, 'LMP', '1.0', 'client', 'launched'), 'client-run': null, 'server-clean': null, 'server-launched': null, 'server-run': null } },
+  { pack: 'Base', version: '8.3', cells: { 'client-clean': profile(2, 'Base', '8.3', 'client', 'clean'), 'client-launched': null, 'client-run': null, 'server-clean': null, 'server-launched': null, 'server-run': null } },
+  { pack: 'Own', version: '1.0', cells: { 'client-clean': null, 'client-launched': profile(3, 'Own', '1.0', 'client', 'launched'), 'client-run': null, 'server-clean': null, 'server-launched': null, 'server-run': null } },
 ];
 const inventory = (id: number) => ({ profile: { id }, scannedAt: '2026-10-29T10:00:00.000Z', total: 5, bytes: 100, perRoot: {}, issueCount: 0, issues: [] });
 const counts = (o: Partial<Record<string, number>>) => ({ onlyInBase: 0, modified: 0, binaryDiffers: 0, tooLarge: 0, onlyInOther: 0, cosmetic: 0, identical: 0, ...o });
 const diff: ConfigDiff = {
-  base: { id: 2, pack: 'ATM10', version: '8.3', side: 'client', state: 'clean', immutable: true, scannedAt: 'x' },
-  other: { id: 3, pack: 'LMP', version: '1.0', side: 'client', state: 'launched', immutable: true, scannedAt: 'x' },
+  base: { id: 2, pack: 'Base', version: '8.3', side: 'client', state: 'clean', immutable: true, scannedAt: 'x' },
+  other: { id: 3, pack: 'Own', version: '1.0', side: 'client', state: 'launched', immutable: true, scannedAt: 'x' },
   summary: {
     perStatus: counts({ onlyInBase: 1, modified: 1, onlyInOther: 1, cosmetic: 1, identical: 1 }),
     perRoot: { config: counts({ onlyInBase: 1, modified: 1, cosmetic: 1, identical: 1 }), kubejs: counts({ onlyInOther: 1 }) },
@@ -85,9 +85,9 @@ describe('Configs page', () => {
     mockApi(standard());
     wrap(<Configs />);
     await pick();
-    expect(await screen.findByText('Le fichier existe dans ATM10 8.3 mais pas dans LMP 1.0.')).toBeTruthy();
-    expect(screen.getByText('Le fichier existe dans LMP 1.0 mais pas dans ATM10 8.3.')).toBeTruthy();
-    expect(screen.getAllByText('manque dans LMP 1.0').length).toBeGreaterThan(0);
+    expect(await screen.findByText('Le fichier existe dans Base 8.3 mais pas dans Own 1.0.')).toBeTruthy();
+    expect(screen.getByText('Le fichier existe dans Own 1.0 mais pas dans Base 8.3.')).toBeTruthy();
+    expect(screen.getAllByText('manque dans Own 1.0').length).toBeGreaterThan(0);
     expect(screen.getAllByTestId('config-row')).toHaveLength(4);
     expect(screen.queryByText('same.toml')).toBeNull();
     // the state of each profile is visible, with a tooltip explaining what it means for configs
@@ -141,12 +141,12 @@ describe('Configs page', () => {
     mockApi(standard());
     wrap(<Configs />);
     await pick();
-    const take = await screen.findByRole('button', { name: 'Prendre la version de ATM10 8.3 config/sub/changed.toml' });
+    const take = await screen.findByRole('button', { name: 'Prendre la version de Base 8.3 config/sub/changed.toml' });
     expect(take.getAttribute('title')).toMatch(/Ne modifie rien maintenant/);
     expect(take.getAttribute('title')).toMatch(/Ne touche jamais à l'instance/);
     // only plannable statuses get the toggle
-    expect(screen.queryByRole('button', { name: /Prendre la version de ATM10 8\.3 kubejs/ })).toBeNull();
-    expect(screen.queryByRole('button', { name: /Prendre la version de ATM10 8\.3 config\/format\.json/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Prendre la version de Base 8\.3 kubejs/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Prendre la version de Base 8\.3 config\/format\.json/ })).toBeNull();
     await userEvent.click(take);
     expect(await screen.findByRole('button', { name: '✓ Prévu config/sub/changed.toml' })).toBeTruthy();
     expect(JSON.parse(calls.find((c) => c.method === 'PUT')!.body!)).toEqual({ base: 2, other: 3, paths: ['config/sub/changed.toml'], selected: true });

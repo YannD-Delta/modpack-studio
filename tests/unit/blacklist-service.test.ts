@@ -14,7 +14,7 @@ describe('blacklist service', () => {
     addToBlacklist(db, 'mine', 'useless on server');
     recomputeAtmDerived(db, '8.3', ['new1']);
     const list = effectiveBlacklist(db, '8.3');
-    expect(list.map((e) => [e.modId, e.origin]).sort()).toEqual([['mine', 'yann'], ['new1', 'atm_derived']]);
+    expect(list.map((e) => [e.modId, e.origin]).sort()).toEqual([['mine', 'user'], ['new1', 'atm_derived']]);
   });
 
   it('flags ATM-derived rows computed for another ATM version as stale', () => {

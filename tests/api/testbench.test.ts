@@ -48,8 +48,8 @@ beforeEach(async () => {
   app = buildApp({ db, jobs: new JobRunner(db), config, dataDir: path.join(tmp, 'data'), testBenchStartCommand: fake });
   await app.ready();
   cookie = String((await app.inject({ method: 'POST', url: '/api/v1/auth/login', payload: { password: 'pw' } })).headers['set-cookie']).split(';')[0]!;
-  serverProfile = createProfile(db, { pack: 'LMP', version: 'test', side: 'server', state: 'launched', locationKind: 'folder', location: src }).id;
-  clientProfile = createProfile(db, { pack: 'LMP', version: 'test', side: 'client', state: 'launched', locationKind: 'folder', location: src }).id;
+  serverProfile = createProfile(db, { pack: 'Own', version: 'test', side: 'server', state: 'launched', locationKind: 'folder', location: src }).id;
+  clientProfile = createProfile(db, { pack: 'Own', version: 'test', side: 'client', state: 'launched', locationKind: 'folder', location: src }).id;
 });
 afterEach(async () => {
   await app.close();
@@ -75,7 +75,7 @@ describe('testbench api', () => {
     const res = await call('POST', '/testbench/server', { profile: serverProfile, memoryMb: 1024, port: 25577, timeoutMin: 1 });
     expect(res.statusCode).toBe(202);
     const { runId } = res.json() as { runId: string };
-    expect(runId).toMatch(/^\d{8}-\d{6}_LMP-test-launched$/);
+    expect(runId).toMatch(/^\d{8}-\d{6}_Own-test-launched$/);
 
     const done = await waitFor(async () => {
       const d = (await call('GET', `/testbench/runs/${runId}`)).json();
@@ -98,9 +98,9 @@ describe('testbench api', () => {
   it('refuses a client profile, a zip, an unknown profile and a missing folder', async () => {
     expect((await call('POST', '/testbench/server', { profile: clientProfile })).statusCode).toBe(409);
     expect((await call('POST', '/testbench/server', { profile: 999 })).statusCode).toBe(404);
-    const zip = createProfile(db, { pack: 'ATM10', version: '8.3', side: 'server', state: 'clean', locationKind: 'zip', location: path.join(tmp, 'x.zip') }).id;
+    const zip = createProfile(db, { pack: 'Base', version: '8.3', side: 'server', state: 'clean', locationKind: 'zip', location: path.join(tmp, 'x.zip') }).id;
     expect((await call('POST', '/testbench/server', { profile: zip })).statusCode).toBe(409);
-    const gone = createProfile(db, { pack: 'ATM10', version: '8.4', side: 'server', state: 'clean', locationKind: 'folder', location: path.join(tmp, 'missing') }).id;
+    const gone = createProfile(db, { pack: 'Base', version: '8.4', side: 'server', state: 'clean', locationKind: 'folder', location: path.join(tmp, 'missing') }).id;
     expect((await call('POST', '/testbench/server', { profile: gone })).statusCode).toBe(409);
   });
 

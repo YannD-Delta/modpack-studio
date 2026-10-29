@@ -1,4 +1,4 @@
-// Seeds a throwaway data directory with synthetic ATM10 / LMP packs so the UI can be looked at.
+// Seeds a throwaway data directory with synthetic Base / Own packs so the UI can be looked at.
 // Usage: tsx scripts/seed-demo.ts <dataDir> [port]   (login password: demo)
 import fs from 'node:fs';
 import path from 'node:path';
@@ -31,13 +31,13 @@ const lmp = await writeAtmPack(path.join(dataDir, 'packs', 'lmp'), { atm: '1.0',
 
 const db = openDb(path.join(dataDir, 'studio.db'));
 const ctx = { params: null, signal: new AbortController().signal, progress: () => undefined };
-const mk = (pack: 'ATM10' | 'LMP', version: string, side: 'client' | 'server', state: 'clean' | 'launched' | 'run', kind: 'zip' | 'folder', location: string) =>
+const mk = (pack: 'Base' | 'Own', version: string, side: 'client' | 'server', state: 'clean' | 'launched' | 'run', kind: 'zip' | 'folder', location: string) =>
   createProfile(db, { pack, version, side, state, locationKind: kind, location });
-const s = mk('ATM10', '8.3', 'server', 'clean', 'zip', atm.serverZip);
-const c = mk('ATM10', '8.3', 'client', 'clean', 'folder', atm.clientDir);
-const l = mk('LMP', '1.0', 'client', 'clean', 'folder', lmp.clientDir);
-mk('ATM10', '8.2', 'server', 'clean', 'zip', 'old-atm-8.2.zip');
-mk('LMP', '1.0', 'server', 'run', 'agent', 'server-pc');
+const s = mk('Base', '8.3', 'server', 'clean', 'zip', atm.serverZip);
+const c = mk('Base', '8.3', 'client', 'clean', 'folder', atm.clientDir);
+const l = mk('Own', '1.0', 'client', 'clean', 'folder', lmp.clientDir);
+mk('Base', '8.2', 'server', 'clean', 'zip', 'old-atm-8.2.zip');
+mk('Own', '1.0', 'server', 'run', 'agent', 'server-pc');
 await importModSet(db, { kind: 'zip', path: atm.serverZip }, s.id, ctx);
 await importModSet(db, { kind: 'folder', path: atm.clientDir }, c.id, ctx);
 await importModSet(db, { kind: 'folder', path: lmp.clientDir }, l.id, ctx);

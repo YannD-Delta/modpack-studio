@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { Db } from '../db/open.js';
 
-/** A pack name is a setting (see settings/packs.ts): the followed pack, ATM10 by default, and the player's own, LMP by default. */
+/** A pack name is a setting (see settings/packs.ts): the followed pack, Base by default, and the player's own, Own by default. */
 export type Pack = string;
 export type Side = 'client' | 'server';
 export type State = 'clean' | 'launched' | 'run';
