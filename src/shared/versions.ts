@@ -9,11 +9,21 @@ const ALIASES: Record<string, string> = { a: 'alpha', b: 'beta', m: 'milestone',
 // A token made only of hex digits, at least 7 long, with both letters and digits, is a commit hash: it has no order.
 const HASH_LIKE = /(?<![0-9a-z])(?=[0-9a-f]*[a-f])(?=[0-9a-f]*\d)[0-9a-f]{7,}(?![0-9a-z])/;
 
+// Maven turns the lone letters a/b/m into alpha/beta/milestone only when a number follows them directly (1.0b1).
+// A trailing letter on its own is a patch letter (2.5.4b), so it stays a plain qualifier that sorts after the release.
+const GLUED_ALIASES = new Set(['a', 'b', 'm']);
+
 function parse(version: string): Item[] | null {
   const v = version.trim().toLowerCase();
   if (!v || v.includes('${') || !/\d/.test(v) || HASH_LIKE.test(v)) return null;
-  const tokens = v.match(/\d+|[a-z]+/g) ?? [];
-  return tokens.map((t) => (/^\d/.test(t) ? { kind: 'num', value: Number(t) } : { kind: 'str', value: ALIASES[t] ?? t }));
+  const items: Item[] = [];
+  for (const m of v.matchAll(/\d+|[a-z]+/g)) {
+    const t = m[0];
+    if (/^\d/.test(t)) items.push({ kind: 'num', value: Number(t) });
+    else if (GLUED_ALIASES.has(t)) items.push({ kind: 'str', value: /\d/.test(v[m.index + t.length] ?? '') ? ALIASES[t]! : t });
+    else items.push({ kind: 'str', value: ALIASES[t] ?? t });
+  }
+  return items;
 }
 
 function rank(q: string): number {
@@ -26,7 +36,11 @@ function cmpQualifier(a: string, b: string): number {
   const ra = rank(a);
   const rb = rank(b);
   if (ra !== rb) return ra - rb;
-  if (ra === QUALIFIER_ORDER.length) return a === b ? 0 : Number.NaN;
+  if (ra === QUALIFIER_ORDER.length) {
+    if (a === b) return 0;
+    if (a.length === 1 && b.length === 1) return a < b ? -1 : 1; // patch letters: 2.5.4b comes after 2.5.4a
+    return Number.NaN;
+  }
   return 0;
 }
 
