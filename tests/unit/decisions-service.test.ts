@@ -16,7 +16,7 @@ afterEach(() => db.close());
 const auditRows = () => db.sqlite.prepare('SELECT action, target, detail FROM audit_log ORDER BY id').all() as { action: string; target: string; detail: string }[];
 
 describe('listMemory', () => {
-  it('lists every decision and only Yann blacklist rows, counting the ATM-derived ones', () => {
+  it('lists every decision and only user blacklist rows, counting the ATM-derived ones', () => {
     setDecision(db, { modId: 'old', kind: 'pin', reason: 'keep 1.0' });
     setDecision(db, { modId: 'gone', kind: 'ignore', reason: 'dropped' });
     setDecision(db, { modId: 'hud', kind: 'side', side: 'client', reason: 'client only' });
@@ -85,7 +85,7 @@ describe('setDecisionReason', () => {
 });
 
 describe('removeFromBlacklist', () => {
-  it('removes a Yann row, keeps an ATM-derived row of the same id, and audits', () => {
+  it('removes a user row, keeps an ATM-derived row of the same id, and audits', () => {
     recomputeAtmDerived(db, '8.3', ['both']);
     addToBlacklist(db, 'both', 'mine too');
     addToBlacklist(db, 'mine', '');
@@ -105,7 +105,7 @@ describe('removeFromBlacklist', () => {
 });
 
 describe('setBlacklistReason', () => {
-  it("edits only Yann's row, keeps its date and audits", () => {
+  it("edits only the user's row, keeps its date and audits", () => {
     recomputeAtmDerived(db, '8.3', ['cli']);
     addToBlacklist(db, 'mine', 'before');
     const createdAt = listMemory(db).blacklist[0]!.createdAt;

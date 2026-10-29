@@ -1,17 +1,19 @@
 # Modpack Studio - design (v2, after the full logic pass)
 
-Status: v1 written 2026-10-29 from 5 parallel research passes; v2 the same day after Yann's clarifications (profile matrix,
+> Design record. In these plans `BASE` is the base modpack (role `upstream`) and `OWN` is your modpack (role `own`); the real names are settings.
+
+Status: v1 written 2026-10-29 from 5 parallel research passes; v2 the same day after the user's clarifications (profile matrix,
 two machines, Node/TypeScript) and a double logic review (author + independent Opus reviewer). Nothing is built yet.
 **[verified]** = checked in a source by the research; **[to re-check]** = must be confirmed before relying on it.
 
 ## 1. Goal
 
-A self-hosted local web app on Yann's Minecraft **Studio PC** (test/deploy) that maintains **LMP** (his custom pack built on
-ATM10) without ever redoing work between two ATM10 or LMP updates:
+A self-hosted local web app on the user's Minecraft **Studio PC** (test/deploy) that maintains **OWN** (his custom pack built on
+BASE) without ever redoing work between two BASE or OWN updates:
 
-- compare ATM10 server pack, ATM10 client and LMP: updated / added / missing mods, NeoForge version on every side (must match);
-- classify mods client / server / both; keep a server blacklist derived from ATM's own choices;
-- compare config profiles, show differences, let him choose (his / ATM10's / the server's / edit), remember every choice and replay
+- compare BASE server pack, BASE client and OWN: updated / added / missing mods, NeoForge version on every side (must match);
+- classify mods client / server / both; keep a server blacklist derived from BASE's own choices;
+- compare config profiles, show differences, let him choose (his / BASE's / the server's / edit), remember every choice and replay
   it intelligently on the next version (later also another loader or Minecraft version);
 - harvest the settings he changes live on the running server and client, and turn them into reusable customizations;
 - build the CurseForge player pack and the server pack, regenerate the first-join message, publish (automated, opt-in);
@@ -23,19 +25,19 @@ ATM10) without ever redoing work between two ATM10 or LMP updates:
 
 | Machine | Role | Runs |
 |---|---|---|
-| **Studio PC** (test/deploy, Yann starts it 2026-10-29 evening) | clients, ATM10 zips, this app | Studio as a **logon task under Yann's user account** (not a LocalSystem service: SMB needs a user's credentials) |
-| **Server PC** (the current PC) | MCSS + LMP server, **receives and runs only** | `lmp-deploy-agent` (Node, started at logon with a watchdog like the existing bridge) |
-| **Gaming PC** | LMP client really played (`run`) | nothing; read **read-only through SMB** from the Studio |
+| **Studio PC** (test/deploy, the maintainer starts it 2026-10-29 evening) | clients, BASE zips, this app | Studio as a **logon task under the user's user account** (not a LocalSystem service: SMB needs a user's credentials) |
+| **Server PC** (the current PC) | MCSS + OWN server, **receives and runs only** | `lmp-deploy-agent` (Node, started at logon with a watchdog like the existing bridge) |
+| **Gaming PC** | OWN client really played (`run`) | nothing; read **read-only through SMB** from the Studio |
 
 The MCSS API key stays on the server PC: only the agent talks to MCSS, the Studio never sees that key.
 
 ## 3. Versions and profiles (the data backbone)
 
 **Pack versions**: `atm_version` (e.g. 8.3 with its MC and NeoForge versions) and `lmp_version` (his numbering, with
-`base_atm_version` and `lmp_hotfix` counter for hotfixes on the same ATM base). Loader rule: LMP client == LMP server; differing
-from ATM only with an explicit override.
+`base_atm_version` and `lmp_hotfix` counter for hotfixes on the same BASE base). Loader rule: OWN client == OWN server; differing
+from BASE only with an explicit override.
 
-**Profile** = a labelled snapshot of a folder set: `pack` (ATM10 | LMP) + `pack_version` + `side` (client | server) + `state` +
+**Profile** = a labelled snapshot of a folder set: `pack` (BASE | OWN) + `pack_version` + `side` (client | server) + `state` +
 `location` (zip | local path | SMB path | agent snapshot). Every combination is optional; the UI shows the matrix with what exists.
 
 | State | Meaning | Rule |
@@ -45,22 +47,22 @@ from ATM only with an explicit override.
 | `run` | really used and tweaked on the fly | read-only capture, refused while the game/server process runs |
 
 Matrix: for each pack version there are client and server in `clean` / `launched` / `run`; **old versions keep only `clean`**
-(their jar bytes are not kept either, only metadata). The Studio itself **produces** the `LMP clean` profiles (its builds); old ones
+(their jar bytes are not kept either, only metadata). The Studio itself **produces** the `OWN clean` profiles (its builds); old ones
 are imported from earlier zips. A server has no `launched` profile unless the agent captures one right after the first boot.
 
 Derivations (each is a plain semantic compare of two profiles):
 
 | Question | Compare |
 |---|---|
-| What did the ATM10 authors change? | `ATM new clean` vs `ATM old clean` |
-| My own layer on top of ATM (mods + configs) | `LMP old clean` vs `ATM old clean` |
+| What did the BASE authors change? | `BASE new clean` vs `BASE old clean` |
+| My own layer on top of BASE (mods + configs) | `OWN old clean` vs `BASE old clean` |
 | Noise generated by the game (ignore) | `launched` vs `clean` |
 | **What did I tweak live?** (harvest) | `run` vs `launched` (server: vs its post-first-boot baseline) |
-| Did the rebuild keep my intent? | `LMP new clean` vs (`ATM new clean` + replayed customizations) |
+| Did the rebuild keep my intent? | `OWN new clean` vs (`BASE new clean` + replayed customizations) |
 | Client/server in sync on shared settings? | `client run` vs `server run`, shared (`-common`) config files only |
 
 Live tweaks are compared with `launched`, never `clean` (a first launch already rewrites files).
-**Bootstrap**: today's server has no baseline; the first harvest compares with `LMP server clean` and marks every item
+**Bootstrap**: today's server has no baseline; the first harvest compares with `OWN server clean` and marks every item
 "unverified". A value that the first boot auto-corrects right after the Studio deployed it signals an invalid intent, not noise.
 Excluded from every compare: `logs/`, `crash-reports/`, `usercache`, `ops/whitelist/banned-*`, caches, saves, secrets.
 **Exception**: `<level-name>/serverconfig/**` (level name read from `server.properties`) is included, because NeoForge reads
@@ -68,18 +70,18 @@ per-world server configs there and `defaultconfigs` only fills missing files.
 
 ## 4. Mod comparison (by mod id, not file name)
 
-Sets: `ATM-S` (server pack, jars), `ATM-C` (ATM10 client, an untouched instance with jars; Q1), `LMP-C` (Clean LMP client).
-**Precondition**: `ATM-C.version == ATM-S.version` and the same NeoForge/MC; else the side derivation is blocked.
+Sets: `BASE-S` (server pack, jars), `BASE-C` (BASE client, an untouched instance with jars; Q1), `OWN-C` (Clean OWN client).
+**Precondition**: `BASE-C.version == BASE-S.version` and the same NeoForge/MC; else the side derivation is blocked.
 
-- ATM's own choices (ground truth): `ATM-C − ATM-S` client-only, `ATM-S − ATM-C` server-only, intersection both.
+- BASE's own choices (ground truth): `BASE-C − BASE-S` client-only, `BASE-S − BASE-C` server-only, intersection both.
   The client-only set seeds the blacklist (one click); it is **recomputed on every import** (`origin = atm_derived | yann`,
-  `valid_for` = ATM version) because ATM can change a mod's side.
-- **Yann's layer = `LMP-C` vs `ATM-C`** (client vs client): updated / added / pinned. Never compare a client set with a server set.
-- **Anomaly** = `ATM-C − LMP-C` (a mod ATM has and LMP lacks; Yann does not remove mods). An unresolved anomaly **blocks the build**
+  `valid_for` = BASE version) because BASE can change a mod's side.
+- **the user's layer = `OWN-C` vs `BASE-C`** (client vs client): updated / added / pinned. Never compare a client set with a server set.
+- **Anomaly** = `BASE-C − OWN-C` (a mod BASE has and OWN lacks; the maintainer does not remove mods). An unresolved anomaly **blocks the build**
   (the server would otherwise get a mod its clients lack and fail the registry check on join). Resolve: restore / accept removal / pin.
-- Across ATM versions: a mod ATM removes but LMP still has becomes "LMP-kept" (a decision); a mod updated by both ATM and Yann
-  is a conflict (his pin or ATM's version).
-- **Server pack** = `ATM-S` + (Yann's added/updated mods that are server-allowed, section 5); replaced jars go to quarantine.
+- Across BASE versions: a mod BASE removes but OWN still has becomes "OWN-kept" (a decision); a mod updated by both BASE and the maintainer
+  is a conflict (his pin or BASE's version).
+- **Server pack** = `BASE-S` + (the user's added/updated mods that are server-allowed, section 5); replaced jars go to quarantine.
 - **Identity rules**: key = the top-level jar's mod id(s) read from `META-INF/neoforge.mods.toml` (then legacy `mods.toml`,
   `fabric.mod.json`); a jar may declare several ids; jar-in-jar entries are informational, never top-level; library jars without
   a mod id are keyed by `Automatic-Module-Name` + fingerprint; `${file.jarVersion}` is resolved from `MANIFEST.MF`; a duplicate
@@ -90,11 +92,11 @@ Sets: `ATM-S` (server pack, jars), `ATM-C` (ATM10 client, an untouched instance 
 
 ## 5. Mod side classification (confidence cascade)
 
-Only mods **new in LMP** need it. Highest priority first; disagreement marks "uncertain" and sends the mod to the boot test.
+Only mods **new in OWN** need it. Highest priority first; disagreement marks "uncertain" and sends the mod to the boot test.
 
-1. Yann's decision (remembered, keyed by mod id).
+1. the user's decision (remembered, keyed by mod id).
 2. Boot-test proof: `Attempted to load class net/minecraft/client/... for invalid dist DEDICATED_SERVER` = client-only [verified].
-3. ATM membership (section 4).
+3. BASE membership (section 4).
 4. `@Mod(dist = Dist.CLIENT)` (one class only; a mod can also have a common entry point).
 5. Modrinth `environment` by file hash (bulk `version_files`, no key, 300 req/min, unique User-Agent) [verified]; author-set, not moderated.
 6. CurseForge file tags "Client"/"Server" (needs a key; no tag = keep) [verified via Prism / mc-image-helper].
@@ -108,13 +110,13 @@ one crash is found per boot, so a bisect budget is planned).
 
 ## 6. Config engine and customization memory
 
-**Files are classified first**: added/removed upstream, Yann-only, run-only (generated), renamed. Config files carry a side
-(`-client` / `-common` / `-server`): the server build takes only the matching subset of Yann's layer.
+**Files are classified first**: added/removed upstream, user-only, run-only (generated), renamed. Config files carry a side
+(`-client` / `-common` / `-server`): the server build takes only the matching subset of the user's layer.
 
-**Merge inputs (per file)**: `O` = ATM old clean, `A` = ATM new clean, `B` = LMP old clean (O + my layer); output = `LMP new clean`
+**Merge inputs (per file)**: `O` = BASE old clean, `A` = BASE new clean, `B` = OWN old clean (O + my layer); output = `OWN new clean`
 = `A` + replay of (`B − O`). The live `run` file is **never a merge input**; it feeds harvest (section 7). Classes per setting:
 unchanged / only mine / only upstream / same change / **true conflict** / upstream removed a key I changed / moved-renamed /
-type changed. Choices per item: mine / ATM10 / server / edit manually (integrated editor).
+type changed. Choices per item: mine / BASE / server / edit manually (integrated editor).
 
 **Semantic, not textual.** Files are normalized to settings `{path, key, section, type, value, comment, span}`. Alignment cascade:
 exact path -> same leaf elsewhere -> same section/type/similar comment/same old default -> fuzzy name. **Safety rules**:
@@ -139,8 +141,8 @@ UI/logs and excluded from AI payloads. Windows traps handled: case-colliding zip
 with a per-world override in `<level>/serverconfig`; NeoForge rewrites/auto-corrects files and keeps `.bak` copies, so profiles
 are compared semantically.
 
-**First-join message**: never edit ATM's `kubejs/server_scripts/announcements/announcements.js`. Generate
-`kubejs/server_scripts/lmp/welcome.js` from a template (LMP version, mods added/removed/updated, this cycle's customizations,
+**First-join message**: never edit BASE's `kubejs/server_scripts/announcements/announcements.js`. Generate
+`kubejs/server_scripts/lmp/welcome.js` from a template (OWN version, mods added/removed/updated, this cycle's customizations,
 dismissal tracked in player persistent data); MOTD templated in `server.properties` (non-ASCII written as `\uXXXX` escapes
 [to re-check]).
 
@@ -148,19 +150,19 @@ dismissal tracked in player persistent data); MOTD templated in `server.properti
 
 Import -> **Loader check** -> **Harvest** -> Mods -> Sides -> Configs -> Test (boot) -> Build -> Deploy -> **Baseline capture**.
 
-1. *Import* the new ATM10 zips (server + client) as immutable `clean` snapshots.
-2. *Loader check*: NeoForge/MC equal on ATM-S, ATM-C, LMP-C; blocks otherwise.
+1. *Import* the new BASE zips (server + client) as immutable `clean` snapshots.
+2. *Loader check*: NeoForge/MC equal on BASE-S, BASE-C, OWN-C; blocks otherwise.
 3. *Harvest* (mandatory before anything that writes): `run` vs `launched` on the server (through the agent's read-only snapshot
    endpoint) and on the gaming-PC client (SMB read-only) -> proposals (`pending / accepted / rejected / ignored_forever`).
-4. *Mods* and *Sides*: sections 4-5. *Configs*: sections 6, merge to `LMP new clean`.
-5. *Test*: boot `LMP server clean` headless on the Studio PC; this also yields the `launched` profile of the new version.
+4. *Mods* and *Sides*: sections 4-5. *Configs*: sections 6, merge to `OWN new clean`.
+5. *Test*: boot `OWN server clean` headless on the Studio PC; this also yields the `launched` profile of the new version.
 6. *Build*: player pack and server pack from **clean** trees only (never from `launched` or `run`).
 7. *Deploy*: section 8. 8. *Baseline capture*: the agent snapshots the server right after the first healthy `Done`, before any
    player or tweak, and again after every deploy including hotfixes.
 
 ## 8. Builds, deployment, publishing
 
-**Player pack (CurseForge)**: `manifest.json` + `overrides/` + `modlist.html`. Ids come from the LMP client's
+**Player pack (CurseForge)**: `manifest.json` + `overrides/` + `modlist.html`. Ids come from the OWN client's
 `minecraftinstance.json` (`installedAddons[]`), no API key needed [verified from a public sample]; mods added outside the CurseForge
 app have no entry there: fallback = overrides if permitted, else manual. Mods not allowed for third-party distribution go in the
 manifest only. `.mrpack` export is a later add-on.
@@ -179,14 +181,14 @@ one deploy at a time; allowlisted roots; no arbitrary command. Journaled state m
 **Publish to CurseForge (automated, opt-in)**: the author upload API (separate author token, `.../api/projects/{id}/upload-file` with
 a metadata JSON, `parentFileID` for the server pack) [to re-check: no 2026 official page found; modpack moderation applies].
 Dry-run, then an explicit click; before uploading it lists existing files to avoid duplicates; token in the Windows Credential
-Manager. **Public publishing is blocked** until permission is obtained for ATM10-derived content (ATM10's repository shows no
-derivative licence); unlisted/private is allowed. Same pattern later for Modrinth. Release report: diff between two LMP versions
+Manager. **Public publishing is blocked** until permission is obtained for BASE-derived content (BASE's repository shows no
+derivative licence); unlisted/private is allowed. Same pattern later for Modrinth. Release report: diff between two OWN versions
 -> French changelog (also feeds the welcome message).
 
 ## 9. Storage and data model
 
 Blobs live **on disk** (sha256-addressed, reference-counted, garbage-collected), not in SQLite. Jar bytes are kept only for the current
-LMP and staged builds; every snapshot keeps jar **metadata** (id, version, side, hash). Old versions: `clean` only. Rescans use
+OWN and staged builds; every snapshot keeps jar **metadata** (id, version, side, hash). Old versions: `clean` only. Rescans use
 size+mtime only as a cache hint and hash before trusting it.
 
 Tables: `pack_version`, `profile(pack, pack_version, side, state, location, source_id, captured_at, manifest_hash, immutable)`,
@@ -240,7 +242,7 @@ Python was considered (best config libraries) but needs a JS front end anyway, i
 Dark, dense, one accent colour plus semantic status colours (added / removed / changed / conflict), icons + text, French copy,
 keyboard-first (`j/k`, `a/r`, Ctrl+K, `?`). Two modes on the same views: the **update wizard** (section 7 order, resumable, "to
 decide" counters) and free exploration. Pages: Dashboard, Update wizard, Profiles (the matrix), Mods, Configs (3-way + editor),
-Harvest, Memory, Build, Test, Server (MCSS), Watch (new ATM10 / mod releases), Assistant, History.
+Harvest, Memory, Build, Test, Server (MCSS), Watch (new BASE / mod releases), Assistant, History.
 
 ## 13. Security
 
@@ -269,7 +271,7 @@ the user's own files are kept, and the CurseForge API stays optional.
 | Phase | Content |
 |---|---|
 | 0 | Skeleton: logon task, auth, DB + blob store, jobs/SSE, safe filesystem, fixtures generator, profile model |
-| 1 | Import ATM-S / ATM-C / LMP-C, mod diff by mod id, loader check, blacklist from ATM sets, anomalies, decisions memory |
+| 1 | Import BASE-S / BASE-C / OWN-C, mod diff by mod id, loader check, blacklist from BASE sets, anomalies, decisions memory |
 | 2 | Config engine (profiles, 3-way, integrated editor), customization memory + replay, **harvest** (minimal read-only agent snapshot endpoint + SMB read), secrets masking |
 | 3 | Player/server pack builds, welcome message + changelog, boot test, `launched` capture |
 | 4 | Full deploy agent (journal, MCSS, world backup, rollback, baseline), CurseForge publish (dry-run + click), n8n/Discord, watch |
@@ -278,19 +280,19 @@ the user's own files are kept, and the CurseForge API stays optional.
 
 Phase 1+2 are the MVP (the recurring pain: mods and configs).
 
-## 16. Defaults (Yann: "fait au mieux"; change any)
+## 16. Defaults (the maintainer: "fait au mieux"; change any)
 
 Node/TypeScript, SQLite, CodeMirror 6; Studio on a logon task, LAN only with a password; deploy through the agent only; memory in SQLite
-with YAML export; separate LMP welcome script; assistant read-only until Phase 5's approved proposals, hard spend stop, no web access;
-publishing automated but opt-in and blocked publicly until ATM10-derived-content permission; ATM10 8.3 / NeoForge 21.1.259 / MC 1.21.1
-reported current on 2026-10-15 **[to re-check]** (ATM11 targets MC 26.1.2).
+with YAML export; separate OWN welcome script; assistant read-only until Phase 5's approved proposals, hard spend stop, no web access;
+publishing automated but opt-in and blocked publicly until BASE-derived-content permission; BASE 8.3 / NeoForge 21.1.259 / MC 1.21.1
+reported current on 2026-10-15 **[to re-check]** (the next major base release targets MC 26.1.2).
 
 ## 17. Open questions (decision-changing; defaults above apply meanwhile)
 
-1. **ATM10 client source**: an untouched ATM10 client instance on the Studio PC (jars on disk), or only the CurseForge client ZIP
+1. **BASE client source**: an untouched BASE client instance on the Studio PC (jars on disk), or only the CurseForge client ZIP
    (ids only, needs a CurseForge API key)?
-2. LMP **public** on CurseForge (needs ATM10 derivative permission) or unlisted/private? The CurseForge project and an author token are needed either way.
-3. Does LMP add mods **not on CurseForge**?
+2. OWN **public** on CurseForge (needs BASE derivative permission) or unlisted/private? The CurseForge project and an author token are needed either way.
+3. Does OWN add mods **not on CurseForge**?
 4. Monthly AI budget, hard stop or warning?
 5. Any access beyond the LAN, ever?
 
@@ -298,4 +300,4 @@ reported current on 2026-10-15 **[to re-check]** (ATM11 targets MC 26.1.2).
 
 CurseForge third-party restrictions and API terms; side detection stays heuristic (hence boot test + remembered decisions); config
 format variety (hence the line-patch fallback); the MCSS API contract must be read on the server PC; scope creep (hence the phases);
-a world corrupted by a mod change (hence the mandatory world backup); ATM10 licence for derivative public packs.
+a world corrupted by a mod change (hence the mandatory world backup); BASE licence for derivative public packs.

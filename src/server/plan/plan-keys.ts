@@ -21,7 +21,7 @@ export type ModPlanAction = 'update' | 'restore';
 
 /**
  * Mods of a comparison that can be put in the plan: taking the reference (base) jar makes sense when the compared
- * profile is older, different without order, rebuilt, or missing the mod. Newer and added mods are Yann's own choices.
+ * profile is older, different without order, rebuilt, or missing the mod. Newer and added mods are the user's own choices.
  */
 export function actionableMods(diff: ModDiff): Map<string, ModPlanAction> {
   const out = new Map<string, ModPlanAction>();

@@ -47,7 +47,7 @@ const plannedBtn = 'rounded-md border border-emerald-600/70 bg-emerald-950/60 px
 const smallBadge = 'inline-flex items-center rounded-full border border-slate-600 bg-slate-800/70 px-1.5 py-px text-[11px] text-slate-300 cursor-help';
 const linkBtn = 'text-[11px] text-slate-400 underline-offset-2 hover:text-slate-200 hover:underline';
 
-/** Rows where taking the reference jar makes sense; newer and added mods are Yann's own choices. */
+/** Rows where taking the reference jar makes sense; newer and added mods are the user's own choices. */
 const planActionOf = (st: Status): PlanAction | null =>
   st === 'older' || st === 'different' || st === 'rebuilt' ? 'update' : st === 'anomaly' || st === 'removed' ? 'restore' : null;
 

@@ -1,16 +1,16 @@
 # Modpack Studio, Phases 0-1 (foundation + mod comparison) Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans (Yann's standing preference: inline execution, no subagent-driven development) to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans (the user's standing preference: inline execution, no subagent-driven development) to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Ship the Studio skeleton (auth, DB, blob store, jobs, safe filesystem, profiles) and the first usable feature: import ATM10-server / ATM10-client / LMP-client mod sets, compare them by mod id, check the loader version, derive the server blacklist from ATM's own choices, record decisions.
+**Goal:** Ship the Studio skeleton (auth, DB, blob store, jobs, safe filesystem, profiles) and the first usable feature: import BASE-server / BASE-client / OWN-client mod sets, compare them by mod id, check the loader version, derive the server blacklist from BASE's own choices, record decisions.
 
 **Architecture:** One Node/TypeScript Fastify process (REST `/api/v1` + one SSE stream) with SQLite metadata, an on-disk sha256 blob store, and a persisted job runner with a `piscina` worker pool for jar scanning. A React/Vite SPA (French) sits on top. Pure domain modules (version comparison, jar metadata, mod diff, side cascade) have no I/O so they test against synthetic fixtures.
 
 **Tech Stack:** Node 24 LTS (runtime pin; this dev PC has Node 25.4.0, so use only features present in 24), TypeScript, Fastify, zod, better-sqlite3 + Drizzle, piscina, yauzl/yazl, React + Vite + TanStack Query/Table/Virtual, Vitest, Playwright.
 
-**Spec:** `C:\Users\compt\Server\docs\plans\2026-10-29-modpack-studio-conception.md` (v2). Later phases (config engine + harvest, builds + boot test, deploy agent + publish, Claude assistant) each get their own plan after this one ships.
+**Spec:** `docs/plans/2026-10-29-modpack-studio-conception.md` (v2). Later phases (config engine + harvest, builds + boot test, deploy agent + publish, Claude assistant) each get their own plan after this one ships.
 
-**Project folder:** `C:\Users\compt\Server\modpack-studio\` (new git repo, local commits only, never pushed). Commit messages end with `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>`.
+**Project folder:** `<project>/` (new git repo, local commits only, never pushed). Commit messages end with `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>`.
 
 ## Global Constraints
 
@@ -19,7 +19,7 @@
 - Mods compared by **top-level mod id** read from each jar, never by file name; jar-in-jar is informational; a duplicate top-level id blocks the build.
 - Version ordering = Maven `ComparableVersion`; unorderable strings report `different`, never "upgrade".
 - Never write to a server or client instance while its process runs; SMB sources are opened read-only.
-- Studio runs as a logon task under Yann's user account; binds localhost + LAN IP only; password hashed with scrypt; cookie `HttpOnly` + `SameSite=Strict`; `Origin`/`Host` checked.
+- Studio runs as a logon task under the user's user account; binds localhost + LAN IP only; password hashed with scrypt; cookie `HttpOnly` + `SameSite=Strict`; `Origin`/`Host` checked.
 - Only synthetic fixtures in tests; no test touches real modpack files; secrets never reach logs, UI or DB in clear text.
 - UI copy in French; identifiers, comments, logs, commits and docs in English.
 - Verify every dependency's latest stable version with `npm view <pkg> version` before pinning it (Task 1).
@@ -29,7 +29,7 @@
 1. A jar that declares several mod ids, nests jars (jar-in-jar), or is a library with no mod id: must not be double-counted or crash the import (Tasks 11, 12).
 2. Version strings that cannot be ordered (`ABC` vs `DEF`, placeholders like `${file.jarVersion}`): reported as `different`, never as an upgrade (Tasks 10, 14).
 3. Hostile or odd zips: `..` entries, zip bombs, entries differing only by case, nested zip depth (Task 4).
-4. ATM10 client and server versions that disagree: side derivation must refuse, not guess (Task 14).
+4. BASE client and server versions that disagree: side derivation must refuse, not guess (Task 14).
 5. Folders that are empty, missing, contain a corrupt jar, or live at a path with spaces, accents or a UNC prefix: import reports and continues (Tasks 2, 12).
 
 ---
@@ -64,7 +64,7 @@ modpack-studio/
 
 **Interfaces:** Produces `APP_NAME: string` (`'modpack-studio'`), `API_PREFIX: string` (`'/api/v1'`).
 
-- [ ] **Step 1:** `git init` in `C:\Users\compt\Server\modpack-studio`; `.gitignore` excludes `node_modules/`, `dist/`, `data/`, `*.db`, `.env*`, `private/`.
+- [ ] **Step 1:** `git init` in the project folder; `.gitignore` excludes `node_modules/`, `dist/`, `data/`, `*.db`, `.env*`, `private/`.
 - [ ] **Step 2:** For each package in the Tech Stack run `npm view <pkg> version`; install exactly those versions; set `"type": "module"` and `"engines": {"node": ">=24"}`; record the versions in `README.md`.
 - [ ] **Step 3: Write the failing test** `tests/unit/constants.test.ts`: `expect(APP_NAME).toBe('modpack-studio'); expect(API_PREFIX).toBe('/api/v1')`.
 - [ ] **Step 4:** Run `npx vitest run` (expect FAIL: module missing), implement `src/shared/constants.ts`, run again (expect PASS).
@@ -143,7 +143,7 @@ modpack-studio/
 
 **Files:** Create `src/server/profiles/profile-service.ts`; Test `tests/unit/profile-service.test.ts`.
 
-**Interfaces:** Consumes `Db`, `safeResolve`. Produces `createProfile(db: Db, input: NewProfile, deps?: {isProcessRunning?: (dir: string) => boolean}): Profile` where `NewProfile = {pack: 'ATM10'|'LMP'; version: string; side: 'client'|'server'; state: 'clean'|'launched'|'run'; locationKind: 'zip'|'folder'|'smb'|'agent'; location: string}`; `detectLaunchArtifacts(dir: string): string[]` (finds `logs/`, `options.txt`, `*.bak`, `world/`); `listMatrix(db: Db): ProfileMatrix` (rows pack x version, columns side x state, empty cells allowed).
+**Interfaces:** Consumes `Db`, `safeResolve`. Produces `createProfile(db: Db, input: NewProfile, deps?: {isProcessRunning?: (dir: string) => boolean}): Profile` where `NewProfile = {pack: 'BASE'|'OWN'; version: string; side: 'client'|'server'; state: 'clean'|'launched'|'run'; locationKind: 'zip'|'folder'|'smb'|'agent'; location: string}`; `detectLaunchArtifacts(dir: string): string[]` (finds `logs/`, `options.txt`, `*.bak`, `world/`); `listMatrix(db: Db): ProfileMatrix` (rows pack x version, columns side x state, empty cells allowed).
 
 - [ ] **Step 1: Failing tests**: a `clean` profile over a folder containing `logs/` or `options.txt` throws `LaunchArtifactsError` listing them; a `run` profile is refused when `isProcessRunning` returns true; created profiles are `immutable` for `clean` and `launched` and cannot be updated; `listMatrix` returns old versions with only `clean` cells filled.
 - [ ] **Step 2:** Run (FAIL), implement, run (PASS), commit `feat: profile service`.
@@ -195,7 +195,7 @@ modpack-studio/
 `deriveAtmSides(atmS: ModSet, atmC: ModSet, versions: {server: string; client: string}): {clientOnly: string[]; serverOnly: string[]; both: string[]}` (throws `AtmVersionMismatchError` when versions differ);
 `yannLayer(lmpC: ModSet, atmC: ModSet): ReturnType<typeof diffModSets>`; `anomalies(atmC: ModSet, lmpC: ModSet, resolved?: Set<string>): ModEntry[]`; `buildBlockers(input: {anomalies: ModEntry[]; duplicateIds: {modId: string; files: string[]}[]}): {code: 'ANOMALY'|'DUPLICATE_ID'; modId: string}[]`.
 
-- [ ] **Step 1: Failing tests**: same id with a different file name is `updated`, not removed+added; same id, same version, different sha256 is `rebuilt`; a lower version is `direction: 'older'`; unorderable versions give `'different'`; a pinned id is not reported; `deriveAtmSides` computes the three sets from fixtures and throws on `versions` mismatch (`'8.2'` vs `'8.3'`); `anomalies` lists ATM client mods missing from LMP and omits resolved ones; `buildBlockers` returns one entry per unresolved anomaly and per duplicate id.
+- [ ] **Step 1: Failing tests**: same id with a different file name is `updated`, not removed+added; same id, same version, different sha256 is `rebuilt`; a lower version is `direction: 'older'`; unorderable versions give `'different'`; a pinned id is not reported; `deriveAtmSides` computes the three sets from fixtures and throws on `versions` mismatch (`'8.2'` vs `'8.3'`); `anomalies` lists BASE client mods missing from OWN and omits resolved ones; `buildBlockers` returns one entry per unresolved anomaly and per duplicate id.
 - [ ] **Step 2:** Run (FAIL), implement, run (PASS), commit `feat: mod diff, atm side derivation, anomalies`.
 
 ### Task 15: Side classification cascade
@@ -208,7 +208,7 @@ modpack-studio/
 `class ModrinthClient { constructor(opts: {fetch: typeof fetch; userAgent: string; maxPerMinute?: number}); lookupByHashes(sha1s: string[]): Promise<Map<string, {environment: string}>> }` using bulk `POST /v2/version_files` (algorithm `sha1`); `environmentToSide(env: string): Side | null` (`client_only` to client, `server_only` to server, `client_and_server` and `client_or_server` to both).
 Signals for boot-test proof, `@Mod(dist)`, CurseForge tags, community list and bytecode are added in later phases.
 
-- [ ] **Step 1: Failing tests**: a decision beats an ATM signal; an ATM signal beats Modrinth; a Modrinth `client_only` against a declared `both` returns `side 'client'`, `uncertain: true`; no signals returns `side: null`; the client sends one bulk request for 300 hashes in chunks of at most 100 (fake `fetch`), sets the `User-Agent`, and waits when `maxPerMinute` is exceeded (fake timers).
+- [ ] **Step 1: Failing tests**: a decision beats an BASE signal; an BASE signal beats Modrinth; a Modrinth `client_only` against a declared `both` returns `side 'client'`, `uncertain: true`; no signals returns `side: null`; the client sends one bulk request for 300 hashes in chunks of at most 100 (fake `fetch`), sets the `User-Agent`, and waits when `maxPerMinute` is exceeded (fake timers).
 - [ ] **Step 2:** Run (FAIL), implement, run (PASS), commit `feat: side classification cascade and modrinth client`.
 
 ### Task 16: Blacklist and decisions
@@ -226,14 +226,14 @@ Signals for boot-test proof, `@Mod(dist)`, CurseForge tags, community list and b
 
 **Interfaces:** Consumes Tasks 5-16. Produces (all authenticated, zod-validated, writes audited): `POST /api/v1/profiles` (body `NewProfile`), `GET /api/v1/profiles/matrix`, `POST /api/v1/profiles/:id/import` (returns a job id; body `ModSetSource`), `GET /api/v1/mods/diff?base=<profileId>&other=<profileId>`, `GET /api/v1/mods/atm-sides?server=<profileId>&client=<profileId>`, `GET /api/v1/mods/anomalies?atmClient=<id>&lmp=<id>`, `GET /api/v1/loader/check?profiles=<ids>`, `GET /api/v1/build/blockers`, `GET|PUT /api/v1/blacklist`, `PUT /api/v1/mods/:modId/decision`.
 
-- [ ] **Step 1: Failing tests** (`app.inject` + `writeAtmPack`): end to end, create three profiles, import them, `atm-sides` returns the client-only ids, `diff` returns the updated LMP mod, `loader/check` returns `ok: false` for mismatching NeoForge versions, `build/blockers` returns an `ANOMALY` for a dropped ATM mod and is empty after `PUT decision` resolves it; a bad body returns 400 with the zod message; an unauthenticated call returns 401.
+- [ ] **Step 1: Failing tests** (`app.inject` + `writeAtmPack`): end to end, create three profiles, import them, `atm-sides` returns the client-only ids, `diff` returns the updated OWN mod, `loader/check` returns `ok: false` for mismatching NeoForge versions, `build/blockers` returns an `ANOMALY` for a dropped BASE mod and is empty after `PUT decision` resolves it; a bad body returns 400 with the zod message; an unauthenticated call returns 401.
 - [ ] **Step 2:** Run (FAIL), implement, run (PASS), commit `feat: phase 1 api`.
 
 ### Task 18: Web UI (French)
 
 **Files:** Create `src/web/{main.tsx, App.tsx, pages/Login.tsx, pages/Profiles.tsx, pages/Mods.tsx, pages/Blacklist.tsx, i18n/fr.json}`, `vite.config.ts`; Test `tests/unit/web/*.test.tsx`, `tests/e2e/smoke.spec.ts`.
 
-**Interfaces:** Consumes the Task 17 API. Produces pages: Login; Profils (matrix with existing and missing cells, import form); Mods (virtualized diff table filterable by status `ajouté / retiré / mis à jour / reconstruit / anomalie` and by side, with a per-row decision menu); Liste noire (ATM-derived entries with a one-click "ajouter tout", stale entries flagged).
+**Interfaces:** Consumes the Task 17 API. Produces pages: Login; Profils (matrix with existing and missing cells, import form); Mods (virtualized diff table filterable by status `ajouté / retiré / mis à jour / reconstruit / anomalie` and by side, with a per-row decision menu); Liste noire (BASE-derived entries with a one-click "ajouter tout", stale entries flagged).
 
 - [ ] **Step 1: Failing component tests** (Vitest + Testing Library): the matrix renders filled and empty cells; the diff table shows the French labels and updates the row when a decision is submitted; the blacklist page calls `PUT /api/v1/blacklist` once for "ajouter tout"; the login form shows an error on 401.
 - [ ] **Step 2:** Run (FAIL), implement with shadcn/ui + Tailwind (dark theme, one accent colour, semantic status colours with icon + text), run (PASS).
@@ -248,7 +248,7 @@ Signals for boot-test proof, `@Mod(dist)`, CurseForge tags, community list and b
 
 - [ ] **Step 1:** Run `pwsh scripts/package.ps1 -Version 0.1.0`; expected: the zip and its SHA-256 exist, `data/` is absent from the zip, `Get-FileHash` matches the sidecar.
 - [ ] **Step 2:** Run `pwsh scripts/install-task.ps1` without `-Apply`; expected: prints the task name, trigger (at logon), user and command, and registers nothing (`Get-ScheduledTask` finds no such task).
-- [ ] **Step 3:** Commit `feat: packaging and logon task scripts`. Registering the task on the Studio PC (`-Apply`) is done there, by Yann, not during this plan.
+- [ ] **Step 3:** Commit `feat: packaging and logon task scripts`. Registering the task on the Studio PC (`-Apply`) is done there, by the maintainer, not during this plan.
 
 ---
 

@@ -5,7 +5,7 @@ import type { Side } from './side-classifier.js';
 export type BlacklistEntry = { modId: string; origin: 'atm_derived' | 'yann'; stale: boolean };
 export type Decision = { modId: string; kind: 'side' | 'pin' | 'ignore'; side?: Side; reason: string };
 
-/** Replaces every ATM-derived row with the client-only set of this ATM version; Yann's own entries are never touched. */
+/** Replaces every ATM-derived row with the client-only set of this ATM version; the user's own entries are never touched. */
 export function recomputeAtmDerived(db: Db, atmVersion: string, clientOnlyIds: string[]): void {
   db.sqlite.transaction(() => {
     db.sqlite.prepare("DELETE FROM blacklist WHERE origin = 'atm_derived'").run();
@@ -24,7 +24,7 @@ export function addToBlacklist(db: Db, modId: string, reason: string): void {
 
 export type RemoveBlacklistResult = 'removed' | 'absent' | 'atm_derived';
 
-/** Removes Yann's own entry; an ATM-derived row is computed from the packs and is never removed here. */
+/** Removes the user's own entry; an ATM-derived row is computed from the packs and is never removed here. */
 export function removeFromBlacklist(db: Db, modId: string): RemoveBlacklistResult {
   return db.sqlite.transaction((): RemoveBlacklistResult => {
     const rows = db.sqlite.prepare('SELECT origin, reason FROM blacklist WHERE mod_id = ?').all(modId) as { origin: string; reason: string }[];
@@ -36,7 +36,7 @@ export function removeFromBlacklist(db: Db, modId: string): RemoveBlacklistResul
   })();
 }
 
-/** Edits the reason of Yann's own entry (same outcomes as removeFromBlacklist, without removing anything). */
+/** Edits the reason of the user's own entry (same outcomes as removeFromBlacklist, without removing anything). */
 export function setBlacklistReason(db: Db, modId: string, reason: string): RemoveBlacklistResult | 'updated' {
   return db.sqlite.transaction((): RemoveBlacklistResult | 'updated' => {
     const rows = db.sqlite.prepare('SELECT origin, reason FROM blacklist WHERE mod_id = ?').all(modId) as { origin: string; reason: string }[];
@@ -62,7 +62,7 @@ export function getPins(db: Db): Set<string> {
   return new Set(rows.map((r) => r.mod_id));
 }
 
-/** The server blacklist: ATM-derived and Yann's rows, then side decisions applied on top ('client' adds, 'server'/'both' removes). */
+/** The server blacklist: ATM-derived and the user's rows, then side decisions applied on top ('client' adds, 'server'/'both' removes). */
 export function effectiveBlacklist(db: Db, atmVersion: string): BlacklistEntry[] {
   const rows = db.sqlite.prepare('SELECT mod_id, origin, valid_for FROM blacklist').all() as { mod_id: string; origin: 'atm_derived' | 'yann'; valid_for: string | null }[];
   const entries = new Map<string, BlacklistEntry>();

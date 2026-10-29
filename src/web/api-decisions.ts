@@ -3,8 +3,8 @@ import { api } from './api.js';
 export type DecisionKind = 'pin' | 'ignore' | 'side';
 export type Side = 'client' | 'server' | 'both';
 export type DecisionRow = { modId: string; kind: DecisionKind; side: Side | null; reason: string; createdAt: string };
-export type YannBlacklistRow = { modId: string; origin: 'yann'; reason: string; createdAt: string | null };
-export type Memory = { decisions: DecisionRow[]; blacklist: YannBlacklistRow[]; atmDerivedCount: number };
+export type UserBlacklistRow = { modId: string; origin: 'yann'; reason: string; createdAt: string | null };
+export type Memory = { decisions: DecisionRow[]; blacklist: UserBlacklistRow[]; atmDerivedCount: number };
 
 export type AuditEntry = { id: number; at: string; actor: string; action: string; target: string | null; payload: unknown; payloadValid: boolean };
 export type AuditPage = { entries: AuditEntry[]; nextBefore: number | null };

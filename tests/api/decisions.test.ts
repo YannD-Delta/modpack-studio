@@ -54,7 +54,7 @@ describe('decisions api', () => {
     }
   });
 
-  it('lists decisions and only Yann blacklist rows', async () => {
+  it('lists decisions and only user blacklist rows', async () => {
     setDecision(db, { modId: 'old', kind: 'pin', reason: 'keep 1.0' });
     setDecision(db, { modId: 'hud', kind: 'side', side: 'client', reason: '' });
     addToBlacklist(db, 'mine', 'crash');
@@ -114,7 +114,7 @@ describe('decisions api', () => {
     expect((await call('PUT', '/decisions/nope/pin/reason', { reason: 'y' })).statusCode).toBe(404);
   });
 
-  it('edits the reason of a Yann blacklist entry only', async () => {
+  it('edits the reason of a user blacklist entry only', async () => {
     addToBlacklist(db, 'mine', 'before');
     recomputeAtmDerived(db, '8.3', ['cli']);
     expect((await call('PUT', '/blacklist/entry/mine/reason', { reason: 'after' })).statusCode).toBe(200);
@@ -124,7 +124,7 @@ describe('decisions api', () => {
     expect((await call('PUT', '/blacklist/entry/mine/reason', { reason: 'x'.repeat(501) })).statusCode).toBe(400);
   });
 
-  it('removes only Yann blacklist entries', async () => {
+  it('removes only user blacklist entries', async () => {
     addToBlacklist(db, 'mine', '');
     recomputeAtmDerived(db, '8.3', ['cli']);
     expect((await call('DELETE', '/blacklist/entry/mine')).statusCode).toBe(200);

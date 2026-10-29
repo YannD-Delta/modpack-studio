@@ -1,124 +1,104 @@
 # Modpack Studio
 
-Self-hosted local web app that maintains **LMP**, a custom modpack built on ATM10 (All the Mods 10, NeoForge).
-It follows ATM's own logic: ATM10 client vs ATM10 server pack gives the client-only mods (the server blacklist),
-then LMP vs ATM10 shows the mods Yann updated or added. Design and plans: [`docs/plans/`](docs/plans/).
+> **Created with [Claude Code](https://claude.com/claude-code).** This project (code, tests and documentation) is written by Claude Code, Anthropic's agentic coding tool, working with its maintainer. The documentation below is kept up to date the same way, in the same commits as the code.
 
-Status: **phases 0-1** (foundation + mod comparison) done and reviewed. Next phases: config engine and harvest,
-builds and boot test, deploy agent and publishing, Claude assistant.
+A self-hosted web app that helps you maintain **your own Minecraft modpack, built on top of a base modpack** you follow (typically a big CurseForge modpack that ships new versions regularly).
 
-## What works today
+Every time the base modpack updates, you have to redo your own pack: pick up what is new, keep your added mods and your settings, check that everything still starts, build the player zip and the server pack, and tell your players what changed. Modpack Studio compares, tests and prepares all of that for you. **It never writes into your instances**: it reads them, and prepares packages that you apply yourself.
 
-- Profiles matrix (pack x version x client/server x clean/launched/run), immutable snapshots, launch-artifact check
-- Import of an ATM10 server-pack zip or a CurseForge instance `mods/` folder (jar metadata by mod id, jar-in-jar, libraries, duplicates, skipped jars)
-- Mod diff by mod id (updated / added / removed / rebuilt, version ordering), anomalies (ATM mods missing from LMP) as build blockers
-- NeoForge/Minecraft version agreement check across profiles
-- ATM-derived server blacklist, decisions memory (side, pin, accept removal)
-- French web UI (login, profiles, mods diff, blacklist, decisions and debug journal), SSE job events
+Naming used everywhere in these docs:
 
-Validated read-only against real CurseForge instances (ATM10 8.3, NeoForge 21.1.259).
+| Term | Meaning | Code / settings name |
+|---|---|---|
+| **Base modpack** (`<base-modpack>`) | The upstream modpack you follow | role `upstream` |
+| **Your modpack** (`<base-modpack>` + `<your-modification>`) | Your derived pack: the base plus your mods and settings | role `own` |
 
-## Decisions and debug journal
+Both names are **settings** (Settings tab). Nothing about a specific modpack is hardcoded in the UI.
 
-The **Décisions** page lists everything Studio remembers on Yann's behalf: pinned older versions, accepted removals,
-forced sides and his own blacklist entries (ATM-derived rows are only counted, they are recomputed from the packs).
-Each row can have its reason edited or be undone (inline confirmation); every change is written to the audit log, and
-the diff and the blacklist read the database on every request, so an undo applies at once.
-The **Débogage** area shows app facts (versions, data dir, database size, counts; never the config or any secret),
-the audit log (search, paging, raw payload) and the jobs (status, progress, full error message, refreshed every 5 s).
+## What it does
 
-| Method and path (under `/api/v1`) | Purpose |
-| --- | --- |
-| `GET /decisions` | decisions + Yann's blacklist rows + `atmDerivedCount` |
-| `DELETE /decisions/:modId/:kind` | undo a `side`, `pin` or `ignore` decision (404 when absent) |
-| `PUT /decisions/:modId/:kind/reason` | edit its reason (`{reason}`, 500 chars max) |
-| `DELETE /blacklist/entry/:modId` | remove Yann's entry (404 absent, 409 ATM-derived) |
-| `PUT /blacklist/entry/:modId/reason` | edit the reason of Yann's entry |
-| `GET /debug/audit?limit=&before=&q=` | audit log newest first, `nextBefore` cursor, literal text search |
-| `GET /debug/jobs?limit=&status=` | jobs newest first, params text capped at 2000 chars |
-| `GET /debug/info` | versions, platform, uptime, data dir, database file/size/migrations, row counts |
+- **Compares mods** between any two copies of a pack, by mod id (not file name), with a plain-language reason for every row: missing, added, out of date, newer, rebuilt.
+- **Derives the server blacklist** from the base modpack's own client/server split, and remembers your decisions (pin a version, accept a removal, force a side).
+- **Compares configs** (`config`, `kubejs`, `defaultconfigs`, …) and tells apart *what you changed* from *what the game regenerated*, using three copies of the pack: **clean**, **launched**, **played**.
+- **Prepares update packs**: pick mods and config files into a plan, get a folder + zip + a safe `apply.ps1` (dry run by default, backups, nothing deleted).
+- **Tests a server** headlessly: starts a throwaway copy next to your real one, waits for `Done`, stops it, keeps the logs.
+- **Asks Claude** ready-made questions about the lists (are these updates worth it? are my added mods useful? what from my old pack is missing in the new base?), through the API or as a prompt you paste into claude.ai.
+- Reads **CurseForge links** straight from each instance's `minecraftinstance.json` (no API key needed).
 
-## Config comparison (Configs page)
+## The tabs
 
-Compares the files of two profiles under `config/`, `defaultconfigs/`, `kubejs/`, `scripts/`, `datapacks/` and `global_packs/`
-(folder instance or server-pack zip, with or without a single wrapper folder). Read-only: Studio never writes into an instance.
-
-- **Scan** (job `scan-configs`, `POST /api/v1/configs/scan {profile, force?}`): streams and hashes every tracked file (sha256, size,
-  text/binary). Skips `*.bak`, `*.tmp`, `*.log`, `Thumbs.db`, `.DS_Store`, `desktop.ini` and any `logs/`, `cache/`, `.cache/` folder;
-  never follows symlinks or junctions; files above 5 MB are hashed only. Unreadable entries (path too long, locked, vanished) are
-  listed as issues and the scan goes on. The result is cached in `<data>/cache/configs-<profileId>.json`: clean and launched
-  profiles keep it until a forced rescan, `run` profiles are rescanned every time.
-- **Diff** (`GET /configs/diff?base&other`): per file `identical`, `cosmetic` (bytes differ, settings do not: BOM, CRLF, trailing
-  spaces; JSON/JSON5/mcmeta compared as key-sorted data with comments and trailing commas tolerated; TOML without comments, blank
-  lines, indentation and spacing around `=`), `modified`, `onlyInBase`, `onlyInOther`, `binaryDiffers`, `tooLarge`. Contents are
-  read only for differing text files up to 1 MB, and equality results are cached in memory per hash pair.
-- **Details**: `GET /configs/file?profile&path` (text up to 1 MB, 415 for binary, strict relative-path checks) and
-  `GET /configs/filediff?base&other&path` (Myers line diff, 5000 lines per side, unified hunks).
-- **Update plan**: `GET|PUT /configs/plan` stores "take the reference's version" for `modified` and `onlyInBase` files
-  (`update_plan_item`, kind `file`, key = relative path); the export that copies them into an update pack is a separate feature.
-
-Limitations: no editor yet (files are only viewed), no 3-way merge, and agent profiles cannot be scanned.
-
-## Update plan and update pack
-
-On the Mods page, each row that can take the reference jar has a toggle: **Mettre à jour** (older, different, rebuilt)
-or **Remettre le mod** (missing from the compared profile). The plan is stored per comparison (`PUT /api/v1/plan`) and
-nothing is written anywhere when you tick a row. Pins, accepted removals and client-only decisions show as badges.
-
-**Préparer le pack de mise à jour** (`POST /api/v1/plan/export`, job `export-update-pack`) writes, under
-`<data>/exports/update-<other>-from-<base>-<UTC stamp>/`:
-
-- `mods-add/` the reference jars, re-hashed and checked against the sha256 recorded at import (a mismatch or a missing jar is reported, not copied)
-- `remove.txt` the compared profile's current jar of every planned update
-- `files-add/` planned config files (kind `file`), copied from the reference folder or server-pack zip
-- `changes.json`, `CHANGES.md`, `result.json`, and `apply.ps1`; the zip is written next to the folder (`<name>.zip`)
-
-Nothing is ever written into an instance by Studio. To apply a pack (Windows PowerShell 5.1 or PowerShell 7):
-
-```powershell
-.\apply.ps1 -InstanceDir "D:\Instances\LMP"          # dry run: checks every sha256 and prints the changes
-.\apply.ps1 -InstanceDir "D:\Instances\LMP" -Apply   # moves replaced/removed files to _studio-backup-<stamp>\, then copies
-```
-
-The script refuses to run while a `java`/`javaw` process uses the instance (unless `-Force`) and never deletes a file.
-Each row also has a **🐞 Détails** panel (`GET /api/v1/mods/:modId/debug`): both entries, why the versions order
-that way, decisions, plan state, duplicate ids and a fresh sha256 of the reference jar, with a JSON copy button.
+| Tab | Purpose |
+|---|---|
+| Profiles | The copies of each pack: version, side, state (clean / launched / played), location, import |
+| Mods | Mod comparison, per-row reason, update plan, Claude buttons, per-row debug panel |
+| Configs | "My changes" over three copies, or a free comparison of two profiles, with line diffs |
+| Old pack | An old pack against the base modpack: what is missing, equivalents, loader/Minecraft check |
+| Test bench | Throwaway server tests with kept logs and Claude analysis |
+| Decisions | Everything Studio remembers for you, plus the audit log, jobs and system info |
+| Blacklist | Mods kept off the server, derived from the base modpack plus your own |
+| Settings | API keys, assistant model, the two pack names |
 
 ## Quick start (Windows)
 
-Double-click `Start.cmd` (or run `pwsh -File studio.ps1`): a menu offers first setup (Node.js check and install through winget,
-dependencies, web build, password), start, demo mode, tests, packaging and the logon task.
-Non-interactive: `studio.ps1 -Action setup|start|demo|password|build|test|package|task`.
-
-## Run by hand
-
-```bash
-npm ci
-npm run set-password          # reads the password from stdin, writes data/settings.json
-npm run build:web
-npm start                     # http://127.0.0.1:8480 (STUDIO_DATA=<dir> to change the data folder)
+```powershell
+Start.cmd            # menu: setup, start, demo mode, tests, packaging
+# or
+pwsh -File studio.ps1 -Action setup
+pwsh -File studio.ps1 -Action start      # http://127.0.0.1:8480
 ```
 
-`npm test` (Vitest, synthetic fixtures only), `npm run typecheck`, `npm run dev:web` (Vite dev server with API proxy).
-`npx tsx scripts/seed-demo.ts <dir>` builds throwaway synthetic data to look at the UI (password `demo`).
+`setup` checks Node.js 24+ (offers to install it with winget), installs dependencies, builds the web UI and asks for a password. `demo` starts on synthetic data (password `demo`) so you can look around safely. More in [docs/architecture.md](docs/architecture.md#running-it).
 
-## Package and install (Windows)
+## Documentation
+
+Start with the concepts, then read what you need. Every page links to the source files it describes.
+
+| Page | What it explains |
+|---|---|
+| [Concepts](docs/concepts.md) | Vocabulary, the two packs, profiles, **clean / launched / played** and how Studio tells them apart |
+| [Architecture](docs/architecture.md) | Stack (and why), one-process design, database, jobs, data folder, running and packaging it |
+| [Mod analysis](docs/mods-analysis.md) | Jar import, comparison by mod id, version ordering, sides, blacklist, loader agreement |
+| [Config analysis](docs/configs-analysis.md) | Inventory, normalisation, the three-copy "what did I change" logic |
+| [Update packs](docs/update-pack.md) | The plan, the export folder, `apply.ps1` |
+| [Test bench](docs/test-bench.md) | Throwaway server tests and their safety rules |
+| [Claude assistant](docs/claude-assistant.md) | Settings, the five ready-made actions, API vs copy-paste prompt |
+| [CurseForge](docs/curseforge.md) | What is used today, what comes next, why players stay on CurseForge |
+| [Performance and parallelism](docs/performance.md) | What runs in parallel, why scans were slow, what fixed it |
+| [Release cycle](docs/release-cycle.md) | The full update cycle from a base release to the player announcement |
+| [Settings](docs/settings.md) | Keys, preferences and pack names: where they live and how they are protected |
+| [Security and guarantees](docs/security.md) | The rules that protect your instances and your secrets |
+| [Roadmap](docs/roadmap.md) | What works, what is in progress, what is planned |
+
+Older design records are kept in [docs/plans](docs/plans).
+
+## Project status
+
+Working today: profiles, mod comparison, blacklist and decisions, config comparison and the three-copy analysis, update plan and export, server test bench, Claude actions, CurseForge links, settings. Planned: base-release detection, candidate builds, full CurseForge and server packs, deployment, announcement message. See the [roadmap](docs/roadmap.md).
+
+## Repository layout
+
+```
+src/server/   Fastify API, SQLite + Drizzle, jobs, mod and config analysis, test bench, Claude client
+src/web/      React UI (strings in src/web/i18n, French today)
+src/shared/   Schemas and the version ordering shared by both sides
+drizzle/      Database migrations
+tests/        Vitest suites on synthetic fixtures only
+scripts/      Packaging, logon task, demo data
+studio.ps1    Interactive launcher (Start.cmd opens it)
+```
+
+## Development
 
 ```powershell
-pwsh scripts/package.ps1 -Version 0.1.0 [-NodeExe <portable node.exe>]
-pwsh scripts/install-task.ps1 -InstallDir D:\ModpackStudio          # dry run
-pwsh scripts/install-task.ps1 -InstallDir D:\ModpackStudio -Apply   # logon task under the current user
+npm ci
+npx tsc --noEmit         # type check, must be clean
+npx vitest run           # synthetic fixtures only
+npm run build:web
+npx drizzle-kit generate --name <name>   # after editing src/server/db/schema.ts
 ```
 
-Node 24 LTS is the runtime target (`engines`); development here used Node 25.4.
+Conventions: code, comments, commits and docs are in English; tests come first and never touch real instances; no secret is ever written to a committed file, a log or an API response. Details in [CLAUDE.md](CLAUDE.md).
 
-## Pinned versions (latest stable verified with `npm view` on 2026-10-29)
+## Keeping the docs current
 
-fastify 5.12.7, zod 4.6.7, better-sqlite3 13.0.3, drizzle-orm 0.45.4, drizzle-kit 0.31.11, piscina 5.3.2,
-yauzl 3.4.0, yazl 3.3.1, @fastify/cookie 11.1.5, @fastify/rate-limit 11.2.1, @fastify/static 10.1.8, typescript 7.0.2,
-vitest 5.0.5, tsx 4.23.15, react 19.3.1, vite 8.3.5, tailwindcss 4.3.3, @tanstack/react-query 5.105.0.
-
-## Layout
-
-`src/server` (api, jobs, db, blobs, zip, mods, loader, profiles), `src/web` (React + Tailwind, French),
-`src/shared` (zod schemas, version ordering), `tests` (unit, api, fixtures-gen), `scripts` (package, install, seed-demo), `drizzle` (migrations).
+The docs describe the code as it is. A change that alters behaviour updates the matching page in the same commit.

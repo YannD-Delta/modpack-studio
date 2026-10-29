@@ -1,8 +1,8 @@
 # Modpack Studio
 
-Local web app that maintains LMP (a custom modpack on top of ATM10, NeoForge): mod and config comparison between profiles,
-ATM-derived server blacklist, update pack export, and (in progress) settings for API keys and a Claude assistant.
-Design and plans: `docs/plans/`. Open tasks and pending decisions live in the private tracker (see `CLAUDE.local.md`, which is not committed).
+Local web app that maintains a custom modpack built on a base CurseForge modpack (`upstream` and `own` roles, names set in Settings): mod and config comparison between profiles,
+base-derived server blacklist, update pack export, test bench, Claude assistant.
+Documentation index: `README.md` and `docs/`; design records: `docs/plans/`. Keep the matching `docs/` page in the same commit as a behaviour change. Open tasks and pending decisions live in the private tracker (see `CLAUDE.local.md`, which is not committed).
 
 ## Commands
 
@@ -21,7 +21,7 @@ Server: `127.0.0.1:8480`, data in `./data` (git-ignored: `studio.db`, `settings.
 - `src/server`: Fastify 5 routes under `/api/v1` (`api/routes-*.ts`), SQLite + Drizzle (`db/`, migrations in `drizzle/`), persisted jobs with SSE (`jobs/`), mod analysis (`mods/`), config scan and diff (`configs/`), update plan (`plan/`).
 - `src/web`: React 19 + Tailwind 4. UI strings are French, in `src/web/i18n/fr*.json` (one file per work stream, merged in `i18n/index.ts`).
 - `src/shared`: zod schemas and version ordering (Maven style; a lone trailing letter such as `2.5.4b` is a patch letter, `a`/`b`/`m` only mean alpha/beta/milestone when glued to a number).
-- `tests`: Vitest. Never touch real instances or `G:\`; generate synthetic jars and trees with `tests/fixtures-gen`.
+- `tests`: Vitest. Never touch real instances or a network drive; generate synthetic jars and trees with `tests/fixtures-gen`.
 
 ## Rules
 

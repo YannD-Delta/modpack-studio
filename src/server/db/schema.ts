@@ -125,7 +125,7 @@ export const event = sqliteTable('event', {
   after: text('after'),
 });
 
-/** Per comparison (base profile -> other profile), what Yann chose to push: `kind` is 'mod' (key = mod id) or 'file' (key = path relative to the instance). */
+/** Per comparison (base profile -> other profile), what the user chose to push: `kind` is 'mod' (key = mod id) or 'file' (key = path relative to the instance). */
 export const updatePlanItem = sqliteTable(
   'update_plan_item',
   {

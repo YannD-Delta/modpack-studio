@@ -5,7 +5,7 @@ export type SideVerdict = { side: Side | null; origin: SideOrigin | null; uncert
 
 // Highest priority first. Boot-test proof, @Mod(dist), CurseForge tags, the community list and the bytecode heuristic come in later phases.
 const PRIORITY: SideOrigin[] = ['decision', 'atm', 'modrinth', 'declared'];
-// Yann's decision and ATM's own client/server split are authoritative: a disagreeing weaker signal does not make them uncertain.
+// the user's decision and ATM's own client/server split are authoritative: a disagreeing weaker signal does not make them uncertain.
 const AUTHORITATIVE = new Set<SideOrigin>(['decision', 'atm']);
 
 export function classifySide(signals: SideSignal[]): SideVerdict {

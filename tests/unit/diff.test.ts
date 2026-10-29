@@ -66,7 +66,7 @@ describe('yannLayer, anomalies and blockers', () => {
   const atmC = set([['a', '1', 'x'], ['b', '1', 'y'], ['c', '1', 'z']]);
   const lmpC = set([['a', '2', 'x2'], ['c', '1', 'z'], ['mine', '1', 'm']]);
 
-  it("computes Yann's layer client against client", () => {
+  it("computes the user's layer client against client", () => {
     const layer = yannLayer(lmpC, atmC);
     expect(layer.updated.map((u) => u.modId)).toEqual(['a']);
     expect(layer.added.map((e) => e.modId)).toEqual(['mine']);

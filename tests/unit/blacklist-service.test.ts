@@ -9,7 +9,7 @@ beforeEach(() => {
 const audits = () => (db.sqlite.prepare('SELECT count(*) AS n FROM audit_log').get() as { n: number }).n;
 
 describe('blacklist service', () => {
-  it('replaces the previous ATM-derived rows but keeps Yann entries', () => {
+  it('replaces the previous ATM-derived rows but keeps user entries', () => {
     recomputeAtmDerived(db, '8.2', ['old1', 'old2']);
     addToBlacklist(db, 'mine', 'useless on server');
     recomputeAtmDerived(db, '8.3', ['new1']);
