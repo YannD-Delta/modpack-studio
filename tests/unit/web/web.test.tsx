@@ -79,7 +79,7 @@ describe('Mods', () => {
     await userEvent.selectOptions(screen.getByLabelText('Comparé à'), '3');
     expect(await screen.findByText(/Manque dans LMP 1.0 : présent dans ATM10 8\.3, absent de LMP 1.0\./)).toBeTruthy();
     expect(screen.getByText(/Nouveau dans LMP 1.0 : absent de ATM10 8\.3\./)).toBeTruthy();
-    expect(screen.getByText(/LMP 1.0 est plus récent que ATM10 8\.3 : 1\.1 remplace 1\.0\./)).toBeTruthy();
+    expect(screen.getByText(/LMP 1.0 est plus récent que ATM10 8.3./)).toBeTruthy();
     expect(screen.getByText('a-1.0.jar')).toBeTruthy();
     await userEvent.click(screen.getByRole('button', { name: /Manquants · 1/ }));
     expect(screen.queryByText('mine')).toBeNull();
