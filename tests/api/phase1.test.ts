@@ -137,6 +137,7 @@ describe('phase 1 api', () => {
     const atm = await writeAtmPack(path.join(tmp, 'atm'), { atm: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: [jar('a')], clientMods: [jar('a')] });
     const c = await mkProfile({ pack: 'ATM10', version: '8.3', side: 'client', state: 'clean', locationKind: 'folder', location: atm.clientDir });
     fs.mkdirSync(path.join(atm.clientDir, 'logs')); // the game was started after the profile was registered
+    fs.writeFileSync(path.join(atm.clientDir, 'logs', 'latest.log'), 'started');
     const res = await call('POST', `/profiles/${c}/import`, { source: { kind: 'folder', path: atm.clientDir } });
     expect(res.statusCode).toBe(422);
   });

@@ -37,6 +37,12 @@ export class DuplicateProfileError extends Error {
 
 const ARTIFACT_DIRS = ['logs', 'crash-reports', 'world', 'saves'];
 const ARTIFACT_FILES = ['options.txt'];
+// The CurseForge app creates these in an instance that was never launched (seen on real instances).
+const APP_CREATED = new Set(['instance_audit.txt']);
+
+function hasLaunchContent(full: string): boolean {
+  return fs.readdirSync(full).some((n) => !APP_CREATED.has(n));
+}
 
 /** Names (relative to `dir`) that only exist once the game or server has been started. */
 export function detectLaunchArtifacts(dir: string): string[] {
@@ -46,7 +52,7 @@ export function detectLaunchArtifacts(dir: string): string[] {
     if (!fs.existsSync(full)) return;
     for (const e of fs.readdirSync(full, { withFileTypes: true })) {
       const rel = sub ? path.join(sub, e.name) : e.name;
-      if (!sub && e.isDirectory() && ARTIFACT_DIRS.includes(e.name)) found.push(rel);
+      if (!sub && e.isDirectory() && ARTIFACT_DIRS.includes(e.name) && hasLaunchContent(path.join(full, e.name))) found.push(rel);
       else if (!sub && e.isFile() && ARTIFACT_FILES.includes(e.name)) found.push(rel);
       else if (e.isFile() && e.name.endsWith('.bak')) found.push(rel);
     }

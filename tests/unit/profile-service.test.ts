@@ -31,14 +31,24 @@ const folder = (name: string, files: string[] = [], dirs: string[] = []) => {
   const dir = path.join(tmp, name);
   fs.mkdirSync(dir, { recursive: true });
   for (const d of dirs) fs.mkdirSync(path.join(dir, d), { recursive: true });
-  for (const f of files) fs.writeFileSync(path.join(dir, f), 'x');
+  for (const f of files) {
+    fs.mkdirSync(path.dirname(path.join(dir, f)), { recursive: true });
+    fs.writeFileSync(path.join(dir, f), 'x');
+  }
   return dir;
 };
 
 describe('detectLaunchArtifacts', () => {
-  it('finds logs, options.txt, world and .bak files', () => {
-    const dir = folder('dirty', ['options.txt', 'config.toml.bak'], ['logs', 'world']);
+  it('finds a non-empty logs/ and world/, options.txt and .bak files', () => {
+    const dir = folder('dirty', ['options.txt', 'config.toml.bak', 'logs/latest.log', 'world/level.dat']);
     expect(detectLaunchArtifacts(dir).sort()).toEqual(['config.toml.bak', 'logs', 'options.txt', 'world']);
+  });
+  it('ignores what the CurseForge app itself creates in a never-launched instance', () => {
+    const dir = folder('cf-clean', ['logs/instance_audit.txt', 'manifest.json'], ['saves', 'shaderpacks', 'resourcepacks', 'mods', 'config']);
+    expect(detectLaunchArtifacts(dir)).toEqual([]);
+  });
+  it('treats an empty logs/ or saves/ folder as clean', () => {
+    expect(detectLaunchArtifacts(folder('empty-dirs', [], ['logs', 'saves', 'crash-reports']))).toEqual([]);
   });
   it('returns nothing for a clean folder', () => {
     expect(detectLaunchArtifacts(folder('clean', ['a.toml'], ['mods', 'config']))).toEqual([]);
@@ -47,7 +57,7 @@ describe('detectLaunchArtifacts', () => {
 
 describe('createProfile', () => {
   it('refuses a clean profile over a folder with launch artifacts and lists them', () => {
-    const dir = folder('dirty', ['options.txt'], ['logs']);
+    const dir = folder('dirty', ['options.txt', 'logs/latest.log']);
     try {
       createProfile(db, { ...base, location: dir });
       expect.unreachable();
