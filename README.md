@@ -38,6 +38,27 @@ the audit log (search, paging, raw payload) and the jobs (status, progress, full
 | `GET /debug/jobs?limit=&status=` | jobs newest first, params text capped at 2000 chars |
 | `GET /debug/info` | versions, platform, uptime, data dir, database file/size/migrations, row counts |
 
+## Config comparison (Configs page)
+
+Compares the files of two profiles under `config/`, `defaultconfigs/`, `kubejs/`, `scripts/`, `datapacks/` and `global_packs/`
+(folder instance or server-pack zip, with or without a single wrapper folder). Read-only: Studio never writes into an instance.
+
+- **Scan** (job `scan-configs`, `POST /api/v1/configs/scan {profile, force?}`): streams and hashes every tracked file (sha256, size,
+  text/binary). Skips `*.bak`, `*.tmp`, `*.log`, `Thumbs.db`, `.DS_Store`, `desktop.ini` and any `logs/`, `cache/`, `.cache/` folder;
+  never follows symlinks or junctions; files above 5 MB are hashed only. Unreadable entries (path too long, locked, vanished) are
+  listed as issues and the scan goes on. The result is cached in `<data>/cache/configs-<profileId>.json`: clean and launched
+  profiles keep it until a forced rescan, `run` profiles are rescanned every time.
+- **Diff** (`GET /configs/diff?base&other`): per file `identical`, `cosmetic` (bytes differ, settings do not: BOM, CRLF, trailing
+  spaces; JSON/JSON5/mcmeta compared as key-sorted data with comments and trailing commas tolerated; TOML without comments, blank
+  lines, indentation and spacing around `=`), `modified`, `onlyInBase`, `onlyInOther`, `binaryDiffers`, `tooLarge`. Contents are
+  read only for differing text files up to 1 MB, and equality results are cached in memory per hash pair.
+- **Details**: `GET /configs/file?profile&path` (text up to 1 MB, 415 for binary, strict relative-path checks) and
+  `GET /configs/filediff?base&other&path` (Myers line diff, 5000 lines per side, unified hunks).
+- **Update plan**: `GET|PUT /configs/plan` stores "take the reference's version" for `modified` and `onlyInBase` files
+  (`update_plan_item`, kind `file`, key = relative path); the export that copies them into an update pack is a separate feature.
+
+Limitations: no editor yet (files are only viewed), no 3-way merge, and agent profiles cannot be scanned.
+
 ## Quick start (Windows)
 
 Double-click `Start.cmd` (or run `pwsh -File studio.ps1`): a menu offers first setup (Node.js check and install through winget,
