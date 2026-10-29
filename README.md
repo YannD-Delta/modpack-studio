@@ -18,6 +18,31 @@ builds and boot test, deploy agent and publishing, Claude assistant.
 
 Validated read-only against real CurseForge instances (ATM10 8.3, NeoForge 21.1.259).
 
+## Update plan and update pack
+
+On the Mods page, each row that can take the reference jar has a toggle: **Mettre à jour** (older, different, rebuilt)
+or **Remettre le mod** (missing from the compared profile). The plan is stored per comparison (`PUT /api/v1/plan`) and
+nothing is written anywhere when you tick a row. Pins, accepted removals and client-only decisions show as badges.
+
+**Préparer le pack de mise à jour** (`POST /api/v1/plan/export`, job `export-update-pack`) writes, under
+`<data>/exports/update-<other>-from-<base>-<UTC stamp>/`:
+
+- `mods-add/` the reference jars, re-hashed and checked against the sha256 recorded at import (a mismatch or a missing jar is reported, not copied)
+- `remove.txt` the compared profile's current jar of every planned update
+- `files-add/` planned config files (kind `file`), copied from the reference folder or server-pack zip
+- `changes.json`, `CHANGES.md`, `result.json`, and `apply.ps1`; the zip is written next to the folder (`<name>.zip`)
+
+Nothing is ever written into an instance by Studio. To apply a pack (Windows PowerShell 5.1 or PowerShell 7):
+
+```powershell
+.\apply.ps1 -InstanceDir "D:\Instances\LMP"          # dry run: checks every sha256 and prints the changes
+.\apply.ps1 -InstanceDir "D:\Instances\LMP" -Apply   # moves replaced/removed files to _studio-backup-<stamp>\, then copies
+```
+
+The script refuses to run while a `java`/`javaw` process uses the instance (unless `-Force`) and never deletes a file.
+Each row also has a **🐞 Détails** panel (`GET /api/v1/mods/:modId/debug`): both entries, why the versions order
+that way, decisions, plan state, duplicate ids and a fresh sha256 of the reference jar, with a JSON copy button.
+
 ## Quick start (Windows)
 
 Double-click `Start.cmd` (or run `pwsh -File studio.ps1`): a menu offers first setup (Node.js check and install through winget,
