@@ -47,6 +47,7 @@ try {
 setlocal
 cd /d "%~dp0"
 set "STUDIO_DATA=%~dp0..\..\data"
+if not defined UV_THREADPOOL_SIZE set "UV_THREADPOOL_SIZE=32"
 if exist "runtime\node.exe" (set "NODE=runtime\node.exe") else (set "NODE=node")
 "%NODE%" --import tsx src\server\main.ts
 '@ | Set-Content -Encoding Ascii (Join-Path $app 'run.cmd')
