@@ -20,12 +20,12 @@ async function copyText(text: string): Promise<boolean> {
 }
 
 /** Predefined Claude actions on a comparison: run through the API, or copy a ready-made prompt. */
-export function ClaudeActions(props: { base: number | null; other: number | null; actions: ActionId[] }) {
-  const { base, other } = props;
+export function ClaudeActions(props: { base: number | null; other: number | null; actions: ActionId[]; runId?: string | null }) {
+  const { base, other, runId } = props;
   const settings = useQuery({ queryKey: ['settings'], queryFn: settingsApi.get });
   const catalogue = useQuery({ queryKey: ['assistant-actions'], queryFn: assistantApi.actions });
   const hasKey = settings.data?.keys?.claude?.configured ?? false;
-  const ready = base !== null && other !== null;
+  const ready = runId !== undefined ? !!runId : base !== null && other !== null;
 
   const [busy, setBusy] = useState<ActionId | null>(null);
   const [notes, setNotes] = useState<Partial<Record<ActionId, Note>>>({});
@@ -34,7 +34,7 @@ export function ClaudeActions(props: { base: number | null; other: number | null
   const setNote = (id: ActionId, note: Note | null) => setNotes((n) => ({ ...n, [id]: note ?? undefined }));
 
   const run = useMutation({
-    mutationFn: (id: ActionId) => assistantApi.run(id, base!, other!),
+    mutationFn: (id: ActionId) => (runId ? assistantApi.runRun(runId) : assistantApi.run(id, base!, other!)),
     onMutate: (id) => {
       setBusy(id);
       setNote(id, null);
@@ -46,7 +46,7 @@ export function ClaudeActions(props: { base: number | null; other: number | null
   });
 
   const copy = useMutation({
-    mutationFn: (id: ActionId) => assistantApi.prompt(id, base!, other!),
+    mutationFn: (id: ActionId) => (runId ? assistantApi.promptRun(runId) : assistantApi.prompt(id, base!, other!)),
     onMutate: (id) => setNote(id, null),
     onSuccess: async (p, id) => {
       if (await copyText(p.prompt)) {
@@ -68,7 +68,7 @@ export function ClaudeActions(props: { base: number | null; other: number | null
       <div className="space-y-1">
         <h3 className="font-semibold text-slate-100">{t('assistant.title')}</h3>
         <p className="max-w-3xl text-xs text-slate-400">{t('assistant.intro')}</p>
-        {!ready && <p className="text-xs text-amber-300">{t('assistant.pickFirst')}</p>}
+        {!ready && <p className="text-xs text-amber-300">{t(runId !== undefined ? 'assistant.pickRun' : 'assistant.pickFirst')}</p>}
       </div>
       <ul className="grid gap-2 md:grid-cols-2">
         {items.map((a) => (

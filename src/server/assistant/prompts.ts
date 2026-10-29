@@ -5,8 +5,11 @@ import { getSources, type CfSource } from '../mods/curseforge-sources.js';
 import { diffModSets, type ModEntry } from '../mods/diff.js';
 import { loadModSet } from '../mods/modset-store.js';
 import type { Profile } from '../profiles/profile-service.js';
+import type { RunDetail } from '../testbench/runs.js';
 
-export const ACTIONS = ['review-updates', 'review-added', 'review-missing', 'migrate-old-pack'] as const;
+export const PAIR_ACTIONS = ['review-updates', 'review-added', 'review-missing', 'migrate-old-pack'] as const;
+export const ACTIONS = [...PAIR_ACTIONS, 'analyze-test-run'] as const;
+export type PairActionId = (typeof PAIR_ACTIONS)[number];
 export type ActionId = (typeof ACTIONS)[number];
 export type PromptMode = 'chat' | 'api';
 
@@ -22,6 +25,10 @@ export const ACTION_INFO: Record<ActionId, { label: string; tip: string }> = {
   'review-missing': {
     label: 'Mods manquants',
     tip: 'Claude regarde les mods d’ATM10 absents de ton pack : retrait volontaire probable ou oubli, et si un équivalent existe déjà.',
+  },
+  'analyze-test-run': {
+    label: 'Analyser ce test',
+    tip: 'Claude lit le journal et le rapport de plantage du test : ce qui bloque, ce qui vient d\u2019ATM10 et se retrouve chez tout le monde, ce qui est sans importance, et la correction à essayer.',
   },
   'migrate-old-pack': {
     label: 'Ancien pack contre ATM10',
@@ -61,7 +68,7 @@ function cap(rows: Row[], maxRows: number): { shown: Row[]; note: string } {
  */
 export function buildPrompt(
   db: Db,
-  args: { action: ActionId; base: Profile; other: Profile; baseLoader: LoaderInfo | null; otherLoader: LoaderInfo | null; mode: PromptMode; maxRows?: number },
+  args: { action: PairActionId; base: Profile; other: Profile; baseLoader: LoaderInfo | null; otherLoader: LoaderInfo | null; mode: PromptMode; maxRows?: number },
 ): BuiltPrompt {
   const { action, base, other, mode } = args;
   const maxRows = args.maxRows ?? 400;
@@ -129,4 +136,42 @@ export function buildPrompt(
   const list = shown.length ? shown.map((r) => r.text).join('\n') : '(aucun mod dans cette liste)';
   const prompt = [intro(mode), '', header, '', task, '', 'Liste :', list + note].join('\n');
   return { action, title: ACTION_INFO[action].label, prompt, rows: rows.length, shown: shown.length };
+}
+
+const TAIL_LINES = 150;
+
+/** Prompt that asks Claude to read one server test: summary, first errors, crash report head and the end of the console log. */
+export function buildTestRunPrompt(args: { run: RunDetail; logTail: string[]; crashHead: string | null; mode: PromptMode }): BuiltPrompt {
+  const { run, mode } = args;
+  const r = run.result;
+  const facts = [
+    `Test : ${run.meta.label} (serveur copié dans un dossier temporaire, port ${run.meta.port}, mémoire ${run.meta.memoryMb} Mo, mode hors ligne).`,
+    `Résultat : ${run.status}${run.message ? ` (${run.message})` : ''}.`,
+    r
+      ? `Démarrage : ${r.bootSeconds === null ? 'jamais arrivé à « Done »' : `${r.bootSeconds} s`} · ${r.modJars} jars de mods · ${r.summary.errorLines} lignes d\u2019erreur · ${r.summary.warnLines} avertissements · ${r.crashReports.length} rapport(s) de plantage.`
+      : 'Pas de résultat final.',
+  ];
+  const errors = r?.summary.firstErrors.length ? r.summary.firstErrors.map((e) => `- ${e}`).join('\n') : '(aucune)';
+  const tail = args.logTail.slice(-TAIL_LINES).join('\n') || '(journal vide)';
+  const task = [
+    'Analyse ce test de démarrage d\u2019un serveur Minecraft modé (NeoForge).',
+    'Dis d\u2019abord s\u2019il est sain. Puis sépare : ce qui bloque, ce qui est hérité d\u2019ATM10 (présent chez tout le monde, à ignorer), et ce qui est sans importance.',
+    'Pour chaque problème bloquant : la cause probable (mod, version, dépendance, config) et la correction à essayer (mettre à jour, épingler, retirer, changer une valeur).',
+    'Termine par les trois actions à faire en premier.',
+  ].join('\n');
+  const prompt = [
+    intro(mode),
+    '',
+    ...facts,
+    '',
+    task,
+    '',
+    'Premières erreurs distinctes :',
+    errors,
+    '',
+    args.crashHead ? `Début du rapport de plantage :\n${args.crashHead}\n` : '',
+    `Fin du journal (${Math.min(TAIL_LINES, args.logTail.length)} dernières lignes) :`,
+    tail,
+  ].join('\n');
+  return { action: 'analyze-test-run', title: ACTION_INFO['analyze-test-run'].label, prompt, rows: r?.summary.errorLines ?? 0, shown: r?.summary.firstErrors.length ?? 0 };
 }

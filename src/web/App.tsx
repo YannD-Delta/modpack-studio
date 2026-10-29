@@ -10,12 +10,14 @@ import { Mods } from './pages/Mods.js';
 import { OldPack } from './pages/OldPack.js';
 import { Profiles } from './pages/Profiles.js';
 import { Settings } from './pages/Settings.js';
+import { TestBench } from './pages/TestBench.js';
 
 const TABS = [
   { id: 'profiles', label: 'nav.profiles', view: Profiles },
   { id: 'mods', label: 'nav.mods', view: Mods },
   { id: 'configs', label: 'nav.configs', view: Configs },
   { id: 'oldpack', label: 'nav.oldpack', view: OldPack },
+  { id: 'testbench', label: 'nav.testbench', view: TestBench },
   { id: 'decisions', label: 'nav.decisions', view: Decisions },
   { id: 'blacklist', label: 'nav.blacklist', view: Blacklist },
   { id: 'settings', label: 'nav.settings', view: Settings },

@@ -119,9 +119,9 @@ describe('prompt builder', () => {
 });
 
 describe('assistant api', () => {
-  it('lists the four predefined actions with a plain explanation each', async () => {
+  it('lists the predefined actions with a plain explanation each', async () => {
     const actions = (await call('GET', '/assistant/actions')).json() as { id: string; label: string; tip: string }[];
-    expect(actions.map((a) => a.id)).toEqual(['review-updates', 'review-added', 'review-missing', 'migrate-old-pack']);
+    expect(actions.map((a) => a.id)).toEqual(['review-updates', 'review-added', 'review-missing', 'migrate-old-pack', 'analyze-test-run']);
     expect(actions.every((a) => a.label && a.tip.length > 20)).toBe(true);
   });
 
@@ -205,5 +205,52 @@ describe('assistant api', () => {
     expect(res.json()).toEqual({ count: 1 });
     expect((await call('POST', '/assistant/prompt', { action: 'review-updates', base: atm, other: lmp })).json().prompt).toContain('https://www.curseforge.com/projects/7');
     expect((await call('POST', '/profiles/999/sources')).statusCode).toBe(404);
+  });
+});
+
+describe('assistant api: server test analysis', () => {
+  function writeRun(id: string, finished: boolean) {
+    const dir = path.join(dataDir, 'tests', id);
+    fs.mkdirSync(path.join(dir, 'server', 'crash-reports'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'meta.json'), JSON.stringify({ id, profileId: lmp, label: 'LMP test · server · launched', memoryMb: 8192, port: 25570, createdAt: '2026-10-29T12:00:00.000Z', jobId: null }));
+    fs.writeFileSync(path.join(dir, 'console.log'), ['[10:00:00] [main/INFO] [FML]: start', '[10:00:01] [main/ERROR] [mod_x]: Failed to load mod_x', 'Exception in thread main'].join('\n'));
+    fs.writeFileSync(path.join(dir, 'server', 'crash-reports', 'crash-1.txt'), 'Description: exception in loading\nCaused by: missing dependency exemple_core');
+    if (finished) {
+      fs.writeFileSync(
+        path.join(dir, 'result.json'),
+        JSON.stringify({ status: 'crashed', bootSeconds: null, exitCode: 1, startedAt: 'a', endedAt: 'b', summary: { bootSeconds: null, errorLines: 1, warnLines: 0, firstErrors: ['[main/ERROR] [mod_x]: Failed to load mod_x'] }, crashReports: ['crash-1.txt'], modJars: 12 }),
+      );
+    }
+  }
+
+  it('builds a prompt from the summary, the first errors, the crash report and the log tail', async () => {
+    writeRun('run-a', true);
+    const res = await call('POST', '/assistant/prompt', { action: 'analyze-test-run', runId: 'run-a' });
+    expect(res.statusCode).toBe(200);
+    const p = res.json().prompt as string;
+    expect(p).toContain('LMP test · server · launched');
+    expect(p).toContain('crashed');
+    expect(p).toContain('jamais arrivé à « Done »');
+    expect(p).toContain('Failed to load mod_x');
+    expect(p).toContain('missing dependency exemple_core');
+    expect(p).toContain('Exception in thread main');
+  });
+
+  it('refuses an unfinished test, an unknown one and an id that tries to leave the tests folder', async () => {
+    writeRun('run-b', false);
+    expect((await call('POST', '/assistant/prompt', { action: 'analyze-test-run', runId: 'run-b' })).statusCode).toBe(409);
+    expect((await call('POST', '/assistant/prompt', { action: 'analyze-test-run', runId: 'nope' })).statusCode).toBe(404);
+    expect((await call('POST', '/assistant/prompt', { action: 'analyze-test-run', runId: '../../settings' })).statusCode).toBe(404);
+  });
+
+  it('runs the analysis through the API and logs the run id, not the log', async () => {
+    writeRun('run-c', true);
+    setSecret(dataDir, 'claude', KEY);
+    const res = await call('POST', '/assistant/run', { action: 'analyze-test-run', runId: 'run-c' });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.stringify(sent[0]!.body.messages)).toContain('Failed to load mod_x');
+    const rows = JSON.stringify(db.sqlite.prepare('SELECT action, target, detail FROM audit_log').all());
+    expect(rows).toContain('run-c');
+    expect(rows).not.toContain('Failed to load');
   });
 });
