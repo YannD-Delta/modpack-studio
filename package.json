@@ -10,7 +10,8 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "dev:server": "tsx watch src/server/main.ts",
-    "start": "tsx src/server/main.ts"
+    "start": "tsx src/server/main.ts",
+    "set-password": "tsx src/server/cli/set-password.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.5",
