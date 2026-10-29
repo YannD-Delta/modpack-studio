@@ -8,6 +8,7 @@ import { Decisions } from './pages/Decisions.js';
 import { Login } from './pages/Login.js';
 import { Mods } from './pages/Mods.js';
 import { Profiles } from './pages/Profiles.js';
+import { Settings } from './pages/Settings.js';
 
 const TABS = [
   { id: 'profiles', label: 'nav.profiles', view: Profiles },
@@ -15,6 +16,7 @@ const TABS = [
   { id: 'configs', label: 'nav.configs', view: Configs },
   { id: 'decisions', label: 'nav.decisions', view: Decisions },
   { id: 'blacklist', label: 'nav.blacklist', view: Blacklist },
+  { id: 'settings', label: 'nav.settings', view: Settings },
 ] as const;
 
 export function App() {

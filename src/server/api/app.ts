@@ -12,10 +12,11 @@ import { registerConfigsRoutes } from './routes-configs.js';
 import { registerDecisionsRoutes } from './routes-decisions.js';
 import { registerModRoutes } from './routes-mods.js';
 import { registerPlanRoutes } from './routes-plan.js';
+import { registerSettingsRoutes } from './routes-settings.js';
 import { registerProfileRoutes } from './routes-profiles.js';
 
 /** `dataDir` is where exports and other files written by Studio go; it defaults to ./data when a caller (tests) omits it. */
-export type AppDeps = { db: Db; jobs: JobRunner; config: Config; dataDir?: string };
+export type AppDeps = { db: Db; jobs: JobRunner; config: Config; dataDir?: string; fetchImpl?: typeof fetch };
 
 const PUBLIC_ROUTES = new Set([`${API_PREFIX}/health`, `${API_PREFIX}/auth/login`]);
 const COOKIE = 'studio_session';
@@ -97,6 +98,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     registerPlanRoutes(api, deps);
     registerConfigsRoutes(api, deps);
     registerDecisionsRoutes(api, deps);
+    registerSettingsRoutes(api, deps);
   });
   return app;
 }

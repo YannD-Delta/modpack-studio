@@ -7,3 +7,4 @@ data/
 .env*
 private/
 .superpowers/
+CLAUDE.local.md
