@@ -17,6 +17,7 @@ import {
   type PlanItem,
   type PlanState,
 } from '../api-plan.js';
+import { ClaudeActions } from '../components/ClaudeActions.js';
 import { t, tf, type MessageKey } from '../i18n/index.js';
 
 type Status = 'anomaly' | 'removed' | 'added' | 'older' | 'newer' | 'different' | 'rebuilt';
@@ -275,6 +276,7 @@ export function Mods() {
       {diff.data && (
         <>
           <p className="text-sm text-slate-400">{tf('mods.legend', { a, b })}</p>
+          <ClaudeActions base={Number(baseId) || null} other={Number(otherId) || null} actions={['review-updates', 'review-added', 'review-missing']} />
           <div className="flex flex-wrap items-center gap-2">
             <button onClick={() => setFilter('all')} aria-pressed={filter === 'all'} className={`rounded-full border px-3 py-1 text-xs ${filter === 'all' ? 'border-violet-500 bg-violet-950/60 text-violet-200' : 'border-slate-700 text-slate-300 hover:bg-slate-800'}`}>{t('mods.filter.all')} · {all.length}</button>
             {STATUSES.filter((st) => counts[st] > 0).map((st) => (
