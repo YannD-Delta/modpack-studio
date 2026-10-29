@@ -150,13 +150,13 @@ describe('Configs page', () => {
     await userEvent.click(take);
     expect(await screen.findByRole('button', { name: '✓ Prévu config/sub/changed.toml' })).toBeTruthy();
     expect(JSON.parse(calls.find((c) => c.method === 'PUT')!.body!)).toEqual({ base: 2, other: 3, paths: ['config/sub/changed.toml'], selected: true });
-    expect(screen.getByText('1 fichiers prévus')).toBeTruthy();
+    expect(screen.getByText('Prévus dans le plan : 1')).toBeTruthy();
 
     await userEvent.click(screen.getByRole('button', { name: 'Tout sélectionner (filtre courant)' }));
-    await waitFor(() => expect(screen.getByText('2 fichiers prévus')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('Prévus dans le plan : 2')).toBeTruthy());
     expect(JSON.parse(calls.filter((c) => c.method === 'PUT')[1]!.body!)).toMatchObject({ paths: ['config/only-atm.toml'], selected: true });
     await userEvent.click(screen.getByRole('button', { name: 'Vider' }));
-    await waitFor(() => expect(screen.getByText('0 fichiers prévus')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('Prévus dans le plan : 0')).toBeTruthy());
   });
 
   it('offers a scan for a never-scanned profile, follows the job, then shows the diff', async () => {

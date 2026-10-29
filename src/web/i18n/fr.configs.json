@@ -75,7 +75,7 @@
   "configs.plan.selectAllTip": "Ajoute au plan d'update tous les fichiers affichés qui peuvent être pris de {a} (modifiés ou manquants dans {b}). Ne modifie aucune instance.",
   "configs.plan.clear": "Vider",
   "configs.plan.clearTip": "Retire tous les fichiers de config du plan d'update de cette comparaison.",
-  "configs.plan.count": "{n} fichiers prévus",
+  "configs.plan.count": "Prévus dans le plan : {n}",
   "configs.plan.error": "Plan non enregistré : {msg}",
   "configs.diff.loading": "Chargement du détail…",
   "configs.diff.binary": "Fichier binaire : pas d'affichage ligne à ligne.",

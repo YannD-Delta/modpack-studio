@@ -30,7 +30,7 @@ const STATE_STYLE: Record<string, string> = {
   launched: 'border-sky-700/60 bg-sky-950/50 text-sky-300',
   run: 'border-amber-700/60 bg-amber-950/50 text-amber-300',
 };
-const GRID = 'grid grid-cols-[minmax(0,2.2fr)_minmax(0,2.2fr)_7.5rem_16rem]';
+const GRID = 'grid grid-cols-[minmax(0,2.2fr)_minmax(0,2.2fr)_7.5rem_18rem]';
 const VIRTUALIZE_ABOVE = 200;
 const CONTEXT = 3;
 
@@ -385,7 +385,7 @@ export function Configs() {
             <span className="mt-0.5 block text-xs text-slate-300">{why(f)}</span>
           </span>
           <span className="text-xs text-slate-400" title={tf('configs.sizeTip', vars)}>{fmtSize(f.baseSize)} · {fmtSize(f.otherSize)}</span>
-          <span className="flex flex-wrap justify-end gap-2">
+          <span className="flex justify-end gap-2 whitespace-nowrap">
             {f.status !== 'identical' && (
               <button className={action} title={tf('configs.detailsTip', vars)} aria-expanded={open} aria-label={`${open ? t('configs.hide') : t('configs.details')} ${f.path}`} onClick={() => toggle(f.path)}>
                 {open ? t('configs.hide') : t('configs.details')}
@@ -474,7 +474,7 @@ export function Configs() {
               <div className={`${GRID} gap-3 bg-slate-900 px-4 py-3 text-xs uppercase tracking-wide text-slate-400`}>
                 <span>{t('configs.col.file')}</span>
                 <span>{t('configs.col.status')}</span>
-                <span className="normal-case" title={tf('configs.sizeTip', vars)}>{t('configs.col.size')}</span>
+                <span title={tf('configs.sizeTip', vars)}>{t('configs.col.size')}</span>
                 <span className="text-right">{t('configs.col.action')}</span>
               </div>
               {rows.length === 0 ? (
