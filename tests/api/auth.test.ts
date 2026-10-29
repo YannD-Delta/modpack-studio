@@ -55,6 +55,10 @@ describe('auth and request guards', () => {
     expect((await app.inject({ url: '/api/v1/auth/me' })).statusCode).toBe(401);
   });
 
+  it('does not require a session outside the API, so the login page itself can load', async () => {
+    expect((await app.inject({ url: '/' })).statusCode).toBe(404);
+  });
+
   it('returns 403 when Origin does not match Host', async () => {
     const res = await login('secret', { origin: 'http://evil.example' });
     expect(res.statusCode).toBe(403);

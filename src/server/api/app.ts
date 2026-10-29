@@ -48,6 +48,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
 
   app.addHook('onRequest', async (req, reply) => {
     const url = req.url.split('?')[0]!;
+    if (!url.startsWith(`${API_PREFIX}/`)) return; // the SPA shell (login page, assets) must load before a session exists
     if (PUBLIC_ROUTES.has(url)) return;
     if (!sessions.isValid(req.cookies[COOKIE])) return reply.code(401).send({ error: 'unauthorized' });
   });
