@@ -143,3 +143,19 @@ export const updatePlanItem = sqliteTable(
   },
   (t) => [unique().on(t.baseProfileId, t.otherProfileId, t.kind, t.key)],
 );
+
+/** CurseForge identity of a jar of an imported instance, read from its minecraftinstance.json (no API key needed). */
+export const jarSource = sqliteTable(
+  'jar_source',
+  {
+    profileId: integer('profile_id')
+      .notNull()
+      .references(() => profile.id),
+    fileName: text('file_name').notNull(),
+    projectId: integer('project_id').notNull(),
+    fileId: integer('file_id').notNull(),
+    name: text('name').notNull(),
+    url: text('url').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.profileId, t.fileName] })],
+);

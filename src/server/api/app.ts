@@ -8,6 +8,7 @@ import type { Db } from '../db/open.js';
 import type { JobRunner } from '../jobs/runner.js';
 import { SessionStore, verifyPassword } from './auth.js';
 import { registerEvents } from './events.js';
+import { registerAssistantRoutes } from './routes-assistant.js';
 import { registerConfigsRoutes } from './routes-configs.js';
 import { registerDecisionsRoutes } from './routes-decisions.js';
 import { registerModRoutes } from './routes-mods.js';
@@ -99,6 +100,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     registerConfigsRoutes(api, deps);
     registerDecisionsRoutes(api, deps);
     registerSettingsRoutes(api, deps);
+    registerAssistantRoutes(api, deps);
   });
   return app;
 }

@@ -2,8 +2,9 @@ import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { API_PREFIX } from '../../shared/constants.js';
+import { checkClaudeKey } from '../assistant/anthropic.js';
 import { audit } from '../db/audit.js';
-import { EFFORTS, getSecret, isValidKey, keyStatus, MODELS, PROVIDERS, readPrefs, setSecret, writePrefs, type Provider } from '../settings/secrets-store.js';
+import { EFFORTS, getSecret, isValidKey, keyStatus, MODELS, PROVIDERS, readPrefs, setSecret, writePrefs } from '../settings/secrets-store.js';
 import type { AppDeps } from './app.js';
 import { sendBadRequest } from './routes-profiles.js';
 
@@ -14,12 +15,7 @@ const AssistantBody = z.object({ model: z.enum(MODELS.map((m) => m.id) as [strin
 
 const TEST_TIMEOUT_MS = 10_000;
 
-/** The cheapest authenticated call of each API: a successful answer proves the key is accepted. */
-function testRequest(provider: Provider, key: string): { url: string; headers: Record<string, string> } {
-  return provider === 'claude'
-    ? { url: 'https://api.anthropic.com/v1/models?limit=1', headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01' } }
-    : { url: 'https://api.curseforge.com/v1/games?index=0&pageSize=1', headers: { 'x-api-key': key, accept: 'application/json' } };
-}
+const CURSEFORGE_TEST_URL = 'https://api.curseforge.com/v1/games?index=0&pageSize=1';
 
 /**
  * API keys and assistant preferences. A key is write-only: no route ever returns it, only whether it is set and its last 4 characters.
@@ -58,9 +54,12 @@ export function registerSettingsRoutes(api: FastifyInstance, deps: AppDeps): voi
     if (!p.success) return sendBadRequest(reply, p.error);
     const key = getSecret(dataDir, p.data.provider);
     if (!key) return { ok: false, code: 'not_configured' };
-    const { url, headers } = testRequest(p.data.provider, key);
+    if (p.data.provider === 'claude') {
+      const check = await checkClaudeKey(key, deps.fetchImpl);
+      return check.ok ? { ok: true, code: 'ok' } : { ok: false, code: check.code, ...(check.status ? { status: check.status } : {}) };
+    }
     try {
-      const res = await doFetch(url, { headers, signal: AbortSignal.timeout(TEST_TIMEOUT_MS) });
+      const res = await doFetch(CURSEFORGE_TEST_URL, { headers: { 'x-api-key': key, accept: 'application/json' }, signal: AbortSignal.timeout(TEST_TIMEOUT_MS) });
       if (res.ok) return { ok: true, code: 'ok' };
       return { ok: false, code: res.status === 401 || res.status === 403 ? 'rejected' : 'unexpected', status: res.status };
     } catch {

@@ -6,6 +6,7 @@ import type { Db } from '../db/open.js';
 import { runInPool } from '../jobs/pool.js';
 import type { JobContext } from '../jobs/runner.js';
 import { openZip } from '../zip/zip-reader.js';
+import { readInstanceSources, storeSources } from './curseforge-sources.js';
 import { readJarInfo, type JarInfo } from './jar-meta.js';
 
 export type ModSetSource = { kind: 'zip'; path: string } | { kind: 'folder'; path: string };
@@ -104,6 +105,9 @@ export async function importModSet(db: Db, source: ModSetSource, profileId: numb
       }
     }
   })();
+
+  // CurseForge instances also say which project and file each jar is: keep that for links (no API key needed).
+  if (source.kind === 'folder') storeSources(db, profileId, readInstanceSources(source.path));
 
   const duplicateIds = [...idToFiles.entries()]
     .filter(([, files]) => files.length > 1)

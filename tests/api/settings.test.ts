@@ -26,9 +26,10 @@ beforeEach(async () => {
   calls = [];
   reply = { status: 200 };
   const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {
-    calls.push({ url: String(url), headers: (init?.headers ?? {}) as Record<string, string> });
+    calls.push({ url: String(url), headers: Object.fromEntries(new Headers(init?.headers).entries()) });
     if (reply === 'throw') throw new Error('connect ECONNREFUSED');
-    return new Response('{}', { status: reply.status });
+    const body = String(url).includes('anthropic') ? { data: [], has_more: false, first_id: null, last_id: null } : {};
+    return new Response(JSON.stringify(body), { status: reply.status, headers: { 'content-type': 'application/json' } });
   }) as typeof fetch;
   db = openDb(':memory:');
   const config: Config = { bindHost: '127.0.0.1', port: 0, passwordHash: hashPassword('pw'), allowedHosts: [] };
@@ -113,8 +114,9 @@ describe('settings api', () => {
     expect(res.json()).toEqual({ ok: true, code: 'ok' });
     expect(calls).toHaveLength(1);
     expect(calls[0]!.url.startsWith('https://api.anthropic.com/v1/models')).toBe(true);
-    expect(calls[0]!.headers['x-api-key']).toBe(CLAUDE_KEY);
-    expect(calls[0]!.headers['anthropic-version']).toBe('2023-06-01');
+    // the official SDK sends the key as a bearer token and picks the API version itself
+    expect(calls[0]!.headers.authorization).toBe(`Bearer ${CLAUDE_KEY}`);
+    expect(calls[0]!.headers['anthropic-version']).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
   it('tests the CurseForge key against the CurseForge API', async () => {
