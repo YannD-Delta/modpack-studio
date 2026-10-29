@@ -16,6 +16,9 @@ $demoDir = Join-Path $env:TEMP 'studio-demo'
 $minNode = 24
 Set-Location $root
 
+# More threads for file-system calls (default 4): the config scan lists and reads many files over a cloud-synced drive.
+if (-not $env:UV_THREADPOOL_SIZE) { $env:UV_THREADPOOL_SIZE = '32' }
+
 # cmd.exe breaks on an orphan quote in PATH, which also breaks npm.
 $env:Path = $env:Path -replace '"', ''
 

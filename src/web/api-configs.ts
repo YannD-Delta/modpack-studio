@@ -51,7 +51,7 @@ export const configsApi = {
   diff: (base: number | string, other: number | string) => api<ConfigDiff>(`/configs/diff?base=${base}&other=${other}`),
   fileDiff: (base: number | string, other: number | string, path: string) =>
     api<FileDiff>(`/configs/filediff?base=${base}&other=${other}&path=${encodeURIComponent(path)}`),
-  scan: (profile: number, force: boolean) => api<ScanStart>('/configs/scan', { method: 'POST', body: { profile, force } }),
+  scan: (profile: number, force: boolean, deep = false) => api<ScanStart>('/configs/scan', { method: 'POST', body: { profile, force, deep } }),
   job: (jobId: string) => api<ScanJob>(`/configs/scan/${jobId}`),
   plan: (base: number | string, other: number | string) => api<{ paths: string[] }>(`/configs/plan?base=${base}&other=${other}`),
   setPlan: (base: number, other: number, paths: string[], selected: boolean) =>

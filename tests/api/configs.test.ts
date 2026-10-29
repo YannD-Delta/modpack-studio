@@ -52,8 +52,8 @@ async function waitJob(jobId: string): Promise<{ status: string; message: string
   throw new Error('scan job timed out');
 }
 
-async function scan(profile: number, force = false) {
-  const res = await call('POST', '/configs/scan', { profile, force });
+async function scan(profile: number, force = false, deep = false) {
+  const res = await call('POST', '/configs/scan', { profile, force, deep });
   expect(res.statusCode).toBe(202);
   return waitJob((res.json() as { jobId: string }).jobId);
 }
@@ -141,10 +141,22 @@ describe('configs api', () => {
     expect((await call('GET', `/configs/inventory?profile=${id}`)).statusCode).toBe(409);
   });
 
-  it('diffs two scanned profiles with statuses, roots and states', async () => {
+  it('compares known binaries by size unless the scan is deep', async () => {
     const { atm, lmp } = await scenario();
     await scan(atm);
     await scan(lmp);
+    const quick = (await call('GET', `/configs/diff?base=${atm}&other=${lmp}`)).json().files.find((f: { path: string }) => f.path === 'config/icon.png');
+    expect(quick.status).toBe('identical'); // same size, content not read
+    await scan(atm, false, true);
+    await scan(lmp, false, true);
+    const deep = (await call('GET', `/configs/diff?base=${atm}&other=${lmp}`)).json().files.find((f: { path: string }) => f.path === 'config/icon.png');
+    expect(deep.status).toBe('binaryDiffers');
+  });
+
+  it('diffs two scanned profiles with statuses, roots and states', async () => {
+    const { atm, lmp } = await scenario();
+    await scan(atm, false, true);
+    await scan(lmp, false, true);
     const res = await call('GET', `/configs/diff?base=${atm}&other=${lmp}`);
     expect(res.statusCode).toBe(200);
     const d = res.json();
@@ -194,8 +206,8 @@ describe('configs api', () => {
 
   it('returns a structured line diff', async () => {
     const { atm, lmp } = await scenario();
-    await scan(atm);
-    await scan(lmp);
+    await scan(atm, false, true);
+    await scan(lmp, false, true);
     const d = (await call('GET', `/configs/filediff?base=${atm}&other=${lmp}&path=config/changed.toml`)).json();
     expect(d).toMatchObject({ status: 'modified', kind: 'text', binary: false, added: 1, removed: 1, truncated: false });
     expect(d.lines).toEqual([

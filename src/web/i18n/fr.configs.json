@@ -87,5 +87,7 @@
   "configs.diff.coarse": "Trop de changements pour un alignement fin : le bloc modifié est affiché en entier.",
   "configs.diff.stale": "Le fichier a changé depuis l'analyse : réanalyse le profil pour mettre la liste à jour.",
   "configs.diff.error": "Détail indisponible : {msg}",
-  "configs.limitation": "Pas d'éditeur pour l'instant : la modification des fichiers viendra dans une prochaine étape."
+  "configs.limitation": "Pas d'éditeur pour l'instant : la modification des fichiers viendra dans une prochaine étape.",
+  "configs.scanDeep": "Analyse approfondie",
+  "configs.scanDeepTip": "Lit aussi le contenu des images, sons et fichiers binaires (textures kubejs…). Beaucoup plus lent sur un disque synchronisé : par défaut ces fichiers sont comparés par leur taille seulement. À utiliser si une texture a pu changer sans changer de taille."
 }

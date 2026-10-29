@@ -35,7 +35,7 @@ const ProfileQuery = z.object({ profile: Id, full: z.enum(['0', '1']).optional()
 const PairQuery = z.object({ base: Id, other: Id });
 const FileQuery = z.object({ profile: Id, path: RelPath });
 const FileDiffQuery = PairQuery.extend({ path: RelPath });
-const ScanBody = z.object({ profile: z.number().int().positive(), force: z.boolean().optional() });
+const ScanBody = z.object({ profile: z.number().int().positive(), force: z.boolean().optional(), deep: z.boolean().optional() });
 const PlanBody = z.object({ base: z.number().int().positive(), other: z.number().int().positive(), paths: z.array(RelPath).max(20000), selected: z.boolean() });
 const JobParams = z.object({ jobId: z.uuid() });
 
@@ -76,19 +76,19 @@ export function registerConfigsRoutes(api: FastifyInstance, deps: AppDeps): void
   const dataDir = deps.dataDir ?? path.resolve('data');
 
   jobs.register('scan-configs', async (ctx) => {
-    const params = z.object({ profileId: z.number(), force: z.boolean().optional() }).parse(ctx.params);
+    const params = z.object({ profileId: z.number(), force: z.boolean().optional(), deep: z.boolean().optional() }).parse(ctx.params);
     const profile = getProfile(db, params.profileId);
     const source = sourceOf(profile);
     if (!source) throw new Error(`a ${profile.locationKind} profile cannot be scanned yet`);
     // Another scan may have finished while this one was queued behind the lock.
-    if (!needsScan(profile, readInventoryCache(dataDir, profile.id), params.force ?? false)) {
+    if (!needsScan(profile, readInventoryCache(dataDir, profile.id), params.force ?? false, params.deep ?? false)) {
       ctx.progress(100, 'already scanned');
       return;
     }
-    const inv = await scanInstanceTree(source, { signal: ctx.signal, onProgress: (pct, msg) => ctx.progress(pct, msg) });
+    const inv = await scanInstanceTree(source, { deepBinary: params.deep ?? false, signal: ctx.signal, onProgress: (pct, msg) => ctx.progress(pct, msg) });
     const unreadable = inv.issues.find((i) => i.path === '.');
     if (inv.files.size === 0 && unreadable) throw new Error(unreadable.reason);
-    writeInventoryCache(dataDir, profile.id, profile.location, inv);
+    writeInventoryCache(dataDir, profile.id, profile.location, inv, new Date(), params.deep ?? false);
     audit(db, 'configs.scan', String(profile.id), { files: inv.files.size, issues: inv.issues.length });
     ctx.progress(100, `scanned ${inv.files.size} files, ${inv.issues.length} issues`);
   });
@@ -99,8 +99,8 @@ export function registerConfigsRoutes(api: FastifyInstance, deps: AppDeps): void
     const profile = profileOr404(db, body.data.profile);
     if (!sourceOf(profile)) throw new ConfigsHttpError(409, `a ${profile.locationKind} profile cannot be scanned yet`);
     const cached = readInventoryCache(dataDir, profile.id);
-    if (!needsScan(profile, cached, body.data.force ?? false)) return { jobId: null, cached: true, scannedAt: cached!.scannedAt };
-    const jobId = jobs.enqueue('scan-configs', { profileId: profile.id, force: body.data.force ?? false }, { lockKey: `configs:${profile.id}` });
+    if (!needsScan(profile, cached, body.data.force ?? false, body.data.deep ?? false)) return { jobId: null, cached: true, scannedAt: cached!.scannedAt };
+    const jobId = jobs.enqueue('scan-configs', { profileId: profile.id, force: body.data.force ?? false, deep: body.data.deep ?? false }, { lockKey: `configs:${profile.id}` });
     return reply.code(202).send({ jobId });
   }));
 

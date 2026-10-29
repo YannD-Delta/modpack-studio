@@ -51,6 +51,34 @@ describe('scanInstanceTree (folder)', () => {
     expect(inv.issues).toEqual([]);
   });
 
+  it('does not read known binary files (textures, nbt...): size only, unless deepBinary is asked', async () => {
+    const png = Buffer.alloc(300, 7);
+    put(tmp, 'kubejs/assets/a/textures/x.png', png);
+    put(tmp, 'kubejs/server_scripts/a.js', '// hi\n');
+    const hashed: string[] = [];
+    const inv = await scanInstanceTree({ kind: 'folder', path: tmp }, { hooks: { beforeHash: (rel) => hashed.push(rel) } });
+    expect(hashed).toEqual(['kubejs/server_scripts/a.js']);
+    expect(inv.files.get('kubejs/assets/a/textures/x.png')).toEqual({ size: 300, sha256: 'size:300', kind: 'binary', sizeOnly: true });
+
+    const deep = await scanInstanceTree({ kind: 'folder', path: tmp }, { deepBinary: true });
+    expect(deep.files.get('kubejs/assets/a/textures/x.png')).toEqual({ size: 300, sha256: sha(png), kind: 'binary' });
+  });
+
+  it('reports progress while listing, not only while hashing', async () => {
+    for (let i = 0; i < 5; i++) put(tmp, `config/d${i}/f.toml`, 'a = 1\n');
+    const messages: string[] = [];
+    await scanInstanceTree({ kind: 'folder', path: tmp }, { onProgress: (_p, m) => messages.push(m ?? '') });
+    expect(messages.some((m) => /^listing files: \d+ found/.test(m))).toBe(true);
+  });
+
+  it('lists a deep tree in parallel and still returns every file, sorted', async () => {
+    for (let i = 0; i < 20; i++) for (let j = 0; j < 3; j++) put(tmp, `kubejs/server_scripts/d${i}/e${j}/f.js`, `// ${i}${j}\n`);
+    const inv = await scanInstanceTree({ kind: 'folder', path: tmp }, { concurrency: 8 });
+    const keys = [...inv.files.keys()];
+    expect(keys.length).toBe(60);
+    expect(keys).toEqual([...keys].sort());
+  });
+
   it('flags files above the text limit as binary tooLarge but still hashes them', async () => {
     const big = 'a'.repeat(2048);
     put(tmp, 'config/big.json', big);

@@ -12,13 +12,17 @@ export type TrackedRoot = (typeof TRACKED_ROOTS)[number];
 export const MAX_TEXT_BYTES = 5 * 1024 * 1024;
 
 export type FileKind = 'text' | 'binary';
-export type InventoryEntry = { size: number; sha256: string; kind: FileKind; tooLarge?: true };
+/** `sizeOnly`: a known binary file (texture, nbt...) whose content was not read; its `sha256` is `size:<bytes>`, so equal sizes count as equal. */
+export type InventoryEntry = { size: number; sha256: string; kind: FileKind; tooLarge?: true; sizeOnly?: true };
 export type ScanIssue = { path: string; reason: string };
 export type Inventory = { files: Map<string, InventoryEntry>; issues: ScanIssue[] };
 export type ScanSource = { kind: 'folder' | 'zip'; path: string };
 export type ScanOptions = {
   maxTextBytes?: number;
+  /** Files hashed at once (also the number of folders listed at once). Network drives like many parallel requests. */
   concurrency?: number;
+  /** Also read and hash known binary files (textures...). Off by default: over a cloud drive that means downloading hundreds of MB. */
+  deepBinary?: boolean;
   signal?: AbortSignal;
   onProgress?: (pct: number, msg?: string) => void;
   /** Test seam: runs just before a file is hashed. */
@@ -92,7 +96,11 @@ async function hashFile(abs: string): Promise<{ sha256: string; size: number; he
 }
 
 /** Lists the tracked files of a folder without following symlinks or junctions (no loops, no escape). */
-async function listFolder(base: string, issues: ScanIssue[], signal?: AbortSignal): Promise<{ rel: string; abs: string }[]> {
+async function listFolder(
+  base: string,
+  issues: ScanIssue[],
+  opts: { concurrency: number; signal?: AbortSignal; onFound?: (count: number) => void },
+): Promise<{ rel: string; abs: string }[]> {
   const out: { rel: string; abs: string }[] = [];
   let top: fs.Dirent[];
   try {
@@ -102,36 +110,39 @@ async function listFolder(base: string, issues: ScanIssue[], signal?: AbortSigna
     return out;
   }
 
-  const walk = async (absDir: string, relDir: string): Promise<void> => {
-    if (signal?.aborted) throw new Error('aborted');
-    let entries: fs.Dirent[];
-    try {
-      entries = await fsp.readdir(absDir, { withFileTypes: true });
-    } catch (err) {
-      issues.push({ path: relDir, reason: describe(err) });
-      return;
-    }
-    entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
-    for (const e of entries) {
-      const rel = `${relDir}/${e.name}`;
-      if (e.isSymbolicLink()) {
-        issues.push({ path: rel, reason: 'symbolic link or junction, not followed' });
-      } else if (e.isDirectory()) {
-        if (!EXCLUDED_DIRS.has(e.name.toLowerCase())) await walk(path.join(absDir, e.name), rel);
-      } else if (e.isFile() && !isExcludedFileName(e.name)) {
-        out.push({ rel, abs: path.join(absDir, e.name) });
-      }
-    }
-  };
-
+  let level: { abs: string; rel: string }[] = [];
   for (const e of top) {
     const root = e.name.toLowerCase();
     if (!TRACKED.has(root)) continue;
-    if (e.isSymbolicLink()) {
-      issues.push({ path: root, reason: 'symbolic link or junction, not followed' });
-      continue;
-    }
-    if (e.isDirectory()) await walk(path.join(base, e.name), root);
+    if (e.isSymbolicLink()) issues.push({ path: root, reason: 'symbolic link or junction, not followed' });
+    else if (e.isDirectory()) level.push({ abs: path.join(base, e.name), rel: root });
+  }
+
+  // Level by level, several folders at once: the first listing of a cloud-synced folder can take seconds, so overlap them.
+  while (level.length > 0) {
+    const next: { abs: string; rel: string }[] = [];
+    await runLimited(level, opts.concurrency, async ({ abs: absDir, rel: relDir }) => {
+      if (opts.signal?.aborted) throw new Error('aborted');
+      let entries: fs.Dirent[];
+      try {
+        entries = await fsp.readdir(absDir, { withFileTypes: true });
+      } catch (err) {
+        issues.push({ path: relDir, reason: describe(err) });
+        return;
+      }
+      for (const e of entries) {
+        const rel = `${relDir}/${e.name}`;
+        if (e.isSymbolicLink()) {
+          issues.push({ path: rel, reason: 'symbolic link or junction, not followed' });
+        } else if (e.isDirectory()) {
+          if (!EXCLUDED_DIRS.has(e.name.toLowerCase())) next.push({ abs: path.join(absDir, e.name), rel });
+        } else if (e.isFile() && !isExcludedFileName(e.name)) {
+          out.push({ rel, abs: path.join(absDir, e.name) });
+        }
+      }
+      opts.onFound?.(out.length);
+    });
+    level = next;
   }
   return out;
 }
@@ -178,16 +189,34 @@ export async function scanInstanceTree(source: ScanSource, opts: ScanOptions = {
   };
 
   if (source.kind === 'folder') {
-    opts.onProgress?.(0, 'listing files');
-    const list = await listFolder(source.path, issues, opts.signal);
+    const concurrency = opts.concurrency ?? 16;
+    opts.onProgress?.(0, 'listing files: 0 found');
+    let lastReported = 0;
+    const list = await listFolder(source.path, issues, {
+      concurrency,
+      signal: opts.signal,
+      onFound: (n) => {
+        if (n - lastReported >= 50) {
+          lastReported = n;
+          opts.onProgress?.(0, `listing files: ${n} found`);
+        }
+      },
+    });
+    opts.onProgress?.(0, `listing files: ${list.length} found`);
     const tick = progressReporter(list.length, opts.onProgress);
-    // A few files at a time: the instances sit on a slow cloud-synced drive, so overlap the reads a little.
-    await runLimited(list, opts.concurrency ?? 4, async ({ rel, abs }) => {
+    // Many files at once: the instances sit on a slow cloud-synced drive, where latency (not CPU) is the cost.
+    await runLimited(list, concurrency, async ({ rel, abs }) => {
       checkAbort();
       try {
-        opts.hooks?.beforeHash?.(rel);
-        const { sha256, size, head } = await hashFile(abs);
-        files.set(rel, { size, sha256, ...classify(rel, size, head, maxText) });
+        if (!opts.deepBinary && BINARY_EXT.has(extOf(rel))) {
+          // Textures and the like are the bulk of kubejs/ (hundreds of MB): compare them by size, do not download them.
+          const { size } = await fsp.stat(abs);
+          files.set(rel, { size, sha256: `size:${size}`, kind: 'binary', ...(size > maxText ? { tooLarge: true as const } : {}), sizeOnly: true });
+        } else {
+          opts.hooks?.beforeHash?.(rel);
+          const { sha256, size, head } = await hashFile(abs);
+          files.set(rel, { size, sha256, ...classify(rel, size, head, maxText) });
+        }
       } catch (err) {
         issues.push({ path: rel, reason: describe(err) });
       }
@@ -234,5 +263,6 @@ export async function scanInstanceTree(source: ScanSource, opts: ScanOptions = {
       await zip.close();
     }
   }
+  issues.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)); // the parallel listing finds them in any order
   return { files: new Map([...files.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))), issues };
 }

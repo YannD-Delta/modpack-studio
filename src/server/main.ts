@@ -1,3 +1,4 @@
+import './threadpool.js';
 import fastifyStatic from '@fastify/static';
 import fs from 'node:fs';
 import http from 'node:http';

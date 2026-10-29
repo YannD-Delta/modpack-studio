@@ -180,7 +180,7 @@ describe('Configs page', () => {
     const btn = screen.getAllByRole('button', { name: 'Analyser' })[0]!;
     expect(btn.getAttribute('title')).toMatch(/sans rien modifier/);
     await userEvent.click(btn);
-    expect(JSON.parse(calls.find((c) => c.method === 'POST')!.body!)).toEqual({ profile: 3, force: false });
+    expect(JSON.parse(calls.find((c) => c.method === 'POST')!.body!)).toEqual({ profile: 3, force: false, deep: false });
     expect(await screen.findByText('Contenu différent.', {}, { timeout: 4000 })).toBeTruthy();
     expect(screen.getAllByRole('button', { name: 'Réanalyser' })).toHaveLength(2);
   });

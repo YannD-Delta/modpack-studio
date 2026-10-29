@@ -88,8 +88,12 @@ function useScanJob(jobId: string | null, onEnd: (job: ScanJob) => void): ScanJo
     const poll = async () => {
       try {
         update(await configsApi.job(jobId));
-      } catch {
-        // transient: the next tick retries
+      } catch (err) {
+        // 401: the server restarted or the session expired; 404: the job is gone. Neither will recover by retrying.
+        if (err instanceof ApiError && (err.status === 401 || err.status === 404)) {
+          update({ status: 'failed', progress: null, message: err.status === 401 ? 'Session expirée : reconnecte-toi puis relance l’analyse.' : 'Analyse introuvable : relance-la.' });
+        }
+        // otherwise transient: the next tick retries
       }
     };
     void poll();
@@ -125,7 +129,7 @@ function ProfileCard(props: {
     else setFailure(j.message ?? j.status);
   });
   const scan = useMutation({
-    mutationFn: (force: boolean) => configsApi.scan(Number(value), force),
+    mutationFn: (v: { force: boolean; deep?: boolean }) => configsApi.scan(Number(value), v.force, v.deep ?? false),
     onMutate: () => setFailure(null),
     onSuccess: (r) => (r.jobId ? setJobId(r.jobId) : void refresh()),
     onError: (e: Error) => setFailure(e.message),
@@ -155,9 +159,12 @@ function ProfileCard(props: {
             className={`${action} ml-auto`}
             disabled={busy}
             title={scanned ? t('configs.rescanTip') : t('configs.scanTip')}
-            onClick={() => scan.mutate(!!scanned)}
+            onClick={() => scan.mutate({ force: !!scanned })}
           >
             {scanned ? t('configs.rescan') : t('configs.scan')}
+          </button>
+          <button className={action} disabled={busy} title={t('configs.scanDeepTip')} onClick={() => scan.mutate({ force: true, deep: true })}>
+            {t('configs.scanDeep')}
           </button>
         </div>
       )}
