@@ -1,5 +1,7 @@
 # Modpack Studio, Phases 0-1 (foundation + mod comparison) Implementation Plan
 
+
+> Identifiers in this record were neutralised (`base_*`, `own_*`); the code may still use older names for some persisted values and helpers, so check the source before relying on a name.
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans (the user's standing preference: inline execution, no subagent-driven development) to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ship the Studio skeleton (auth, DB, blob store, jobs, safe filesystem, profiles) and the first usable feature: import BASE-server / BASE-client / OWN-client mod sets, compare them by mod id, check the loader version, derive the server blacklist from BASE's own choices, record decisions.
@@ -87,7 +89,7 @@ modpack-studio/
 **Interfaces:** Produces
 `type JarSpec = { fileName: string; loader: 'neoforge'|'forge'|'fabric'; mods: {modId: string; version: string; dependencySide?: 'CLIENT'|'SERVER'|'BOTH'}[]; nested?: JarSpec[]; library?: boolean; placeholderVersion?: boolean; manifestVersion?: string }`;
 `makeJar(spec: JarSpec): Promise<Buffer>`; `makeZip(entries: Record<string, Buffer|string>, opts?: {wrapperDir?: string}): Promise<Buffer>`;
-`writeAtmPack(dir: string, v: {atm: string; neoforge: string; mc: string; serverMods: JarSpec[]; clientMods: JarSpec[]}): Promise<{serverZip: string; clientDir: string}>` (server zip contains `mods/`, `startserver.bat` with `NEOFORGE_VERSION`, `neoforge-<ver>-installer.jar`; client dir contains `mods/*.jar` and `minecraftinstance.json` with `baseModLoader`).
+`writeBasePack(dir: string, v: {base: string; neoforge: string; mc: string; serverMods: JarSpec[]; clientMods: JarSpec[]}): Promise<{serverZip: string; clientDir: string}>` (server zip contains `mods/`, `startserver.bat` with `NEOFORGE_VERSION`, `neoforge-<ver>-installer.jar`; client dir contains `mods/*.jar` and `minecraftinstance.json` with `baseModLoader`).
 
 - [ ] **Step 1: Failing test**: `makeJar({fileName:'a-1.0.jar', loader:'neoforge', mods:[{modId:'a', version:'1.0'}]})` opened with `yauzl` contains `META-INF/neoforge.mods.toml` whose text includes `modId = "a"`; a `nested` spec adds `META-INF/jarjar/metadata.json` and the nested jar entry; `library:true` writes no mods toml but a `Automatic-Module-Name` manifest line.
 - [ ] **Step 2:** Run (FAIL); implement with `yazl`; run (PASS); commit `test: synthetic jar and pack fixtures`.
@@ -107,7 +109,7 @@ modpack-studio/
 
 **Files:** Create `src/server/db/schema.ts`, `src/server/db/open.ts`, `drizzle.config.ts`; generate `drizzle/`; Test `tests/unit/db.test.ts`.
 
-**Interfaces:** Produces `openDb(file: string, opts?: {backupDir?: string}): Db` (WAL, `foreign_keys=ON`, runs pending migrations; copies the DB to `backupDir` before applying a migration); tables (Drizzle): `pack_version(id, pack, version, mc, loader, loader_version, base_atm_version?, lmp_hotfix?)`, `profile(id, pack_version_id, side, state, location_kind, location, captured_at, manifest_hash, immutable)`, `jar(sha256 pk, filename, size)`, `jar_mod(id, jar_sha256, profile_id, mod_id, version, declared_side, is_jij, parent_jar, library_key?)`, `mod_decision(mod_id, kind, side?, reason, created_at)`, `blacklist(mod_id, origin, valid_for, reason)`, `blob(sha256 pk, size, refs)`, `job`, `setting`, `audit_log`, `event`.
+**Interfaces:** Produces `openDb(file: string, opts?: {backupDir?: string}): Db` (WAL, `foreign_keys=ON`, runs pending migrations; copies the DB to `backupDir` before applying a migration); tables (Drizzle): `pack_version(id, pack, version, mc, loader, loader_version, base_pack_ref?, own_hotfix?)`, `profile(id, pack_version_id, side, state, location_kind, location, captured_at, manifest_hash, immutable)`, `jar(sha256 pk, filename, size)`, `jar_mod(id, jar_sha256, profile_id, mod_id, version, declared_side, is_jij, parent_jar, library_key?)`, `mod_decision(mod_id, kind, side?, reason, created_at)`, `blacklist(mod_id, origin, valid_for, reason)`, `blob(sha256 pk, size, refs)`, `job`, `setting`, `audit_log`, `event`.
 
 - [ ] **Step 1: Failing tests**: `openDb(':memory:')` has every table above; inserting a `profile` with a missing `pack_version_id` fails (foreign keys); with `backupDir` and a pre-existing older-schema file, opening creates a backup copy before migrating.
 - [ ] **Step 2:** Run (FAIL), write the schema, `npx drizzle-kit generate`, implement `openDb`; run (PASS); commit `feat: sqlite schema and migrations`.
@@ -192,19 +194,19 @@ modpack-studio/
 
 **Interfaces:** Consumes `compareVersions`. Produces `type ModEntry = {modId: string; version: string; sha256: string; file: string}`; `type ModSet = Map<string, ModEntry>`;
 `diffModSets(base: ModSet, other: ModSet, opts?: {pins?: Set<string>}): {added: ModEntry[]; removed: ModEntry[]; updated: {modId: string; from: ModEntry; to: ModEntry; direction: 'newer'|'older'|'different'}[]; rebuilt: ModEntry[]; unchanged: number}`;
-`deriveAtmSides(atmS: ModSet, atmC: ModSet, versions: {server: string; client: string}): {clientOnly: string[]; serverOnly: string[]; both: string[]}` (throws `AtmVersionMismatchError` when versions differ);
-`ownLayer(lmpC: ModSet, atmC: ModSet): ReturnType<typeof diffModSets>`; `anomalies(atmC: ModSet, lmpC: ModSet, resolved?: Set<string>): ModEntry[]`; `buildBlockers(input: {anomalies: ModEntry[]; duplicateIds: {modId: string; files: string[]}[]}): {code: 'ANOMALY'|'DUPLICATE_ID'; modId: string}[]`.
+`deriveBaseSides(baseS: ModSet, baseC: ModSet, versions: {server: string; client: string}): {clientOnly: string[]; serverOnly: string[]; both: string[]}` (throws `BaseVersionMismatchError` when versions differ);
+`ownLayer(ownC: ModSet, baseC: ModSet): ReturnType<typeof diffModSets>`; `anomalies(baseC: ModSet, ownC: ModSet, resolved?: Set<string>): ModEntry[]`; `buildBlockers(input: {anomalies: ModEntry[]; duplicateIds: {modId: string; files: string[]}[]}): {code: 'ANOMALY'|'DUPLICATE_ID'; modId: string}[]`.
 
-- [ ] **Step 1: Failing tests**: same id with a different file name is `updated`, not removed+added; same id, same version, different sha256 is `rebuilt`; a lower version is `direction: 'older'`; unorderable versions give `'different'`; a pinned id is not reported; `deriveAtmSides` computes the three sets from fixtures and throws on `versions` mismatch (`'8.2'` vs `'8.3'`); `anomalies` lists BASE client mods missing from OWN and omits resolved ones; `buildBlockers` returns one entry per unresolved anomaly and per duplicate id.
-- [ ] **Step 2:** Run (FAIL), implement, run (PASS), commit `feat: mod diff, atm side derivation, anomalies`.
+- [ ] **Step 1: Failing tests**: same id with a different file name is `updated`, not removed+added; same id, same version, different sha256 is `rebuilt`; a lower version is `direction: 'older'`; unorderable versions give `'different'`; a pinned id is not reported; `deriveBaseSides` computes the three sets from fixtures and throws on `versions` mismatch (`'8.2'` vs `'8.3'`); `anomalies` lists BASE client mods missing from OWN and omits resolved ones; `buildBlockers` returns one entry per unresolved anomaly and per duplicate id.
+- [ ] **Step 2:** Run (FAIL), implement, run (PASS), commit `feat: mod diff, base side derivation, anomalies`.
 
 ### Task 15: Side classification cascade
 
 **Files:** Create `src/server/mods/side-classifier.ts`, `src/server/mods/modrinth.ts`; Test `tests/unit/side-classifier.test.ts`, `tests/unit/modrinth.test.ts`.
 
 **Interfaces:** Produces
-`type Side = 'client'|'server'|'both'`; `type SideSignal = {origin: 'decision'|'atm'|'modrinth'|'declared'; side: Side; confidence: number}`;
-`classifySide(signals: SideSignal[]): {side: Side | null; origin: string | null; uncertain: boolean}` (priority decision > atm > modrinth > declared; two signals of different sides at different priorities mark `uncertain: true`);
+`type Side = 'client'|'server'|'both'`; `type SideSignal = {origin: 'decision'|'base'|'modrinth'|'declared'; side: Side; confidence: number}`;
+`classifySide(signals: SideSignal[]): {side: Side | null; origin: string | null; uncertain: boolean}` (priority decision > base > modrinth > declared; two signals of different sides at different priorities mark `uncertain: true`);
 `class ModrinthClient { constructor(opts: {fetch: typeof fetch; userAgent: string; maxPerMinute?: number}); lookupByHashes(sha1s: string[]): Promise<Map<string, {environment: string}>> }` using bulk `POST /v2/version_files` (algorithm `sha1`); `environmentToSide(env: string): Side | null` (`client_only` to client, `server_only` to server, `client_and_server` and `client_or_server` to both).
 Signals for boot-test proof, `@Mod(dist)`, CurseForge tags, community list and bytecode are added in later phases.
 
@@ -215,18 +217,18 @@ Signals for boot-test proof, `@Mod(dist)`, CurseForge tags, community list and b
 
 **Files:** Create `src/server/mods/blacklist-service.ts`; Test `tests/unit/blacklist-service.test.ts`.
 
-**Interfaces:** Consumes `Db`. Produces `recomputeAtmDerived(db: Db, atmVersion: string, clientOnlyIds: string[]): void` (replaces `origin='atm_derived'` rows, never touches `origin='user'`); `setDecision(db: Db, d: {modId: string; kind: 'side'|'pin'|'ignore'; side?: Side; reason: string}): void`; `effectiveBlacklist(db: Db, atmVersion: string): {modId: string; origin: 'atm_derived'|'user'; stale: boolean}[]` (`stale` when `valid_for` differs from `atmVersion`).
+**Interfaces:** Consumes `Db`. Produces `recomputeBaseDerived(db: Db, baseVersion: string, clientOnlyIds: string[]): void` (replaces `origin='base_derived'` rows, never touches `origin='user'`); `setDecision(db: Db, d: {modId: string; kind: 'side'|'pin'|'ignore'; side?: Side; reason: string}): void`; `effectiveBlacklist(db: Db, baseVersion: string): {modId: string; origin: 'base_derived'|'user'; stale: boolean}[]` (`stale` when `valid_for` differs from `baseVersion`).
 
-- [ ] **Step 1: Failing tests**: recompute for `8.3` replaces the `8.2` derived rows and keeps a `yann` row; a `valid_for 8.2` row is `stale` when asked for `8.3`; a `pin` decision persists across recompute; every write adds an `audit_log` row.
+- [ ] **Step 1: Failing tests**: recompute for `8.3` replaces the `8.2` derived rows and keeps a `user` row; a `valid_for 8.2` row is `stale` when asked for `8.3`; a `pin` decision persists across recompute; every write adds an `audit_log` row.
 - [ ] **Step 2:** Run (FAIL), implement, run (PASS), commit `feat: blacklist and decisions memory`.
 
 ### Task 17: Phase 1 API routes
 
 **Files:** Create `src/server/api/routes-profiles.ts`, `src/server/api/routes-mods.ts`, `src/shared/schemas/{profile,mods}.ts`; Test `tests/api/phase1.test.ts`.
 
-**Interfaces:** Consumes Tasks 5-16. Produces (all authenticated, zod-validated, writes audited): `POST /api/v1/profiles` (body `NewProfile`), `GET /api/v1/profiles/matrix`, `POST /api/v1/profiles/:id/import` (returns a job id; body `ModSetSource`), `GET /api/v1/mods/diff?base=<profileId>&other=<profileId>`, `GET /api/v1/mods/atm-sides?server=<profileId>&client=<profileId>`, `GET /api/v1/mods/anomalies?atmClient=<id>&lmp=<id>`, `GET /api/v1/loader/check?profiles=<ids>`, `GET /api/v1/build/blockers`, `GET|PUT /api/v1/blacklist`, `PUT /api/v1/mods/:modId/decision`.
+**Interfaces:** Consumes Tasks 5-16. Produces (all authenticated, zod-validated, writes audited): `POST /api/v1/profiles` (body `NewProfile`), `GET /api/v1/profiles/matrix`, `POST /api/v1/profiles/:id/import` (returns a job id; body `ModSetSource`), `GET /api/v1/mods/diff?base=<profileId>&other=<profileId>`, `GET /api/v1/mods/base-sides?server=<profileId>&client=<profileId>`, `GET /api/v1/mods/anomalies?baseClient=<id>&own=<id>`, `GET /api/v1/loader/check?profiles=<ids>`, `GET /api/v1/build/blockers`, `GET|PUT /api/v1/blacklist`, `PUT /api/v1/mods/:modId/decision`.
 
-- [ ] **Step 1: Failing tests** (`app.inject` + `writeAtmPack`): end to end, create three profiles, import them, `atm-sides` returns the client-only ids, `diff` returns the updated OWN mod, `loader/check` returns `ok: false` for mismatching NeoForge versions, `build/blockers` returns an `ANOMALY` for a dropped BASE mod and is empty after `PUT decision` resolves it; a bad body returns 400 with the zod message; an unauthenticated call returns 401.
+- [ ] **Step 1: Failing tests** (`app.inject` + `writeBasePack`): end to end, create three profiles, import them, `base-sides` returns the client-only ids, `diff` returns the updated OWN mod, `loader/check` returns `ok: false` for mismatching NeoForge versions, `build/blockers` returns an `ANOMALY` for a dropped BASE mod and is empty after `PUT decision` resolves it; a bad body returns 400 with the zod message; an unauthenticated call returns 401.
 - [ ] **Step 2:** Run (FAIL), implement, run (PASS), commit `feat: phase 1 api`.
 
 ### Task 18: Web UI (French)

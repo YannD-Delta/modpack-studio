@@ -1,6 +1,8 @@
 # Modpack Studio - design (v2, after the full logic pass)
 
 > Design record. In these plans `BASE` is the base modpack (role `upstream`) and `OWN` is your modpack (role `own`); the real names are settings.
+>
+> Identifiers in these records were neutralised (`base_*`, `own_*`); the code may still use older names for some persisted values and helpers, so check the source before relying on a name.
 
 Status: v1 written 2026-10-29 from 5 parallel research passes; v2 the same day after the user's clarifications (profile matrix,
 two machines, Node/TypeScript) and a double logic review (author + independent Opus reviewer). Nothing is built yet.
@@ -17,7 +19,7 @@ BASE) without ever redoing work between two BASE or OWN updates:
   it intelligently on the next version (later also another loader or Minecraft version);
 - harvest the settings he changes live on the running server and client, and turn them into reusable customizations;
 - build the CurseForge player pack and the server pack, regenerate the first-join message, publish (automated, opt-in);
-- deploy to the server PC through MCSS with a world-safe backup and a real rollback;
+- deploy to the server PC through the host panel with a world-safe backup and a real rollback;
 - embed a Claude assistant with access to the app's data (default Sonnet 5.5, everything adjustable);
 - never blind-overwrite a file; every write is previewed, journaled and reversible.
 
@@ -26,15 +28,15 @@ BASE) without ever redoing work between two BASE or OWN updates:
 | Machine | Role | Runs |
 |---|---|---|
 | **Studio PC** (test/deploy, the maintainer starts it 2026-10-29 evening) | clients, BASE zips, this app | Studio as a **logon task under the user's user account** (not a LocalSystem service: SMB needs a user's credentials) |
-| **Server PC** (the current PC) | MCSS + OWN server, **receives and runs only** | `lmp-deploy-agent` (Node, started at logon with a watchdog like the existing bridge) |
-| **Gaming PC** | OWN client really played (`run`) | nothing; read **read-only through SMB** from the Studio |
+| **Server PC** (the current PC) | Host panel + OWN server, **receives and runs only** | `deploy-agent` (Node, started at logon with a watchdog) |
+| **Another PC** | OWN client really played (`run`) | nothing; read **read-only over a network share** from the Studio |
 
-The MCSS API key stays on the server PC: only the agent talks to MCSS, the Studio never sees that key.
+The host panel API key stays on the server PC: only the agent talks to the host panel, the Studio never sees that key.
 
 ## 3. Versions and profiles (the data backbone)
 
-**Pack versions**: `atm_version` (e.g. 8.3 with its MC and NeoForge versions) and `lmp_version` (his numbering, with
-`base_atm_version` and `lmp_hotfix` counter for hotfixes on the same BASE base). Loader rule: OWN client == OWN server; differing
+**Pack versions**: `base_version` (e.g. 8.3 with its MC and NeoForge versions) and `own_version` (his numbering, with
+`base_pack_ref` and `own_hotfix` counter for hotfixes on the same BASE base). Loader rule: OWN client == OWN server; differing
 from BASE only with an explicit override.
 
 **Profile** = a labelled snapshot of a folder set: `pack` (BASE | OWN) + `pack_version` + `side` (client | server) + `state` +
@@ -74,7 +76,7 @@ Sets: `BASE-S` (server pack, jars), `BASE-C` (BASE client, an untouched instance
 **Precondition**: `BASE-C.version == BASE-S.version` and the same NeoForge/MC; else the side derivation is blocked.
 
 - BASE's own choices (ground truth): `BASE-C − BASE-S` client-only, `BASE-S − BASE-C` server-only, intersection both.
-  The client-only set seeds the blacklist (one click); it is **recomputed on every import** (`origin = atm_derived | user`,
+  The client-only set seeds the blacklist (one click); it is **recomputed on every import** (`origin = base_derived | user`,
   `valid_for` = BASE version) because BASE can change a mod's side.
 - **the user's layer = `OWN-C` vs `BASE-C`** (client vs client): updated / added / pinned. Never compare a client set with a server set.
 - **Anomaly** = `BASE-C − OWN-C` (a mod BASE has and OWN lacks; the maintainer does not remove mods). An unresolved anomaly **blocks the build**
@@ -142,7 +144,7 @@ with a per-world override in `<level>/serverconfig`; NeoForge rewrites/auto-corr
 are compared semantically.
 
 **First-join message**: never edit BASE's `kubejs/server_scripts/announcements/announcements.js`. Generate
-`kubejs/server_scripts/lmp/welcome.js` from a template (OWN version, mods added/removed/updated, this cycle's customizations,
+`kubejs/server_scripts/own/welcome.js` from a template (OWN version, mods added/removed/updated, this cycle's customizations,
 dismissal tracked in player persistent data); MOTD templated in `server.properties` (non-ASCII written as `\uXXXX` escapes
 [to re-check]).
 
@@ -153,7 +155,7 @@ Import -> **Loader check** -> **Harvest** -> Mods -> Sides -> Configs -> Test (b
 1. *Import* the new BASE zips (server + client) as immutable `clean` snapshots.
 2. *Loader check*: NeoForge/MC equal on BASE-S, BASE-C, OWN-C; blocks otherwise.
 3. *Harvest* (mandatory before anything that writes): `run` vs `launched` on the server (through the agent's read-only snapshot
-   endpoint) and on the gaming-PC client (SMB read-only) -> proposals (`pending / accepted / rejected / ignored_forever`).
+   endpoint) and on the other-PC client (SMB read-only) -> proposals (`pending / accepted / rejected / ignored_forever`).
 4. *Mods* and *Sides*: sections 4-5. *Configs*: sections 6, merge to `OWN new clean`.
 5. *Test*: boot `OWN server clean` headless on the Studio PC; this also yields the `launched` profile of the new version.
 6. *Build*: player pack and server pack from **clean** trees only (never from `launched` or `run`).
@@ -171,12 +173,12 @@ manifest only. `.mrpack` export is a later add-on.
 one deploy at a time; allowlisted roots; no arbitrary command. Journaled state machine:
 `received -> verified -> stopping -> stopped -> backed_up -> applying -> applied -> starting -> healthy | failed -> rolling_back -> rolled_back`.
 - the agent refuses to write a file whose current hash differs from the Studio's `expected_pre_hash` (unharvested live drift);
-- stop through the MCSS API and **verify** status 0 before touching files; free-space check first (backups + quarantine);
+- stop through the host panel API and **verify** status 0 before touching files; free-space check first (backups + quarantine);
 - backup = **files + world together**, taken while the server is stopped, before the first boot of a new mod set;
 - health = a `Done` line newer than the start + still alive after N minutes + no new `crash-reports/` file;
-- a restart of the agent while `applying` triggers an automatic rollback; rollback = files + world (no MCSS backup-restore
+- a restart of the agent while `applying` triggers an automatic rollback; rollback = files + world (no host panel backup-restore
   endpoint was found [to re-check]); the last healthy build and its pre-apply snapshot are kept until the next deploy has been
-  healthy for X days; quarantine has a retention rule. Notifications go through the existing n8n webhooks.
+  healthy for X days; quarantine has a retention rule. Notifications go through the notification webhook (Studio needs its own).
 
 **Publish to CurseForge (automated, opt-in)**: the author upload API (separate author token, `.../api/projects/{id}/upload-file` with
 a metadata JSON, `parentFileID` for the server pack) [to re-check: no 2026 official page found; modpack moderation applies].
@@ -196,7 +198,7 @@ Tables: `pack_version`, `profile(pack, pack_version, side, state, location, sour
 `mod_side(side, origin, confidence)`, `blacklist(origin, valid_for, reason)`, `customization/target/operation`, `alias`,
 `proposal`, `decision`, `apply_run` (journaled, same states as deploy), `deploy(deploy_id, build_id, state, baseline_profile,
 pre_apply_snapshot)`, `build`, `document` (+ versions), `job`, `setting`, `audit_log`, `chat_*`, `event` (append-only, undo).
-Sources: `atm_server_zip | atm_client | lmp_client | lmp_client_run (SMB) | server_run (agent)`.
+Sources: `upstream_server_zip | upstream_client | own_client | own_client_run (SMB) | server_run (agent)`.
 
 ## 10. Stack (decided: Node 24 LTS + TypeScript)
 
@@ -213,7 +215,7 @@ Sources: `atm_server_zip | atm_client | lmp_client | lmp_client_run (SMB) | serv
 | Tests | Vitest + Playwright, synthetic fixtures only |
 | Packaging | versioned folder with a pinned portable `node.exe`; `versions/x.y.z` + `current`; DB backup before migration; start by logon task |
 
-Layout: `src/server/{api,jobs,domain/{scan,mods,profiles,configs,customizations,builds,deploy,mcss,assistant},fs-safe,db,secrets}`,
+Layout: `src/server/{api,jobs,domain/{scan,mods,profiles,configs,customizations,builds,deploy,hostpanel,assistant},fs-safe,db,secrets}`,
 `src/web`, `src/shared/schemas`, `src/agent` (the deploy agent), `tests/{fixtures-gen,unit,golden,e2e}`; runtime data in `data/`.
 Python was considered (best config libraries) but needs a JS front end anyway, i.e. two languages; Node/TS kept by decision.
 
@@ -242,14 +244,14 @@ Python was considered (best config libraries) but needs a JS front end anyway, i
 Dark, dense, one accent colour plus semantic status colours (added / removed / changed / conflict), icons + text, French copy,
 keyboard-first (`j/k`, `a/r`, Ctrl+K, `?`). Two modes on the same views: the **update wizard** (section 7 order, resumable, "to
 decide" counters) and free exploration. Pages: Dashboard, Update wizard, Profiles (the matrix), Mods, Configs (3-way + editor),
-Harvest, Memory, Build, Test, Server (MCSS), Watch (new BASE / mod releases), Assistant, History.
+Harvest, Memory, Build, Test, Server (host panel), Watch (new BASE / mod releases), Assistant, History.
 
 ## 13. Security
 
 Bind to localhost + LAN IP (firewall `LocalSubnet`), single password (scrypt/argon2), `HttpOnly` + `SameSite=Strict`, `Origin`/`Host`
 checks, rate-limited login. `safePath` on every path; zip-slip and zip-bomb limits; writes only inside allowlisted roots, atomic, with
-backup. Every outward action (deploy, publish, Discord post) is dry-run first, needs an explicit click, is idempotent by id and
-HMAC-authenticated. Outbound calls only to an allowlist (Anthropic, Modrinth, CurseForge if configured, update URL; MCSS is local to
+backup. Every outward action (deploy, publish, notification post) is dry-run first, needs an explicit click, is idempotent by id and
+HMAC-authenticated. Outbound calls only to an allowlist (Anthropic, Modrinth, CurseForge if configured, update URL; the host panel is local to
 the agent). CurseForge API terms forbid sharing the key and **caching API data** [verified]: only the derived decision and ids from
 the user's own files are kept, and the CurseForge API stays optional.
 
@@ -274,7 +276,7 @@ the user's own files are kept, and the CurseForge API stays optional.
 | 1 | Import BASE-S / BASE-C / OWN-C, mod diff by mod id, loader check, blacklist from BASE sets, anomalies, decisions memory |
 | 2 | Config engine (profiles, 3-way, integrated editor), customization memory + replay, **harvest** (minimal read-only agent snapshot endpoint + SMB read), secrets masking |
 | 3 | Player/server pack builds, welcome message + changelog, boot test, `launched` capture |
-| 4 | Full deploy agent (journal, MCSS, world backup, rollback, baseline), CurseForge publish (dry-run + click), n8n/Discord, watch |
+| 4 | Full deploy agent (journal, host panel, world backup, rollback, baseline), CurseForge publish (dry-run + click), notification webhook, watch |
 | 5 | Claude assistant (read-only tools, then approved proposals), budgets, skills |
 | Later | other loaders / MC versions (key mapping), `.mrpack`, multi-profile, world restore UI |
 
@@ -299,5 +301,5 @@ reported current on 2026-10-15 **[to re-check]** (the next major base release ta
 ## 18. Risks
 
 CurseForge third-party restrictions and API terms; side detection stays heuristic (hence boot test + remembered decisions); config
-format variety (hence the line-patch fallback); the MCSS API contract must be read on the server PC; scope creep (hence the phases);
+format variety (hence the line-patch fallback); the host panel API contract must be read on the server PC; scope creep (hence the phases);
 a world corrupted by a mod change (hence the mandatory world backup); BASE licence for derivative public packs.

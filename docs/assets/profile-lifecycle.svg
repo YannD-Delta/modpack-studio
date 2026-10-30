@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="260" viewBox="0 0 900 260" role="img" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif">
+  <title>Profile lifecycle</title>
+  <desc>A pack copy goes through three states: clean (never started), launched (started once) and played (in use, rescanned). A highlight pulses through the states. A note says that a clean profile refuses launch artifacts.</desc>
+  <style>
+    .panel { fill: #0b1426; stroke: #22385c; stroke-width: 1; }
+    .card { fill: #12213c; stroke: #2dd4bf; stroke-width: 1.5; }
+    .card-a { fill: #12213c; stroke: #fbbf24; stroke-width: 1.5; }
+    .pill { fill: #1b2a45; stroke: #fbbf24; stroke-width: 1.2; }
+    .line { stroke: #4a6a96; stroke-width: 2; stroke-dasharray: 2 7; stroke-linecap: round; }
+    .head { fill: #4a6a96; }
+    .h { fill: #eef3fb; font-weight: 700; }
+    .m { fill: #a9b9d2; }
+    .teal { fill: #5eead4; }
+    .amber { fill: #fcd34d; }
+    .hl { fill: #2dd4bf; opacity: 0; }
+    @media (prefers-reduced-motion: no-preference) {
+      @keyframes hl { 0%, 100% { opacity: 0; } 4% { opacity: 0.28; } 28% { opacity: 0.28; } 34% { opacity: 0; } }
+      .hl { animation: hl 6s ease-in-out infinite; }
+      .h2 { animation-delay: 2s; }
+      .h3 { animation-delay: 4s; }
+    }
+  </style>
+
+  <rect class="panel" x="0.5" y="0.5" width="899" height="259" rx="16"/>
+  <text class="h" x="24" y="38" font-size="20">Profile lifecycle</text>
+
+  <!-- clean -->
+  <rect class="card" x="60" y="66" width="180" height="80" rx="12"/>
+  <rect class="hl" x="60" y="66" width="180" height="80" rx="12"/>
+  <text class="h" x="150" y="116" font-size="26" text-anchor="middle">clean</text>
+  <text class="m" x="150" y="176" font-size="16" text-anchor="middle">never started</text>
+  <text class="m" x="150" y="198" font-size="13" text-anchor="middle">immutable snapshot</text>
+
+  <!-- launched -->
+  <rect class="card" x="360" y="66" width="180" height="80" rx="12"/>
+  <rect class="hl h2" x="360" y="66" width="180" height="80" rx="12"/>
+  <text class="h" x="450" y="116" font-size="26" text-anchor="middle">launched</text>
+  <text class="m" x="450" y="176" font-size="16" text-anchor="middle">started once</text>
+  <text class="m" x="450" y="198" font-size="13" text-anchor="middle">immutable snapshot</text>
+
+  <!-- played -->
+  <rect class="card-a" x="660" y="66" width="180" height="80" rx="12"/>
+  <rect class="hl h3" x="660" y="66" width="180" height="80" rx="12"/>
+  <text class="h" x="750" y="116" font-size="26" text-anchor="middle">played</text>
+  <text class="m" x="750" y="176" font-size="16" text-anchor="middle">in use, rescanned</text>
+  <text class="m" x="750" y="198" font-size="13" text-anchor="middle">can be imported again</text>
+
+  <!-- arrows -->
+  <line class="line" x1="248" y1="106" x2="344" y2="106"/>
+  <polygon class="head" points="352,106 342,100 342,112"/>
+  <text class="m" x="300" y="94" font-size="13" text-anchor="middle">start once</text>
+  <line class="line" x1="548" y1="106" x2="644" y2="106"/>
+  <polygon class="head" points="652,106 642,100 642,112"/>
+  <text class="m" x="600" y="94" font-size="13" text-anchor="middle">real use</text>
+
+  <!-- note -->
+  <rect class="pill" x="40" y="214" width="820" height="30" rx="15"/>
+  <text class="amber" x="450" y="234" font-size="13" text-anchor="middle">Clean refuses launch artifacts: logs, crash-reports, saves, options.txt, .bak files</text>
+</svg>

@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="320" viewBox="0 0 900 320" role="img" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif">
+  <title>Three-copy config analysis</title>
+  <desc>Config files from three copies of the pack (clean, launched, played) are compared file by file and land in five classes: untouched, modifiedShipped, modifiedGenerated, added and removed.</desc>
+  <style>
+    .panel { fill: #0b1426; stroke: #22385c; stroke-width: 1; }
+    .card { fill: #12213c; stroke: #2dd4bf; stroke-width: 1.5; }
+    .row { fill: #12213c; stroke-width: 1.3; }
+    .node { fill: #1b2a45; stroke: #fbbf24; stroke-width: 1.5; }
+    .flow { stroke: #4a6a96; stroke-width: 1.5; stroke-dasharray: 5 5; fill: none; }
+    .link { stroke: #3b5780; stroke-width: 1.2; fill: none; }
+    .h { fill: #eef3fb; font-weight: 700; }
+    .m { fill: #a9b9d2; }
+    .amber { fill: #fcd34d; }
+    @media (prefers-reduced-motion: no-preference) {
+      @keyframes dash { to { stroke-dashoffset: -40; } }
+      @keyframes land { 0% { transform: translate(-92px, var(--dy)); opacity: 0; } 8% { opacity: 1; } 45% { transform: translate(0, 0); opacity: 1; } 85% { transform: translate(0, 0); opacity: 1; } 100% { transform: translate(0, 0); opacity: 1; } }
+      .flow { animation: dash 4s linear infinite; }
+      .tok { animation: land 7s ease-in-out infinite; }
+    }
+  </style>
+
+  <rect class="panel" x="0.5" y="0.5" width="899" height="319" rx="16"/>
+  <text class="h" x="24" y="38" font-size="18">Three-copy config analysis</text>
+
+  <rect class="card" x="24" y="76" width="170" height="52" rx="10"/>
+  <text class="h" x="109" y="99" font-size="17" text-anchor="middle">clean</text>
+  <text class="m" x="109" y="118" font-size="12" text-anchor="middle">as shipped</text>
+  <rect class="card" x="24" y="156" width="170" height="52" rx="10"/>
+  <text class="h" x="109" y="179" font-size="17" text-anchor="middle">launched</text>
+  <text class="m" x="109" y="198" font-size="12" text-anchor="middle">started once</text>
+  <rect class="card" x="24" y="236" width="170" height="52" rx="10"/>
+  <text class="h" x="109" y="259" font-size="17" text-anchor="middle">played</text>
+  <text class="m" x="109" y="278" font-size="12" text-anchor="middle">real life</text>  <path class="flow" d="M194 102 L245 165"/>  <path class="flow" d="M194 182 L245 182"/>  <path class="flow" d="M194 262 L245 199"/>
+  <rect class="node" x="245" y="147" width="100" height="70" rx="12"/>
+  <text class="h" x="295" y="178" font-size="16" text-anchor="middle">classify</text>
+  <text class="m" x="295" y="198" font-size="12" text-anchor="middle">each file</text>
+
+  <path class="link" d="M345 182 L430 78"/>
+  <rect class="row" style="stroke:#8aa0c4" x="430" y="56" width="440" height="44" rx="10"/>
+  <text class="h" x="466" y="75" font-size="16">untouched</text>
+  <text class="amber" x="858" y="75" font-size="12.5" text-anchor="end">nothing to do</text>
+  <text class="m" x="466" y="92" font-size="12">played ≈ launched, or back to clean</text>
+  <rect class="tok" style="fill:#8aa0c4;--dy:104px;animation-delay:0.0s" x="440" y="73" width="14" height="10" rx="2"/>
+  <path class="link" d="M345 182 L430 130"/>
+  <rect class="row" style="stroke:#2dd4bf" x="430" y="108" width="440" height="44" rx="10"/>
+  <text class="h" x="466" y="127" font-size="16">modifiedShipped</text>
+  <text class="amber" x="858" y="127" font-size="12.5" text-anchor="end">carry your edit over</text>
+  <text class="m" x="466" y="144" font-size="12">in clean, but played differs</text>
+  <rect class="tok" style="fill:#2dd4bf;--dy:52px;animation-delay:0.8s" x="440" y="125" width="14" height="10" rx="2"/>
+  <path class="link" d="M345 182 L430 182"/>
+  <rect class="row" style="stroke:#fbbf24" x="430" y="160" width="440" height="44" rx="10"/>
+  <text class="h" x="466" y="179" font-size="16">modifiedGenerated</text>
+  <text class="amber" x="858" y="179" font-size="12.5" text-anchor="end">must be added to the pack</text>
+  <text class="m" x="466" y="196" font-size="12">not in clean, in launched, played differs</text>
+  <rect class="tok" style="fill:#fbbf24;--dy:0px;animation-delay:1.6s" x="440" y="177" width="14" height="10" rx="2"/>
+  <path class="link" d="M345 182 L430 234"/>
+  <rect class="row" style="stroke:#a7f3d0" x="430" y="212" width="440" height="44" rx="10"/>
+  <text class="h" x="466" y="231" font-size="16">added</text>
+  <text class="amber" x="858" y="231" font-size="12.5" text-anchor="end">your own file: add it</text>
+  <text class="m" x="466" y="248" font-size="12">only in played</text>
+  <rect class="tok" style="fill:#a7f3d0;--dy:-52px;animation-delay:2.4s" x="440" y="229" width="14" height="10" rx="2"/>
+  <path class="link" d="M345 182 L430 286"/>
+  <rect class="row" style="stroke:#fb7185" x="430" y="264" width="440" height="44" rx="10"/>
+  <text class="h" x="466" y="283" font-size="16">removed</text>
+  <text class="amber" x="858" y="283" font-size="12.5" text-anchor="end">reported, never copied</text>
+  <text class="m" x="466" y="300" font-size="12">in launched, not in played</text>
+  <rect class="tok" style="fill:#fb7185;--dy:-104px;animation-delay:3.2s" x="440" y="281" width="14" height="10" rx="2"/></svg>

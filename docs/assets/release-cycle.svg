@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="300" viewBox="0 0 1000 300" role="img" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif">
+  <title>Release cycle</title>
+  <desc>Pipeline in seven steps: base update, import, compare, decide, export update pack, test bench, apply. A pulse travels through the steps. apply.ps1 runs as a dry run first, then backs up, then copies, and never deletes.</desc>
+  <style>
+    .panel { fill: #0b1426; stroke: #22385c; stroke-width: 1; }
+    .node { fill: #12213c; stroke: #2dd4bf; stroke-width: 1.5; }
+    .node-a { fill: #12213c; stroke: #fbbf24; stroke-width: 1.5; }
+    .chip { fill: #1b2a45; stroke: #4a6a96; stroke-width: 1.2; }
+    .chip-a { fill: #1b2a45; stroke: #fbbf24; stroke-width: 1.5; }
+    .track { stroke: #2c4268; stroke-width: 2; }
+    .link { stroke: #4a6a96; stroke-width: 2; stroke-linecap: round; }
+    .head { fill: #4a6a96; }
+    .h { fill: #eef3fb; font-weight: 700; }
+    .m { fill: #a9b9d2; }
+    .amber { fill: #fcd34d; }
+    .num { fill: #fcd34d; font-weight: 700; }
+    .hl { fill: #2dd4bf; opacity: 0; }
+    .dot { fill: #2dd4bf; opacity: 0; }
+    @media (prefers-reduced-motion: no-preference) {
+      @keyframes hl { 0%, 100% { opacity: 0; } 2% { opacity: 0.3; } 12% { opacity: 0.3; } 16% { opacity: 0; } }
+      @keyframes run { 0% { transform: translateX(0); opacity: 0; } 4% { opacity: 1; } 96% { opacity: 1; } 100% { transform: translateX(828px); opacity: 0; } }
+      .hl { animation: hl 8.4s ease-in-out infinite; }
+      .dot { animation: run 8.4s linear infinite; }
+    }
+  </style>
+
+  <rect class="panel" x="0.5" y="0.5" width="999" height="299" rx="16"/>
+  <text class="h" x="28" y="40" font-size="20">Release cycle</text>
+  <text class="m" x="28" y="64" font-size="14">From a new base modpack version to updated played copies</text>
+
+  <line class="track" x1="86" y1="129" x2="914" y2="129"/>
+  <circle class="dot" cx="86" cy="129" r="6"/>
+
+  <rect class="node" x="28" y="92" width="116" height="74" rx="12"/>
+  <rect class="hl" style="animation-delay:0.0s" x="28" y="92" width="116" height="74" rx="12"/>
+  <text class="num" x="86" y="111" font-size="12" text-anchor="middle">1</text>
+  <text class="h" x="86" y="132" font-size="15" text-anchor="middle">base</text>
+  <text class="h" x="86" y="151" font-size="15" text-anchor="middle">update</text>  <text class="m" x="86" y="190" font-size="12" text-anchor="middle">new base version</text>  <line class="link" x1="146" y1="129" x2="156" y2="129"/>
+  <polygon class="head" points="164,129 155,123 155,135"/>
+  <rect class="node" x="166" y="92" width="116" height="74" rx="12"/>
+  <rect class="hl" style="animation-delay:1.2s" x="166" y="92" width="116" height="74" rx="12"/>
+  <text class="num" x="224" y="111" font-size="12" text-anchor="middle">2</text>  <text class="h" x="224" y="141" font-size="15" text-anchor="middle">import</text>  <text class="m" x="224" y="190" font-size="12" text-anchor="middle">clean + launched</text>  <line class="link" x1="284" y1="129" x2="294" y2="129"/>
+  <polygon class="head" points="302,129 293,123 293,135"/>
+  <rect class="node" x="304" y="92" width="116" height="74" rx="12"/>
+  <rect class="hl" style="animation-delay:2.4s" x="304" y="92" width="116" height="74" rx="12"/>
+  <text class="num" x="362" y="111" font-size="12" text-anchor="middle">3</text>  <text class="h" x="362" y="141" font-size="15" text-anchor="middle">compare</text>  <text class="m" x="362" y="190" font-size="12" text-anchor="middle">mods and configs</text>  <line class="link" x1="422" y1="129" x2="432" y2="129"/>
+  <polygon class="head" points="440,129 431,123 431,135"/>
+  <rect class="node" x="442" y="92" width="116" height="74" rx="12"/>
+  <rect class="hl" style="animation-delay:3.6s" x="442" y="92" width="116" height="74" rx="12"/>
+  <text class="num" x="500" y="111" font-size="12" text-anchor="middle">4</text>  <text class="h" x="500" y="141" font-size="15" text-anchor="middle">decide</text>  <text class="m" x="500" y="190" font-size="12" text-anchor="middle">pin, accept, force</text>  <line class="link" x1="560" y1="129" x2="570" y2="129"/>
+  <polygon class="head" points="578,129 569,123 569,135"/>
+  <rect class="node" x="580" y="92" width="116" height="74" rx="12"/>
+  <rect class="hl" style="animation-delay:4.8s" x="580" y="92" width="116" height="74" rx="12"/>
+  <text class="num" x="638" y="111" font-size="12" text-anchor="middle">5</text>
+  <text class="h" x="638" y="132" font-size="15" text-anchor="middle">export</text>
+  <text class="h" x="638" y="151" font-size="15" text-anchor="middle">update pack</text>  <text class="m" x="638" y="190" font-size="12" text-anchor="middle">zip + apply.ps1</text>  <line class="link" x1="698" y1="129" x2="708" y2="129"/>
+  <polygon class="head" points="716,129 707,123 707,135"/>
+  <rect class="node" x="718" y="92" width="116" height="74" rx="12"/>
+  <rect class="hl" style="animation-delay:6.0s" x="718" y="92" width="116" height="74" rx="12"/>
+  <text class="num" x="776" y="111" font-size="12" text-anchor="middle">6</text>
+  <text class="h" x="776" y="132" font-size="15" text-anchor="middle">test</text>
+  <text class="h" x="776" y="151" font-size="15" text-anchor="middle">bench</text>  <text class="m" x="776" y="190" font-size="12" text-anchor="middle">throw-away server</text>  <line class="link" x1="836" y1="129" x2="846" y2="129"/>
+  <polygon class="head" points="854,129 845,123 845,135"/>
+  <rect class="node-a" x="856" y="92" width="116" height="74" rx="12"/>
+  <rect class="hl" style="animation-delay:7.2s" x="856" y="92" width="116" height="74" rx="12"/>
+  <text class="num" x="914" y="111" font-size="12" text-anchor="middle">7</text>  <text class="h" x="914" y="141" font-size="15" text-anchor="middle">apply</text>  <text class="amber" x="914" y="190" font-size="12" text-anchor="middle">dry run first</text>
+  <line class="link" x1="914" y1="198" x2="914" y2="223" stroke-dasharray="2 5"/>
+
+  <text class="m" x="28" y="247" font-size="13">Each outward step waits for your action</text>
+  <text class="amber" font-weight="700" x="600" y="247" font-size="14" text-anchor="end">apply.ps1</text>
+  <rect class="chip-a" x="616" y="226" width="84" height="32" rx="16"/>
+  <text class="amber" x="658" y="247" font-size="13" text-anchor="middle" font-weight="700">dry run</text>
+  <line class="link" x1="702" y1="242" x2="708" y2="242"/><polygon class="head" points="715,242 708,237 708,247"/>
+  <rect class="chip" x="716" y="226" width="84" height="32" rx="16"/>
+  <text class="h" x="758" y="247" font-size="13" text-anchor="middle">backup</text>
+  <line class="link" x1="802" y1="242" x2="808" y2="242"/><polygon class="head" points="815,242 808,237 808,247"/>
+  <rect class="chip" x="816" y="226" width="140" height="32" rx="16"/>
+  <text class="h" x="886" y="247" font-size="13" text-anchor="middle">copy, no delete</text>
+</svg>

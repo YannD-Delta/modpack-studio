@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="300" viewBox="0 0 1200 300" role="img" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif">
+  <title>Modpack Studio</title>
+  <desc>A base pack, drawn as a stack of jar blocks, enters Modpack Studio. Your pack leaves with a safe update pack. Small particles travel along the path.</desc>
+  <style>
+    .panel { fill: #0b1426; stroke: #22385c; stroke-width: 1; }
+    .card { fill: #12213c; stroke: #2dd4bf; stroke-width: 1.5; }
+    .jar { fill: #1a2f52; stroke: #2dd4bf; stroke-width: 1.2; }
+    .jar-a { fill: #2a2a3a; stroke: #fbbf24; stroke-width: 1.2; }
+    .studio { fill: #12213c; stroke: #2dd4bf; stroke-width: 2.5; }
+    .pack { fill: #1b2a45; stroke: #fbbf24; stroke-width: 1.5; }
+    .line { stroke: #4a6a96; stroke-width: 2; stroke-dasharray: 2 7; stroke-linecap: round; fill: none; }
+    .head { fill: #4a6a96; }
+    .h { fill: #eef3fb; font-weight: 700; }
+    .m { fill: #a9b9d2; }
+    .teal { fill: #5eead4; }
+    .amber { fill: #fcd34d; }
+    .dot-t { fill: #2dd4bf; opacity: 0; }
+    .dot-a { fill: #fbbf24; opacity: 0; }
+    .glow { fill: none; stroke: #2dd4bf; stroke-width: 6; opacity: 0; }
+    @media (prefers-reduced-motion: no-preference) {
+      @keyframes travel-in { 0% { transform: translateX(0); opacity: 0; } 10% { opacity: 1; } 90% { opacity: 1; } 100% { transform: translateX(244px); opacity: 0; } }
+      @keyframes travel-out { 0% { transform: translateX(0); opacity: 0; } 10% { opacity: 1; } 90% { opacity: 1; } 100% { transform: translateX(144px); opacity: 0; } }
+      @keyframes pulse { 0%, 100% { opacity: 0; } 50% { opacity: 0.35; } }
+      .dot-t { animation: travel-in 5s linear infinite; }
+      .dot-a { animation: travel-out 5s linear infinite; }
+      .d2 { animation-delay: -1.67s; }
+      .d3 { animation-delay: -3.33s; }
+      .d4 { animation-delay: -2.5s; }
+      .glow { animation: pulse 5s ease-in-out infinite; }
+    }
+  </style>
+
+  <rect class="panel" x="0.5" y="0.5" width="1199" height="299" rx="16"/>
+
+  <text class="h" x="600" y="62" font-size="40" text-anchor="middle">Modpack Studio</text>
+  <text class="m" x="600" y="98" font-size="20" text-anchor="middle">Compare, decide, ship safe update packs</text>
+
+  <!-- base pack stack -->
+  <g>
+    <rect class="jar" x="70" y="160" width="100" height="22" rx="5"/>
+    <circle class="teal" cx="82" cy="171" r="3"/><rect class="teal" x="92" y="169" width="50" height="4" rx="2" opacity="0.7"/>
+    <rect class="jar" x="70" y="188" width="100" height="22" rx="5"/>
+    <circle class="teal" cx="82" cy="199" r="3"/><rect class="teal" x="92" y="197" width="64" height="4" rx="2" opacity="0.7"/>
+    <rect class="jar" x="70" y="216" width="100" height="22" rx="5"/>
+    <circle class="teal" cx="82" cy="227" r="3"/><rect class="teal" x="92" y="225" width="42" height="4" rx="2" opacity="0.7"/>
+  </g>
+  <text class="m" x="120" y="270" font-size="14" text-anchor="middle">base pack</text>
+
+  <!-- path in -->
+  <line class="line" x1="182" y1="200" x2="422" y2="200"/>
+  <polygon class="head" points="430,200 420,194 420,206"/>
+  <circle class="dot-t" cx="184" cy="200" r="4.5"/>
+  <circle class="dot-t d2" cx="184" cy="200" r="4.5"/>
+  <circle class="dot-t d3" cx="184" cy="200" r="4.5"/>
+
+  <!-- Studio -->
+  <rect class="studio" x="430" y="145" width="300" height="110" rx="14"/>
+  <rect class="glow" x="430" y="145" width="300" height="110" rx="14"/>
+  <text class="h" x="580" y="192" font-size="26" text-anchor="middle">Studio</text>
+  <text class="m" x="580" y="222" font-size="15" text-anchor="middle">compare · decide · export</text>
+
+  <!-- path out -->
+  <line class="line" x1="732" y1="200" x2="872" y2="200"/>
+  <polygon class="head" points="880,200 870,194 870,206"/>
+  <circle class="dot-a" cx="736" cy="200" r="4.5"/>
+  <circle class="dot-a d4" cx="736" cy="200" r="4.5"/>
+
+  <!-- update pack -->
+  <rect class="pack" x="880" y="165" width="120" height="70" rx="10"/>
+  <text class="h" x="940" y="196" font-size="16" text-anchor="middle">update pack</text>
+  <text class="amber" x="940" y="217" font-size="13" text-anchor="middle">apply.ps1</text>
+  <text class="m" x="940" y="270" font-size="13" text-anchor="middle">backed up, never deletes</text>
+
+  <line class="line" x1="1002" y1="200" x2="1032" y2="200"/>
+  <polygon class="head" points="1040,200 1030,194 1030,206"/>
+
+  <!-- your pack stack -->
+  <g>
+    <rect class="jar-a" x="1040" y="160" width="100" height="22" rx="5"/>
+    <circle class="amber" cx="1052" cy="171" r="3"/><rect class="amber" x="1062" y="169" width="56" height="4" rx="2" opacity="0.7"/>
+    <rect class="jar-a" x="1040" y="188" width="100" height="22" rx="5"/>
+    <circle class="amber" cx="1052" cy="199" r="3"/><rect class="amber" x="1062" y="197" width="40" height="4" rx="2" opacity="0.7"/>
+    <rect class="jar-a" x="1040" y="216" width="100" height="22" rx="5"/>
+    <circle class="amber" cx="1052" cy="227" r="3"/><rect class="amber" x="1062" y="225" width="66" height="4" rx="2" opacity="0.7"/>
+  </g>
+  <text class="m" x="1090" y="270" font-size="14" text-anchor="middle">your pack</text>
+</svg>
