@@ -16,7 +16,7 @@ afterEach(() => db.close());
 const auditRows = () => db.sqlite.prepare('SELECT action, target, detail FROM audit_log ORDER BY id').all() as { action: string; target: string; detail: string }[];
 
 describe('listMemory', () => {
-  it('lists every decision and only user blacklist rows, counting the ATM-derived ones', () => {
+  it('lists every decision and only user blacklist rows, counting the base-derived ones', () => {
     setDecision(db, { modId: 'old', kind: 'pin', reason: 'keep 1.0' });
     setDecision(db, { modId: 'gone', kind: 'ignore', reason: 'dropped' });
     setDecision(db, { modId: 'hud', kind: 'side', side: 'client', reason: 'client only' });
@@ -85,7 +85,7 @@ describe('setDecisionReason', () => {
 });
 
 describe('removeFromBlacklist', () => {
-  it('removes a user row, keeps an ATM-derived row of the same id, and audits', () => {
+  it('removes a user row, keeps an base-derived row of the same id, and audits', () => {
     recomputeAtmDerived(db, '8.3', ['both']);
     addToBlacklist(db, 'both', 'mine too');
     addToBlacklist(db, 'mine', '');
@@ -95,7 +95,7 @@ describe('removeFromBlacklist', () => {
     expect(auditRows().filter((r) => r.action === 'blacklist.remove').map((r) => r.target)).toEqual(['mine', 'both']);
   });
 
-  it('refuses an ATM-derived row and reports an absent one', () => {
+  it('refuses an base-derived row and reports an absent one', () => {
     recomputeAtmDerived(db, '8.3', ['cli']);
     expect(removeFromBlacklist(db, 'cli')).toBe('atm_derived');
     expect(removeFromBlacklist(db, 'nope')).toBe('absent');

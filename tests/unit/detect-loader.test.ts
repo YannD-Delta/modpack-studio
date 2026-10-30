@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { LoaderConflictError, checkLoaderAgreement, detectLoader } from '../../src/server/loader/detect-loader.js';
+import { LoaderConflictError, checkLoaderAgreement, detectLoader, detectLoaderForProfile } from '../../src/server/loader/detect-loader.js';
 import { makeZip } from '../fixtures-gen/jar.js';
 import { writeAtmPack } from '../fixtures-gen/packs.js';
 
@@ -65,5 +65,42 @@ describe('checkLoaderAgreement', () => {
 
   it('is ok when every side agrees', () => {
     expect(checkLoaderAgreement({ a: info('21.1.259'), b: info('21.1.259') })).toEqual({ ok: true, mismatches: [] });
+  });
+});
+
+describe('detectLoader from an unpacked server folder', () => {
+  const folder = (files: Record<string, string>) => {
+    const dir = path.join(tmp, 'srv');
+    fs.mkdirSync(dir, { recursive: true });
+    for (const [n, c] of Object.entries(files)) {
+      fs.mkdirSync(path.dirname(path.join(dir, n)), { recursive: true });
+      fs.writeFileSync(path.join(dir, n), c);
+    }
+    return { locationKind: 'folder', location: dir };
+  };
+
+  it('reads the start script and the installer name', async () => {
+    const p = folder({ 'startserver.sh': 'NEOFORGE_VERSION="21.1.259"\nMINECRAFT_VERSION="1.21.1"\n' });
+    expect(await detectLoader({ kind: 'serverFolder', path: p.location })).toEqual({ loader: 'neoforge', loaderVersion: '21.1.259', mcVersion: '1.21.1' });
+  });
+
+  it('falls back to the libraries folder of an installed server', async () => {
+    const p = folder({ 'libraries/net/neoforged/neoforge/21.1.259/x.txt': '' });
+    expect((await detectLoaderForProfile(p))?.loaderVersion).toBe('21.1.259');
+  });
+
+  it('reports unknown (null) instead of failing when nothing is readable', async () => {
+    expect(await detectLoaderForProfile(folder({ 'readme.txt': 'x' }))).toBeNull();
+    expect(await detectLoaderForProfile({ locationKind: 'folder', location: path.join(tmp, 'missing') })).toBeNull();
+  });
+
+  it('prefers minecraftinstance.json when present', async () => {
+    const p = folder({ 'minecraftinstance.json': JSON.stringify({ gameVersion: '1.21.1', baseModLoader: { name: 'neoforge-21.1.1', minecraftVersion: '1.21.1' } }) });
+    expect((await detectLoaderForProfile(p))?.loader).toBe('neoforge');
+  });
+
+  it('still reports a start script that contradicts the installer', async () => {
+    const p = folder({ 'neoforge-21.1.259-installer.jar': 'i', 'startserver.sh': 'NEOFORGE_VERSION=21.1.251\n' });
+    await expect(detectLoaderForProfile(p)).rejects.toBeInstanceOf(LoaderConflictError);
   });
 });

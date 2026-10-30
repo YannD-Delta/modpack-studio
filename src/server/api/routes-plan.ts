@@ -8,7 +8,7 @@ import { compareVersions, explainCompare } from '../../shared/versions.js';
 import { audit } from '../db/audit.js';
 import type { Db } from '../db/open.js';
 import { effectiveBlacklist, getPins } from '../mods/blacklist-service.js';
-import { diffModSets } from '../mods/diff.js';
+import { comparePairProblem, diffModSets } from '../mods/diff.js';
 import { readPackNames } from '../settings/packs.js';
 import { findDuplicateIds, loadModSet } from '../mods/modset-store.js';
 import { EXPORT_NAME, buildUpdatePack, listExports, openSource, profileTitle, readExportResult, sha256Hex } from '../mods/update-pack.js';
@@ -33,9 +33,15 @@ const PlanPutSchema = z.object({
 const ExportBodySchema = z.object({ base: id, other: id });
 
 class PlanHttpError extends Error {
-  constructor(public readonly status: number, message: string) {
+  constructor(public readonly status: number, message: string, public readonly code?: string) {
     super(message);
   }
+}
+
+/** A client against a server pack is not a meaningful update plan (same rule as GET /mods/diff, sides only: imports are checked separately). */
+function assertSameSide(db: Db, base: Profile, other: Profile): void {
+  const problem = comparePairProblem(base, other, loadModSet(db, base.id), loadModSet(db, other.id));
+  if (problem?.code === 'sides_differ') throw new PlanHttpError(400, problem.message, problem.code);
 }
 
 function profileOr404(db: Db, profileId: number): Profile {
@@ -47,7 +53,7 @@ function profileOr404(db: Db, profileId: number): Profile {
 }
 
 function send(reply: FastifyReply, err: unknown) {
-  if (err instanceof PlanHttpError) return reply.code(err.status).send({ error: err.message });
+  if (err instanceof PlanHttpError) return reply.code(err.status).send({ error: err.message, ...(err.code ? { code: err.code } : {}) });
   throw err;
 }
 
@@ -93,8 +99,7 @@ export function registerPlanRoutes(api: FastifyInstance, deps: AppDeps): void {
     if (!body.success) return sendBadRequest(reply, body.error);
     const { base, other, kind, keys, selected } = body.data;
     try {
-      profileOr404(db, base);
-      profileOr404(db, other);
+      assertSameSide(db, profileOr404(db, base), profileOr404(db, other));
     } catch (err) {
       return send(reply, err);
     }
@@ -130,7 +135,7 @@ export function registerPlanRoutes(api: FastifyInstance, deps: AppDeps): void {
     const { base, other } = body.data;
     try {
       const baseProfile = profileOr404(db, base);
-      profileOr404(db, other);
+      assertSameSide(db, baseProfile, profileOr404(db, other));
       // A plan made only of config files (what the player changed) does not need the jars imported.
       if (getPlanItems(db, base, other, 'mod').length > 0 && (loadModSet(db, base).size === 0 || loadModSet(db, other).size === 0)) throw new PlanHttpError(409, 'both profiles must be imported first');
       if (getPlanItems(db, base, other).length === 0) throw new PlanHttpError(409, 'the plan is empty: select mods or files to update first');

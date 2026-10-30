@@ -1,10 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, flattenProfiles, type MatrixRow } from '../api.js';
 import { exportDownloadUrl, getExport, getExportJob, startExport } from '../api-plan.js';
 import { configsApi, CUSTOM_STATUSES, customizationsApi, type CustomFile, type CustomStatus } from '../api-configs.js';
 import { t, tf, type MessageKey } from '../i18n/index.js';
-import { FileDiffView, fmtSize, ProfileCard } from './Configs.js';
+import { ConfigsError, FileDiffView, fmtSize, ProfileCard } from './Configs.js';
 
 const action = 'rounded-md border border-slate-700 bg-slate-800 px-2 py-0.5 text-xs text-slate-200 hover:bg-slate-700 disabled:opacity-50';
 const primary = 'rounded-md border border-violet-600 bg-violet-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-violet-500 disabled:opacity-50';
@@ -23,7 +23,21 @@ const SHOWN: CustomStatus[] = ['modifiedGenerated', 'modifiedShipped', 'added', 
 /** Exports the plan (files taken from the played instance), then waits for the pack and links its zip. */
 function ExportBar(props: { played: number; launched: number; count: number }) {
   const [jobId, setJobId] = useState<string | null>(null);
-  const start = useMutation({ mutationFn: () => startExport(props.played, props.launched), onSuccess: (r) => setJobId(r.jobId) });
+  const pairKey = `${props.played}|${props.launched}`;
+  const pairRef = useRef(pairKey);
+  pairRef.current = pairKey;
+  const start = useMutation({
+    mutationFn: (v: { played: number; launched: number }) => startExport(v.played, v.launched),
+    // A job started for another pair of profiles is not tracked here.
+    onSuccess: (r, v) => {
+      if (`${v.played}|${v.launched}` === pairRef.current) setJobId(r.jobId);
+    },
+  });
+  const resetExport = start.reset;
+  useEffect(() => {
+    setJobId(null);
+    resetExport();
+  }, [pairKey, resetExport]);
   const job = useQuery({
     queryKey: ['export-job', jobId],
     queryFn: () => getExportJob(jobId!),
@@ -37,7 +51,11 @@ function ExportBar(props: { played: number; launched: number; count: number }) {
   return (
     <div className="sticky bottom-3 z-10 flex flex-wrap items-center gap-3 rounded-xl border border-violet-800/60 bg-slate-950/95 px-4 py-3 shadow-lg backdrop-blur">
       <span className="text-sm text-slate-200">{tf('custom.planCount', { n: String(props.count) })}</span>
-      <button className={primary} disabled={busy || props.count === 0} title={t('custom.exportTip')} onClick={() => start.mutate()}>{busy ? t('custom.exporting') : t('custom.export')}</button>
+      <button className={primary} disabled={busy || props.count === 0} title={t('custom.exportTip')} onClick={() => start.mutate({ played: props.played, launched: props.launched })}>{busy ? t('custom.exporting') : t('custom.export')}</button>
+      {start.isError && <span role="alert" className="text-xs text-rose-300">{tf('custom.exportFailed', { msg: start.error.message })}</span>}
+      {job.isError && <span role="alert" className="text-xs text-rose-300">{tf('custom.exportFailed', { msg: job.error.message })}</span>}
+      {(job.data?.status === 'cancelled' || job.data?.status === 'interrupted') && <span role="alert" className="text-xs text-amber-300">{t(`custom.export.${job.data.status}` as MessageKey)}</span>}
+      <span className="basis-full text-xs text-slate-500">{t('custom.exportTargetNote')}</span>
       {job.data?.status === 'failed' && <span role="status" className="text-xs text-rose-300">{tf('custom.exportFailed', { msg: job.data.message ?? '' })}</span>}
       {done && (
         <span role="status" className="flex flex-wrap items-center gap-2 text-xs text-emerald-400">
@@ -61,6 +79,9 @@ export function CustomizationsView() {
   const [filter, setFilter] = useState<'all' | CustomStatus>('all');
   const [search, setSearch] = useState('');
   const [open, setOpen] = useState<Set<string>>(new Set());
+  const [notice, setNotice] = useState<string | null>(null);
+  const trioRef = useRef(`${cleanId}|${launchedId}|${playedId}`);
+  trioRef.current = `${cleanId}|${launchedId}|${playedId}`;
 
   const inv = (id: string) => ({ queryKey: ['configs-inventory', id], queryFn: () => configsApi.inventory(id), enabled: !!id, retry: false });
   const cleanInv = useQuery(inv(cleanId));
@@ -77,12 +98,21 @@ export function CustomizationsView() {
   });
   const plan = useQuery({ queryKey: ['configs-plan', playedId, launchedId], queryFn: () => configsApi.plan(playedId, launchedId), enabled: ready });
   const planned = useMemo(() => new Set(plan.data?.paths ?? []), [plan.data]);
-  useEffect(() => setOpen(new Set()), [cleanId, launchedId, playedId]);
+  useEffect(() => {
+    setOpen(new Set());
+    setNotice(null);
+  }, [cleanId, launchedId, playedId]);
 
   const setPlan = useMutation({
-    mutationFn: (v: { paths: string[]; selected: boolean }) => customizationsApi.setPlan(Number(cleanId), Number(launchedId), Number(playedId), v.paths, v.selected),
-    onSuccess: (r) => qc.setQueryData(['configs-plan', playedId, launchedId], { paths: r.paths }),
+    mutationFn: (v: { clean: number; launched: number; played: number; paths: string[]; selected: boolean }) => customizationsApi.setPlan(v.clean, v.launched, v.played, v.paths, v.selected),
+    onMutate: () => setNotice(null),
+    // The answer is for the trio that sent the request, whatever is selected by the time it arrives.
+    onSuccess: (r, v) => qc.setQueryData(['configs-plan', String(v.played), String(v.launched)], { paths: r.paths }),
+    onError: (e: Error, v) => {
+      if (`${v.clean}|${v.launched}|${v.played}` === trioRef.current) setNotice(tf('configs.plan.error', { msg: e.message }));
+    },
   });
+  const mutatePlan = (paths: string[], selected: boolean) => setPlan.mutate({ clean: Number(cleanId), launched: Number(launchedId), played: Number(playedId), paths, selected });
 
   const name = (id: string) => {
     const p = profiles.find((x) => String(x.id) === id);
@@ -91,7 +121,7 @@ export function CustomizationsView() {
   const needle = search.trim().toLowerCase();
   const rows = useMemo(() => (data.data?.files ?? []).filter((f) => (filter === 'all' || f.status === filter) && (!needle || f.path.toLowerCase().includes(needle))), [data.data, filter, needle]);
   const counts = data.data?.summary.perStatus;
-  const toggle = (f: CustomFile) => setPlan.mutate({ paths: [f.path], selected: !planned.has(f.path) });
+  const toggle = (f: CustomFile) => mutatePlan([f.path], !planned.has(f.path));
 
   return (
     <section className="space-y-5">
@@ -101,6 +131,7 @@ export function CustomizationsView() {
         {(['custom.simple.1', 'custom.simple.2', 'custom.simple.3', 'custom.simple.4'] as MessageKey[]).map((k) => <p key={k}>{t(k)}</p>)}
       </div>
 
+      {matrix.isError && <ConfigsError text={tf('configs.error.matrix', { msg: matrix.error.message })} onRetry={() => void matrix.refetch()} />}
       <div className="grid gap-4 lg:grid-cols-3">
         <ProfileCard label={t('custom.clean')} profiles={profiles} value={cleanId} onChange={setCleanId} inv={cleanInv} />
         <ProfileCard label={t('custom.launched')} profiles={profiles} value={launchedId} onChange={setLaunchedId} inv={launchedInv} />
@@ -109,6 +140,8 @@ export function CustomizationsView() {
 
       {!ready && <p className="text-sm text-slate-400">{cleanId && launchedId && playedId && !distinct ? t('custom.distinct') : t('custom.pickAll')}</p>}
       {ready && data.isLoading && <p className="text-slate-400">{t('custom.loading')}</p>}
+      {ready && plan.isError && <ConfigsError text={tf('configs.error.plan', { msg: plan.error.message })} onRetry={() => void plan.refetch()} />}
+      {notice && <p role="alert" className="text-sm text-rose-300">{notice}</p>}
       {data.isError && <p className="text-sm text-rose-300">{(data.error as Error).message}</p>}
 
       {data.data && counts && (
@@ -121,8 +154,8 @@ export function CustomizationsView() {
               </button>
             ))}
             <input aria-label={t('custom.search')} placeholder={t('custom.search')} value={search} onChange={(e) => setSearch(e.target.value)} className={`${input} ml-auto w-64`} />
-            <button className={action} title={t('custom.selectAllTip')} disabled={setPlan.isPending || !rows.some((r) => r.include)} onClick={() => setPlan.mutate({ paths: rows.filter((r) => r.include).map((r) => r.path), selected: true })}>{t('custom.selectAll')}</button>
-            <button className={action} title={t('custom.clearTip')} disabled={setPlan.isPending || planned.size === 0} onClick={() => setPlan.mutate({ paths: [...planned], selected: false })}>{t('custom.clear')}</button>
+            <button className={action} title={t('custom.selectAllTip')} disabled={setPlan.isPending || !rows.some((r) => r.include)} onClick={() => mutatePlan(rows.filter((r) => r.include).map((r) => r.path), true)}>{t('custom.selectAll')}</button>
+            <button className={action} title={t('custom.clearTip')} disabled={setPlan.isPending || planned.size === 0} onClick={() => mutatePlan([...planned], false)}>{t('custom.clear')}</button>
           </div>
           <p className="text-xs text-slate-500">{tf('custom.untouched', { n: String(counts.untouched) })}</p>
 

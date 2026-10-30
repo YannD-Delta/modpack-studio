@@ -14,7 +14,7 @@ export type DecisionRow = { modId: string; kind: DecisionKind; side: Side | null
 export type UserBlacklistRow = { modId: string; origin: 'user'; reason: string; createdAt: string | null };
 export type Memory = { decisions: DecisionRow[]; blacklist: UserBlacklistRow[]; atmDerivedCount: number };
 
-/** Everything Studio remembers on the user's behalf. ATM-derived blacklist rows are computed, so they are only counted. */
+/** Everything Studio remembers on the user's behalf. base-derived blacklist rows are computed, so they are only counted. */
 export function listMemory(db: Db): Memory {
   const decisions = (
     db.sqlite.prepare('SELECT mod_id, kind, side, reason, created_at FROM mod_decision ORDER BY mod_id, kind').all() as {

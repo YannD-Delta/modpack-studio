@@ -4,11 +4,11 @@ import { classifySide, type SideSignal } from '../../src/server/mods/side-classi
 const sig = (origin: SideSignal['origin'], side: SideSignal['side']): SideSignal => ({ origin, side, confidence: 1 });
 
 describe('classifySide', () => {
-  it("lets the user's decision beat an ATM signal, without marking it uncertain", () => {
+  it("lets the user's decision beat a base signal, without marking it uncertain", () => {
     expect(classifySide([sig('atm', 'client'), sig('decision', 'both')])).toEqual({ side: 'both', origin: 'decision', uncertain: false });
   });
 
-  it('lets an ATM signal beat Modrinth', () => {
+  it('lets a base signal beat Modrinth', () => {
     expect(classifySide([sig('modrinth', 'both'), sig('atm', 'client')])).toMatchObject({ side: 'client', origin: 'atm' });
   });
 

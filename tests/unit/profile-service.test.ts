@@ -7,9 +7,15 @@ import {
   DuplicateProfileError,
   ImmutableProfileError,
   LaunchArtifactsError,
+  LocationError,
   ProcessRunningError,
   createProfile,
+  deleteProfile,
   detectLaunchArtifacts,
+  importStatus,
+  relocateProfile,
+  validateLocation,
+  getProfile,
   listMatrix,
   updateProfile,
   type NewProfile,
@@ -109,5 +115,84 @@ describe('listMatrix', () => {
     const latest = matrix.find((r) => r.version === '8.3')!;
     expect(latest.cells['server-run']).not.toBeNull();
     expect(latest.cells['client-clean']).toBeNull();
+  });
+});
+
+describe('validateLocation', () => {
+  it('rejects a relative path and a quoted "Copy as path" form with code location_not_absolute', () => {
+    for (const bad of ['relative/dir', `"${tmp}"`]) {
+      try { validateLocation('folder', bad); expect.unreachable(); } catch (e) {
+        expect(e).toBeInstanceOf(LocationError);
+        expect((e as LocationError).code).toBe('location_not_absolute');
+      }
+    }
+  });
+  it('rejects a missing path and a kind mismatch with a typed error instead of crashing', () => {
+    expect(() => validateLocation('folder', path.join(tmp, 'missing'))).toThrow(LocationError);
+    const file = path.join(tmp, 'a.zip');
+    fs.writeFileSync(file, 'x');
+    expect(() => validateLocation('folder', file)).toThrow(/folder/);
+    expect(() => validateLocation('zip', folder('d'))).toThrow(/file/);
+    expect(() => validateLocation('zip', file)).not.toThrow();
+    expect(() => validateLocation('folder', folder('d2'))).not.toThrow();
+  });
+});
+
+describe('importStatus', () => {
+  it('counts mods and issues of a profile', () => {
+    const p = createProfile(db, { ...base, location: folder('c') });
+    expect(importStatus(db, p.id)).toEqual({ mods: 0, issues: 0, complete: false });
+    db.sqlite.prepare("INSERT INTO import_issue (profile_id, file, reason) VALUES (?, 'x.jar', 'bad')").run(p.id);
+    expect(importStatus(db, p.id).issues).toBe(1);
+  });
+});
+
+describe('relocateProfile', () => {
+  it('moves an immutable profile to another valid location, keeping its imported data', () => {
+    const p = createProfile(db, { ...base, state: 'launched', location: folder('l', [], ['logs']) });
+    const to = folder('moved', [], ['mods']);
+    expect(relocateProfile(db, p.id, to).location).toBe(to);
+  });
+  it('validates the new location and re-checks launch artifacts of a clean folder', () => {
+    const p = createProfile(db, { ...base, location: folder('c') });
+    expect(() => relocateProfile(db, p.id, path.join(tmp, 'nope'))).toThrow(LocationError);
+    expect(() => relocateProfile(db, p.id, folder('dirty', ['options.txt']))).toThrow(LaunchArtifactsError);
+  });
+});
+
+describe('deleteProfile', () => {
+  it('removes the profile and only the rows that belong to it, in one transaction', () => {
+    const a = createProfile(db, { ...base, location: folder('a') });
+    const b = createProfile(db, { ...base, version: '9', location: folder('b') });
+    db.sqlite.prepare("INSERT INTO jar (sha256, filename, size) VALUES ('h', 'a.jar', 1)").run();
+    for (const id of [a.id, b.id]) {
+      db.sqlite.prepare("INSERT INTO jar_mod (jar_sha256, profile_id, mod_id, version) VALUES ('h', ?, 'm', '1')").run(id);
+      db.sqlite.prepare("INSERT INTO import_issue (profile_id, file, reason) VALUES (?, 'x.jar', 'bad')").run(id);
+    }
+    db.sqlite.prepare("INSERT INTO update_plan_item (base_profile_id, other_profile_id, kind, key, action, created_at) VALUES (?, ?, 'mod', 'm', 'take_ref', 'now')").run(a.id, b.id);
+    deleteProfile(db, a.id);
+    const n = (t: string, id: number, col = 'profile_id') => (db.sqlite.prepare(`SELECT count(*) AS n FROM ${t} WHERE ${col} = ?`).get(id) as { n: number }).n;
+    expect(n('jar_mod', a.id)).toBe(0);
+    expect(n('import_issue', a.id)).toBe(0);
+    expect((db.sqlite.prepare('SELECT count(*) AS n FROM update_plan_item').get() as { n: number }).n).toBe(0);
+    expect(n('jar_mod', b.id)).toBe(1);
+    expect(n('import_issue', b.id)).toBe(1);
+    expect(() => getProfile(db, a.id)).toThrow();
+    expect(listMatrix(db).map((r) => r.version)).toEqual(['9']);
+  });
+});
+
+describe('listMatrix import info', () => {
+  it('reports importedAt and importIssueCount per profile', () => {
+    const p = createProfile(db, { ...base, location: folder('c') });
+    let cell = listMatrix(db)[0]!.cells['server-clean']!;
+    expect(cell.importedAt).toBeNull();
+    expect(cell.importIssueCount).toBe(0);
+    db.sqlite.prepare("INSERT INTO jar (sha256, filename, size) VALUES ('h', 'a.jar', 1)").run();
+    db.sqlite.prepare("INSERT INTO jar_mod (jar_sha256, profile_id, mod_id, version) VALUES ('h', ?, 'm', '1')").run(p.id);
+    db.sqlite.prepare("INSERT INTO import_issue (profile_id, file, reason) VALUES (?, 'x.jar', 'bad')").run(p.id);
+    cell = listMatrix(db)[0]!.cells['server-clean']!;
+    expect(typeof cell.importedAt).toBe('string');
+    expect(cell.importIssueCount).toBe(1);
   });
 });

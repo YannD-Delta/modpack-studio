@@ -16,7 +16,8 @@ export function parseMinecraftInstance(doc: unknown): CfSource[] {
   const addons = (doc as { installedAddons?: unknown } | null)?.installedAddons;
   if (!Array.isArray(addons)) return [];
   const out: CfSource[] = [];
-  for (const a of addons as Record<string, unknown>[]) {
+  for (const a of addons as (Record<string, unknown> | null)[]) {
+    if (!a || typeof a !== 'object') continue; // one null or odd entry must not discard the whole file
     const installed = a.installedFile as { id?: unknown; fileName?: unknown } | undefined;
     const fileName = typeof a.fileNameOnDisk === 'string' ? a.fileNameOnDisk : typeof installed?.fileName === 'string' ? installed.fileName : null;
     const projectId = a.addonID;
@@ -27,15 +28,24 @@ export function parseMinecraftInstance(doc: unknown): CfSource[] {
   return out;
 }
 
-/** Reads `<dir>/minecraftinstance.json`; a missing, oversized or broken file gives no sources rather than an error. */
-export function readInstanceSources(dir: string): CfSource[] {
+/**
+ * Reads `<dir>/minecraftinstance.json`. null means "could not be read" (missing, oversized, unreadable or not JSON; a launcher
+ * rewriting the file can look like any of these): the caller must keep the links it already has. [] means the file was read
+ * and lists no usable addon.
+ */
+export function readInstanceSourcesChecked(dir: string): CfSource[] | null {
   const file = path.join(dir, 'minecraftinstance.json');
   try {
-    if (fs.statSync(file).size > MAX_FILE_BYTES) return [];
+    if (fs.statSync(file).size > MAX_FILE_BYTES) return null;
     return parseMinecraftInstance(JSON.parse(fs.readFileSync(file, 'utf8')));
   } catch {
-    return [];
+    return null;
   }
+}
+
+/** Same as readInstanceSourcesChecked, but an unreadable file gives []. Prefer the checked variant before storeSources. */
+export function readInstanceSources(dir: string): CfSource[] {
+  return readInstanceSourcesChecked(dir) ?? [];
 }
 
 export function storeSources(db: Db, profileId: number, sources: CfSource[]): void {
@@ -44,6 +54,11 @@ export function storeSources(db: Db, profileId: number, sources: CfSource[]): vo
     db.sqlite.prepare('DELETE FROM jar_source WHERE profile_id = ?').run(profileId);
     for (const s of sources) insert.run(profileId, s.fileName, s.projectId, s.fileId, s.name, s.url);
   })();
+}
+
+/** Number of CurseForge links currently stored for the profile. */
+export function countSources(db: Db, profileId: number): number {
+  return (db.sqlite.prepare('SELECT count(*) AS n FROM jar_source WHERE profile_id = ?').get(profileId) as { n: number }).n;
 }
 
 export function getSources(db: Db, profileId: number): Map<string, CfSource> {

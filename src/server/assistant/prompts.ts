@@ -33,7 +33,7 @@ export const ACTION_INFO: Record<ActionId, { label: string; tip: string }> = {
   },
   'migrate-old-pack': {
     label: 'Ancien pack contre {upstream}',
-    tip: 'Claude compare ton ancien pack avec {upstream} : mods manquants, équivalents déjà dans {upstream}, disponibilité NeoForge sur la bonne version de Minecraft, priorités.',
+    tip: 'Claude compare ton ancien pack avec {upstream} : mods manquants, équivalents déjà dans {upstream}, disponibilité sur le mod loader et la bonne version de Minecraft, priorités.',
   },
 };
 
@@ -44,6 +44,8 @@ export type BuiltPrompt = { action: ActionId; title: string; prompt: string; row
 
 const label = (p: Profile) => `${p.pack} ${p.version} · ${p.side} · ${p.state}`;
 const loaderText = (l: LoaderInfo | null) => (l ? `${l.loader} ${l.loaderVersion}, Minecraft ${l.mcVersion ?? 'inconnu'}` : 'loader non détecté');
+/** The loader of the reference pack as detected (never assumed); "mod loader" when it is unknown. */
+const loaderName = (l: LoaderInfo | null) => l?.loader ?? 'mod loader';
 const link = (s: CfSource | undefined) => (s ? s.url : 'lien inconnu');
 
 type Row = { modId: string; text: string };
@@ -129,8 +131,8 @@ export function buildPrompt(
       task = [
         `Le comparé est mon ancien pack. Il a ${shared} mods en commun avec {upstream} (par identifiant de mod) et ${diff.added.length} mods que {upstream} n’a pas : ce sont les candidats à reprendre dans mon nouveau {own}.`,
         `Compare aussi les loaders : l’ancien pack tourne sur ${loaderText(args.otherLoader)}, le nouveau sur ${loaderText(args.baseLoader)}.`,
-        'Pour chaque mod de la liste : (1) existe-t-il une version NeoForge pour la version de Minecraft de la référence ? (2) un mod de {upstream} fait-il déjà la même chose (équivalent) ? (3) vaut-il la peine d’être repris ?',
-        'Réponds avec un tableau (Mod, Disponible en NeoForge, Équivalent dans {upstream}, Verdict : reprendre, équivalent suffisant, abandonner, à vérifier), puis les priorités : les 10 mods à reprendre d’abord.',
+        `Pour chaque mod de la liste : (1) existe-t-il une version ${loaderName(args.baseLoader)} pour la version de Minecraft de la référence ? (2) un mod de {upstream} fait-il déjà la même chose (équivalent) ? (3) vaut-il la peine d’être repris ?`,
+        `Réponds avec un tableau (Mod, Disponible en ${loaderName(args.baseLoader)}, Équivalent dans {upstream}, Verdict : reprendre, équivalent suffisant, abandonner, à vérifier), puis les priorités : les 10 mods à reprendre d’abord.`,
       ].join('\n');
       break;
     }
@@ -158,7 +160,7 @@ export function buildTestRunPrompt(args: { run: RunDetail; logTail: string[]; cr
   const errors = r?.summary.firstErrors.length ? r.summary.firstErrors.map((e) => `- ${e}`).join('\n') : '(aucune)';
   const tail = args.logTail.slice(-TAIL_LINES).join('\n') || '(journal vide)';
   const task = [
-    'Analyse ce test de démarrage d\u2019un serveur Minecraft modé (NeoForge).',
+    'Analyse ce test de démarrage d\u2019un serveur Minecraft modé.',
     'Dis d\u2019abord s\u2019il est sain. Puis sépare : ce qui bloque, ce qui est hérité de {upstream} (présent chez tout le monde, à ignorer), et ce qui est sans importance.',
     'Pour chaque problème bloquant : la cause probable (mod, version, dépendance, config) et la correction à essayer (mettre à jour, épingler, retirer, changer une valeur).',
     'Termine par les trois actions à faire en premier.',

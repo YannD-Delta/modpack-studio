@@ -1,7 +1,7 @@
 import fsp from 'node:fs/promises';
 import { safeResolve } from '../fs-safe/safe-path.js';
-import { openZip, type ZipHandle } from '../zip/zip-reader.js';
-import { detectZipPrefix, rootOf, type InventoryEntry, type ScanSource } from './inventory.js';
+import { READ_ONLY_ZIP_LIMITS, openZip, type ZipHandle } from '../zip/zip-reader.js';
+import { detectZipPrefix, isDirectoryEntry, rootOf, type InventoryEntry, type ScanSource } from './inventory.js';
 
 export class InvalidRelPathError extends Error {
   constructor(message: string) {
@@ -69,11 +69,11 @@ export function openProfileReader(source: ScanSource): ProfileFileReader {
   let zipP: Promise<{ zip: ZipHandle; byKey: Map<string, string> }> | null = null;
   const open = () =>
     (zipP ??= (async () => {
-      const zip = await openZip(source.path, { caseCollision: 'allow', maxEntries: 500000, maxRatio: 1000 });
+      const zip = await openZip(source.path, { ...READ_ONLY_ZIP_LIMITS });
       const names = zip.entries().map((e) => e.name);
       const prefix = detectZipPrefix(names.map((n) => n.replace(/\\/g, '/')));
       const byKey = new Map<string, string>();
-      for (const n of names) byKey.set(n.replace(/\\/g, '/').slice(prefix.length).toLowerCase(), n);
+      for (const n of names) if (!isDirectoryEntry(n)) byKey.set(n.replace(/\\/g, '/').slice(prefix.length).toLowerCase(), n);
       return { zip, byKey };
     })());
   return {

@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
-import { describe, expect, it } from 'vitest';
-import { diffInventories, type InventoryFiles } from '../../src/server/configs/diff.js';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { clearEqualityCache, diffInventories, type InventoryFiles } from '../../src/server/configs/diff.js';
 import { buildHunks, diffLines, splitLines } from '../../src/server/configs/line-diff.js';
 import { normalizeForCompare, parseTolerantJson } from '../../src/server/configs/normalize.js';
 
@@ -32,6 +32,54 @@ describe('normalizeForCompare', () => {
     expect(same('config/x.toml', a, b)).toBe(true);
     expect(same('config/x.toml', a, b.replace('true', 'false'))).toBe(false);
     expect(same('config/x.toml', 'name = "a # b"\n', 'name = "a"\n')).toBe(false);
+  });
+
+  it('compares the inside of TOML multi-line strings exactly', () => {
+    const dq = '"'.repeat(3);
+    const sq = "'".repeat(3);
+    const doc = (q: string, body: string, tail = '') => `a = ${q}\n${body}\n${q}${tail}\nb = 1\n`;
+    for (const q of [dq, sq]) {
+      expect(same('config/x.toml', doc(q, 'foo # bar'), doc(q, 'foo # baz'))).toBe(false); // what follows a # is text
+      expect(same('config/x.toml', doc(q, 'foo\n\nbar'), doc(q, 'foo\nbar'))).toBe(false); // so is a blank line
+      expect(same('config/x.toml', doc(q, 'foo\n    bar'), doc(q, 'foo\nbar'))).toBe(false); // and an indentation
+      expect(same('config/x.toml', doc(q, 'foo\n    bar'), doc(q, 'foo\n    bar', ' # note'))).toBe(true); // after the closing delimiter a # is a comment again
+    }
+    // formatting around the string is still formatting, also on the line that opens it
+    expect(same('config/x.toml', `  a   =   ${dq}\nfoo # kept\n${dq}\n\n# c\nb=1`, `a = ${dq}\nfoo # kept\n${dq} # n\nb = 1 # c\n`)).toBe(true);
+    // delimiters that do not open a string: in a comment, or inside a one-line string of the other kind
+    expect(same('config/x.toml', `# ${dq}\nb = 1 # c\n\n`, `# ${dq} x\nb = 1\n`)).toBe(true);
+    expect(same('config/x.toml', `a = '${dq}' # c\n\n b = 1\n`, `a = '${dq}'\nb = 1\n`)).toBe(true);
+    expect(same('config/x.toml', `a = "${sq}" # c\n\n b = 1\n`, `a = "${sq}"\nb = 1\n`)).toBe(true);
+    // an escaped quote does not end a basic string; four quotes end it with one quote of content
+    expect(same('config/x.toml', `a = ${dq}\nx\\${dq}\n# y\n${dq}\n`, `a = ${dq}\nx\\${dq}\n# z\n${dq}\n`)).toBe(false);
+    expect(same('config/x.toml', `a = ${dq}x"${dq} # c\nb = 1\n`, `a = ${dq}x"${dq}\n\nb = 1\n`)).toBe(true);
+  });
+
+  it('keeps quoted TOML key segments as written', () => {
+    expect(same('config/x.toml', '"a . b" = 1\n', '"a.b" = 1\n')).toBe(false);
+    expect(same('config/x.toml', "a . 'b . c' = 1\n", "a.'b.c' = 1\n")).toBe(false);
+    expect(same('config/x.toml', 'a . b = 1\n', 'a.b = 1\n')).toBe(true);
+    expect(same('config/x.toml', 'a . "b . c" = 1\n', 'a."b . c" = 1\n')).toBe(true);
+  });
+
+  it('compares text that is not valid UTF-8 byte for byte, apart from line endings and trailing blanks', () => {
+    const latin = (s: string) => Buffer.from(s, 'latin1');
+    const eq = (p: string, a: Buffer, b: Buffer) => normalizeForCompare(p, a) === normalizeForCompare(p, b);
+    for (const p of ['config/a.cfg', 'config/a.toml', 'config/a.json', 'config/a.properties']) {
+      const a = p.endsWith('json') ? '{"k":"caf\xe9"}' : 'k = "caf\xe9"';
+      const b = a.replace('\xe9', '\xe8');
+      expect(eq(p, latin(a), latin(b)), p).toBe(false);
+      expect(eq(p, latin(`${a}  \r\n`), latin(a)), p).toBe(true);
+    }
+    expect(eq('config/a.cfg', latin('k = caf\xe9'), Buffer.from('k = café', 'utf8'))).toBe(false); // same text, other encoding
+    expect(same('config/a.cfg', 'k = v ', 'k = v')).toBe(false); // a trailing no-break space is content
+  });
+
+  it('compares a JSON integer beyond 2^53 as text', () => {
+    expect(same('config/a.json', '{"seed":9223372036854775807}', '{"seed":9223372036854775806}')).toBe(false);
+    expect(same('config/a.json', '{"seed":9007199254740993}', '{"seed":9007199254740992}')).toBe(false);
+    expect(same('config/a.json', '{"a":1,"b":1e2}', '{"b":100.0,"a":1.0}')).toBe(true);
+    expect(same('config/a.json', '{"s":"9223372036854775807","a":1}', '{"a":1,"s":"9223372036854775807"}')).toBe(true);
   });
 
   it('parses tolerant JSON with comment markers inside strings', () => {
@@ -67,6 +115,7 @@ describe('diffInventories', () => {
     'config/case.toml': e('c'),
   };
   const load = async (side: 'base' | 'other', p: string) => Buffer.from(contents[side]![p]!);
+  beforeEach(() => clearEqualityCache()); // the equality cache is keyed by content hashes: a test must not depend on what another one cached
 
   it('classifies every file and sorts by severity then path', async () => {
     const d = await diffInventories(base, other, { load });
@@ -99,6 +148,50 @@ describe('diffInventories', () => {
     expect(d.files).toHaveLength(3);
     expect(d.truncated).toBe(true);
     expect(d.total).toBe(9);
+    const all = await diffInventories(base, other, { load: async () => { throw new Error('gone'); } });
+    const unreadable = Object.fromEntries(all.files.map((f) => [f.path, f.status]));
+    expect(unreadable['config/a.json']).toBe('modified');
+    expect(unreadable['config/crlf.txt']).toBe('modified');
+  });
+
+  it('does not cache a transient load failure', async () => {
+    const failing = await diffInventories(base, other, { load: async () => { throw new Error('gone'); } });
+    expect(failing.files.find((f) => f.path === 'config/a.json')!.status).toBe('modified');
+    const d = await diffInventories(base, other, { load });
+    expect(d.files.find((f) => f.path === 'config/a.json')!.status).toBe('cosmetic');
+  });
+});
+
+describe('diffInventories: size-only (quick scan) entries', () => {
+  const png = 'png-bytes-1';
+  const real = (content: string) => ({ size: content.length, sha256: sha(content), kind: 'binary' as const });
+  const quick = (content: string) => ({ size: content.length, sha256: `size:${content.length}`, kind: 'binary' as const, sizeOnly: true as const });
+  const status = async (a: InventoryFiles[string], b: InventoryFiles[string]) => {
+    const d = await diffInventories({ 'kubejs/assets/x.png': a }, { 'kubejs/assets/x.png': b });
+    return { status: d.files[0]!.status, sizeOnly: d.files[0]!.sizeOnly, sizeOnlyIdentical: d.sizeOnlyIdentical };
+  };
+
+  it('quick against quick: equal sizes are unchanged but flagged as not byte-verified', async () => {
+    expect(await status(quick(png), quick('png-bytes-2'))).toEqual({ status: 'identical', sizeOnly: true, sizeOnlyIdentical: 1 });
+    expect((await status(quick(png), quick('png-bytes-22'))).status).toBe('binaryDiffers');
+  });
+
+  it('quick against a real hash (deep scan or zip): sizes are compared, never the pseudo-hash with a sha256', async () => {
+    for (const [a, b] of [[quick(png), real(png)], [real(png), quick(png)]] as const) {
+      expect(await status(a, b)).toEqual({ status: 'identical', sizeOnly: true, sizeOnlyIdentical: 1 });
+    }
+    expect((await status(quick(png), real('png-bytes-22'))).status).toBe('binaryDiffers');
+    expect((await status(real('png-bytes-22'), quick(png))).status).toBe('binaryDiffers');
+  });
+
+  it('deep against deep still compares the real hashes (a same-size edit is detected)', async () => {
+    expect(await status(real(png), real(png))).toEqual({ status: 'identical', sizeOnly: undefined, sizeOnlyIdentical: 0 });
+    expect((await status(real(png), real('png-bytes-2'))).status).toBe('binaryDiffers');
+  });
+
+  it('a too large file compared by size stays tooLarge when the sizes differ', async () => {
+    const big = { size: 9, sha256: 'size:9', kind: 'binary' as const, tooLarge: true as const, sizeOnly: true as const };
+    expect((await status(big, { ...real(png), size: 11, tooLarge: true })).status).toBe('tooLarge');
   });
 });
 

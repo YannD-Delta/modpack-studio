@@ -3,7 +3,7 @@ import { api } from './api.js';
 export type ActionId = 'review-updates' | 'review-added' | 'review-missing' | 'migrate-old-pack' | 'analyze-test-run';
 export type ActionInfo = { id: ActionId; label: string; tip: string };
 export type BuiltPrompt = { action: ActionId; title: string; prompt: string; rows: number; shown: number };
-export type RunResult = { text: string; model: string; effort: string; inputTokens: number; outputTokens: number; rows: number; shown: number };
+export type RunResult = { text: string; model: string; effort: string; inputTokens: number; outputTokens: number; rows: number; shown: number; truncated?: boolean; code?: string };
 
 export const assistantApi = {
   actions: () => api<ActionInfo[]>('/assistant/actions'),

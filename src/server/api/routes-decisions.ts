@@ -2,14 +2,15 @@ import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { API_PREFIX } from '../../shared/constants.js';
+import { ModIdSchema, ReasonSchema } from '../../shared/schemas/mods.js';
 import { removeFromBlacklist, setBlacklistReason } from '../mods/blacklist-service.js';
 import { DECISION_KINDS, debugInfo, JOB_STATUSES, listAudit, listJobs, listMemory, setDecisionReason, unsetDecision } from '../mods/decisions-service.js';
 import type { AppDeps } from './app.js';
 import { sendBadRequest } from './routes-profiles.js';
 
-const modId = z.string().min(1).max(200);
+const modId = ModIdSchema;
 const DecisionParams = z.object({ modId, kind: z.enum(DECISION_KINDS) });
-const ReasonBody = z.object({ reason: z.string().max(500) });
+const ReasonBody = z.object({ reason: ReasonSchema });
 const AuditQuery = z.object({
   limit: z.coerce.number().int().min(1).max(500).default(100),
   before: z.coerce.number().int().positive().optional(),

@@ -1,6 +1,9 @@
 import zlib from 'node:zlib';
 
-export type RawZipEntry = { name: string; data: Buffer; method?: 'store' | 'deflate' };
+export type RawZipEntry = { name: string; data: Buffer; method?: 'store' | 'deflate';
+  /** Raw name bytes written without the UTF-8 flag (legacy CP437 names); `name` is then ignored. */
+  rawName?: Buffer;
+};
 
 /**
  * Minimal zip writer for fixtures. Unlike yazl it accepts any entry name (zip-slip, case collisions)
@@ -12,7 +15,8 @@ export function buildZip(entries: RawZipEntry[]): Buffer {
   let offset = 0;
 
   for (const e of entries) {
-    const name = Buffer.from(e.name, 'utf8');
+    const name = e.rawName ?? Buffer.from(e.name, 'utf8');
+    const flag = e.rawName ? 0 : 0x0800;
     const method = e.method === 'deflate' ? 8 : 0;
     const body = method === 8 ? zlib.deflateRawSync(e.data) : e.data;
     const crc = zlib.crc32(e.data);
@@ -20,7 +24,7 @@ export function buildZip(entries: RawZipEntry[]): Buffer {
     const local = Buffer.alloc(30);
     local.writeUInt32LE(0x04034b50, 0);
     local.writeUInt16LE(20, 4);
-    local.writeUInt16LE(0x0800, 6);
+    local.writeUInt16LE(flag, 6);
     local.writeUInt16LE(method, 8);
     local.writeUInt16LE(0, 10);
     local.writeUInt16LE(0x0021, 12);
@@ -35,7 +39,7 @@ export function buildZip(entries: RawZipEntry[]): Buffer {
     central.writeUInt32LE(0x02014b50, 0);
     central.writeUInt16LE(20, 4);
     central.writeUInt16LE(20, 6);
-    central.writeUInt16LE(0x0800, 8);
+    central.writeUInt16LE(flag, 8);
     central.writeUInt16LE(method, 10);
     central.writeUInt16LE(0, 12);
     central.writeUInt16LE(0x0021, 14);

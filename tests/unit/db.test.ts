@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { openDb } from '../../src/server/db/open.js';
+import { BACKUP_KEEP, openDb } from '../../src/server/db/open.js';
 
 const TABLES = ['pack_version', 'profile', 'jar', 'jar_mod', 'mod_decision', 'blacklist', 'blob', 'job', 'setting', 'audit_log', 'event', 'import_issue'];
 
@@ -57,6 +57,55 @@ describe('openDb', () => {
     expect(tables).toContain('b');
     expect(fs.readdirSync(backups).length).toBe(1);
     db.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('takes a rolling backup of an existing file at startup, even without a pending migration, and keeps only the last few', () => {
+    const dir = tmpDir();
+    const file = path.join(dir, 'studio.db');
+    const backups = path.join(dir, 'backups');
+    openDb(file, { backupDir: backups }).close(); // fresh file: nothing to protect
+    expect(fs.existsSync(backups) ? fs.readdirSync(backups) : []).toEqual([]);
+    for (let i = 0; i < BACKUP_KEEP + 3; i++) openDb(file, { backupDir: backups, backupMinIntervalMs: 0 }).close();
+    const kept = fs.readdirSync(backups).filter((f) => f.endsWith('.bak'));
+    expect(kept.length).toBe(BACKUP_KEEP);
+    // a backup is a usable database
+    const copy = openDb(path.join(backups, kept[0]!), {});
+    expect((copy.sqlite.prepare("SELECT count(*) AS n FROM sqlite_master WHERE name = 'profile'").get() as { n: number }).n).toBe(1);
+    copy.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('does not take a second backup within the minimum interval (restart loops)', () => {
+    const dir = tmpDir();
+    const file = path.join(dir, 'studio.db');
+    const backups = path.join(dir, 'backups');
+    openDb(file, { backupDir: backups }).close();
+    openDb(file, { backupDir: backups }).close();
+    openDb(file, { backupDir: backups }).close();
+    expect(fs.readdirSync(backups).filter((f) => f.endsWith('.bak')).length).toBe(1);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('gives a readable error for a corrupt file, keeps the old backups, and releases the file', () => {
+    const dir = tmpDir();
+    const file = path.join(dir, 'studio.db');
+    const backups = path.join(dir, 'backups');
+    openDb(file, { backupDir: backups }).close();
+    openDb(file, { backupDir: backups, backupMinIntervalMs: 0 }).close();
+    const before = fs.readdirSync(backups);
+    fs.writeFileSync(file, 'this is not a database '.repeat(200));
+    let message = '';
+    try {
+      openDb(file, { backupDir: backups, backupMinIntervalMs: 0 });
+    } catch (err) {
+      message = (err as Error).message;
+    }
+    expect(message).toMatch(/Cannot open the Studio database/);
+    expect(message).toContain(backups);
+    expect(message.includes(String.fromCharCode(10))).toBe(false); // one readable line, no stack
+    expect(fs.readdirSync(backups)).toEqual(before);
+    fs.rmSync(file); // would fail with EPERM if the handle had leaked
     fs.rmSync(dir, { recursive: true, force: true });
   });
 });

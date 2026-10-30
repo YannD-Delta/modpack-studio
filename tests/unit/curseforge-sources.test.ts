@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openDb } from '../../src/server/db/open.js';
-import { getSources, parseMinecraftInstance, readInstanceSources, storeSources } from '../../src/server/mods/curseforge-sources.js';
+import { getSources, parseMinecraftInstance, readInstanceSources, readInstanceSourcesChecked, storeSources } from '../../src/server/mods/curseforge-sources.js';
 import { createProfile } from '../../src/server/profiles/profile-service.js';
 
 let tmp: string;
@@ -63,5 +63,20 @@ describe('source store', () => {
     expect(getSources(db, p.id).size).toBe(0);
     expect(getSources(db, q.id).get('other.jar')!.projectId).toBe(9);
     db.close();
+  });
+});
+
+describe('unreadable instance files', () => {
+  it('one null addon does not discard the others', () => {
+    const doc = { installedAddons: [null, 5, ...instance.installedAddons] };
+    expect(parseMinecraftInstance(doc).map((s) => s.projectId)).toEqual([248787, 111]);
+  });
+
+  it('readInstanceSourcesChecked tells unreadable (null) from empty ([])', () => {
+    expect(readInstanceSourcesChecked(tmp)).toBeNull();
+    fs.writeFileSync(path.join(tmp, 'minecraftinstance.json'), '{ not json');
+    expect(readInstanceSourcesChecked(tmp)).toBeNull();
+    fs.writeFileSync(path.join(tmp, 'minecraftinstance.json'), JSON.stringify({ installedAddons: [] }));
+    expect(readInstanceSourcesChecked(tmp)).toEqual([]);
   });
 });

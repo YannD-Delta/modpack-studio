@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CaseCollisionError, ZipLimitError, ZipSlipError, openZip } from '../../src/server/zip/zip-reader.js';
+import { CaseCollisionError, READ_ONLY_ZIP_LIMITS, ZipLimitError, ZipSlipError, decodeEntryName, openZip } from '../../src/server/zip/zip-reader.js';
 import { makeJar, makeZip } from '../fixtures-gen/jar.js';
 import { buildZip } from '../fixtures-gen/zip.js';
 
@@ -62,5 +62,30 @@ describe('openZip reading', () => {
     expect((await zip.read('a.txt')).toString()).toBe('hello');
     await zip.close();
     fs.rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+describe('read-only zip limits and entry names', () => {
+  it('accepts case-colliding names and CP437 names under READ_ONLY_ZIP_LIMITS', async () => {
+    const buf = buildZip([raw('Mods/A.jar'), raw('mods/a.jar')]);
+    await expect(openZip(buf)).rejects.toBeInstanceOf(CaseCollisionError);
+    const zip = await openZip(buf, READ_ONLY_ZIP_LIMITS);
+    expect(zip.entries()).toHaveLength(2);
+    await zip.close();
+  });
+
+  it('decodes names without the UTF-8 flag as CP437, keeping distinct names distinct', async () => {
+    const buf = buildZip([
+      { name: '', data: Buffer.from('1'), rawName: Buffer.from([0x63, 0x66, 0x67, 0x2f, 0x82, 0x2e, 0x74, 0x78, 0x74]) },
+      { name: '', data: Buffer.from('2'), rawName: Buffer.from([0x63, 0x66, 0x67, 0x2f, 0x8a, 0x2e, 0x74, 0x78, 0x74]) },
+    ]);
+    const zip = await openZip(buf);
+    expect(zip.entries().map((e) => e.name).sort()).toEqual(['cfg/é.txt', 'cfg/è.txt'].sort());
+    await zip.close();
+  });
+
+  it('keeps valid UTF-8 names that lack the flag, and the CP437 table is complete', () => {
+    expect(decodeEntryName(Buffer.from('cfg/é.txt', 'utf8'), 0)).toBe('cfg/é.txt');
+    expect(decodeEntryName(Buffer.from(Array.from({ length: 128 }, (_, i) => 0x80 + i)), 0)).toHaveLength(128);
   });
 });

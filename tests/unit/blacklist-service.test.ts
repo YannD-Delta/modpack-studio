@@ -9,7 +9,7 @@ beforeEach(() => {
 const audits = () => (db.sqlite.prepare('SELECT count(*) AS n FROM audit_log').get() as { n: number }).n;
 
 describe('blacklist service', () => {
-  it('replaces the previous ATM-derived rows but keeps user entries', () => {
+  it('replaces the previous base-derived rows but keeps user entries', () => {
     recomputeAtmDerived(db, '8.2', ['old1', 'old2']);
     addToBlacklist(db, 'mine', 'useless on server');
     recomputeAtmDerived(db, '8.3', ['new1']);
@@ -17,7 +17,16 @@ describe('blacklist service', () => {
     expect(list.map((e) => [e.modId, e.origin]).sort()).toEqual([['mine', 'user'], ['new1', 'atm_derived']]);
   });
 
-  it('flags ATM-derived rows computed for another ATM version as stale', () => {
+  it.each([['user first', true], ['derived first', false]])('keeps the user origin when the same mod is also derived (%s)', (_label, userFirst) => {
+    if (userFirst) addToBlacklist(db, 'both', 'mine');
+    recomputeAtmDerived(db, '8.2', ['both']);
+    if (!userFirst) addToBlacklist(db, 'both', 'mine');
+    for (const version of ['8.2', '8.3']) {
+      expect(effectiveBlacklist(db, version)).toEqual([{ modId: 'both', origin: 'user', stale: false }]);
+    }
+  });
+
+  it('flags base-derived rows computed for another base version as stale', () => {
     recomputeAtmDerived(db, '8.2', ['a']);
     expect(effectiveBlacklist(db, '8.2')[0]!.stale).toBe(false);
     expect(effectiveBlacklist(db, '8.3')[0]!.stale).toBe(true);
@@ -29,7 +38,7 @@ describe('blacklist service', () => {
     expect(getPins(db)).toEqual(new Set(['pinned']));
   });
 
-  it('applies a side decision on top of the ATM-derived list', () => {
+  it('applies a side decision on top of the base-derived list', () => {
     recomputeAtmDerived(db, '8.3', ['keepMe', 'dropMe']);
     setDecision(db, { modId: 'keepMe', kind: 'side', side: 'both', reason: 'needed on server' });
     setDecision(db, { modId: 'extra', kind: 'side', side: 'client', reason: 'client only' });

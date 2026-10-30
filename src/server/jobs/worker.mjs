@@ -14,6 +14,10 @@ const tasks = {
     await pipeline(stream, hash);
     return { sha256: hash.digest('hex'), size };
   },
+  // Hash of bytes the caller already holds (and parses), so the stored hash always matches the parsed content.
+  async 'sha256-buffer'({ buffer }) {
+    return { sha256: crypto.createHash('sha256').update(buffer).digest('hex'), size: buffer.byteLength };
+  },
   async echo(payload) {
     return payload;
   },

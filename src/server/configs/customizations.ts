@@ -41,7 +41,7 @@ const sub = (files: InventoryFiles, keys: Iterable<string>): InventoryFiles => {
  * Classifies every file of the played instance against the launched one.
  * A file that is not in the clean pack but exists in the launched one and differs when played is a generated file that the player
  * changed: regenerating it from defaults would lose the change, so it must be part of the pack. A file the played instance has
- * but the launched one does not is an addition. A played file that went back to the clean content is not a customization.
+ * but the launched one does not is an addition, or a modified shipped file when the clean pack ships it (the first launch removed it). A played file that went back to the clean content is not a customization.
  */
 export async function analyzeCustomizations(
   dataDir: string,
@@ -81,7 +81,7 @@ export async function analyzeCustomizations(
       let status: CustomStatus;
       if (same(f.status) || reverted.has(f.path.toLowerCase())) status = 'untouched';
       else if (f.status === 'onlyInBase') status = 'removed';
-      else if (f.status === 'onlyInOther') status = 'added';
+      else if (f.status === 'onlyInOther') status = inClean ? 'modifiedShipped' : 'added'; // a shipped file the first launch removed, edited when played
       else status = inClean ? 'modifiedShipped' : 'modifiedGenerated';
       const root = rootOf(f.path) ?? f.path.split('/')[0]!;
       perStatus[status]++;

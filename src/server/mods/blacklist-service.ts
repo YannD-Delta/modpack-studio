@@ -5,7 +5,7 @@ import type { Side } from './side-classifier.js';
 export type BlacklistEntry = { modId: string; origin: 'atm_derived' | 'user'; stale: boolean };
 export type Decision = { modId: string; kind: 'side' | 'pin' | 'ignore'; side?: Side; reason: string };
 
-/** Replaces every ATM-derived row with the client-only set of this ATM version; the user's own entries are never touched. */
+/** Replaces every base-derived row with the client-only set of this base version; the user's own entries are never touched. */
 export function recomputeAtmDerived(db: Db, atmVersion: string, clientOnlyIds: string[]): void {
   db.sqlite.transaction(() => {
     db.sqlite.prepare("DELETE FROM blacklist WHERE origin = 'atm_derived'").run();
@@ -24,7 +24,7 @@ export function addToBlacklist(db: Db, modId: string, reason: string): void {
 
 export type RemoveBlacklistResult = 'removed' | 'absent' | 'atm_derived';
 
-/** Removes the user's own entry; an ATM-derived row is computed from the packs and is never removed here. */
+/** Removes the user's own entry; an base-derived row is computed from the packs and is never removed here. */
 export function removeFromBlacklist(db: Db, modId: string): RemoveBlacklistResult {
   return db.sqlite.transaction((): RemoveBlacklistResult => {
     const rows = db.sqlite.prepare('SELECT origin, reason FROM blacklist WHERE mod_id = ?').all(modId) as { origin: string; reason: string }[];
@@ -62,11 +62,14 @@ export function getPins(db: Db): Set<string> {
   return new Set(rows.map((r) => r.mod_id));
 }
 
-/** The server blacklist: ATM-derived and the user's rows, then side decisions applied on top ('client' adds, 'server'/'both' removes). */
+/** The server blacklist: base-derived and the user's rows, then side decisions applied on top ('client' adds, 'server'/'both' removes). */
 export function effectiveBlacklist(db: Db, atmVersion: string): BlacklistEntry[] {
   const rows = db.sqlite.prepare('SELECT mod_id, origin, valid_for FROM blacklist').all() as { mod_id: string; origin: 'atm_derived' | 'user'; valid_for: string | null }[];
   const entries = new Map<string, BlacklistEntry>();
-  for (const r of rows) entries.set(r.mod_id, { modId: r.mod_id, origin: r.origin, stale: r.origin === 'atm_derived' && r.valid_for !== atmVersion });
+  for (const r of rows) {
+    if (entries.get(r.mod_id)?.origin === 'user') continue; // the user's own row wins over a derived one, whatever the row order
+    entries.set(r.mod_id, { modId: r.mod_id, origin: r.origin, stale: r.origin === 'atm_derived' && r.valid_for !== atmVersion });
+  }
 
   const decisions = db.sqlite.prepare("SELECT mod_id, side FROM mod_decision WHERE kind = 'side'").all() as { mod_id: string; side: Side }[];
   for (const d of decisions) {

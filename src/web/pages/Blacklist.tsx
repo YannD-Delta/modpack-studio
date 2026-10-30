@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { api, flattenProfiles, type BlacklistEntry, type MatrixRow } from '../api.js';
+import { ErrorNotice, QueryGate } from '../components/ErrorNotice.js';
 import { t, getPackNames } from '../i18n/index.js';
 
 const field = 'rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-sm text-slate-100 outline-none focus:border-violet-500';
@@ -8,7 +9,8 @@ const field = 'rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1.5 tex
 export function Blacklist() {
   const qc = useQueryClient();
   const matrix = useQuery({ queryKey: ['matrix'], queryFn: () => api<MatrixRow[]>('/profiles/matrix') });
-  const atm = useMemo(() => flattenProfiles(matrix.data ?? []).filter((p) => p.pack === getPackNames().upstream), [matrix.data]);
+  // Only clean copies: the server refuses to derive the blacklist from a played one (400 profile_not_clean).
+  const atm = useMemo(() => flattenProfiles(matrix.data ?? []).filter((p) => p.pack === getPackNames().upstream && p.state === 'clean'), [matrix.data]);
   const [serverId, setServerId] = useState('');
   const [clientId, setClientId] = useState('');
   const server = atm.find((p) => String(p.id) === serverId);
@@ -24,7 +26,7 @@ export function Blacklist() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['blacklist'] }),
   });
 
-  if (!matrix.data) return <p className="text-slate-400">{t('common.loading')}</p>;
+  if (!matrix.data) return <QueryGate query={matrix} />;
 
   return (
     <section className="space-y-6">
@@ -45,9 +47,10 @@ export function Blacklist() {
         <button disabled={!serverId || !clientId || adopt.isPending} onClick={() => adopt.mutate()} className="rounded-lg bg-violet-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-violet-500 disabled:opacity-40">
           {t('blacklist.adopt')}
         </button>
-        {adopt.isError && <span className="pb-2 text-sm text-rose-300">{(adopt.error as Error).message}</span>}
+        {adopt.isError && <span className="pb-2"><ErrorNotice error={adopt.error} /></span>}
       </div>
 
+      {list.isError && <ErrorNotice error={list.error} />}
       {list.data?.length === 0 && <p className="text-slate-400">{t('blacklist.empty')}</p>}
       {list.data && list.data.length > 0 && (
         <ul className="divide-y divide-slate-800 overflow-hidden rounded-xl border border-slate-800">
@@ -55,7 +58,7 @@ export function Blacklist() {
             <li key={e.modId} className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm hover:bg-slate-900/60">
               <span className="font-mono text-slate-100">{e.modId}</span>
               <span className="flex items-center gap-2">
-                <span className="rounded-full border border-slate-700 px-2 py-0.5 text-xs text-slate-300">{e.origin === 'atm_derived' ? t('blacklist.originAtm') : t('blacklist.originUser')}</span>
+                <span className="rounded-full border border-slate-700 px-2 py-0.5 text-xs text-slate-300">{e.origin === 'atm_derived' ? t('blacklist.originUpstream') : t('blacklist.originUser')}</span>
                 {e.stale && <span className="rounded-full border border-amber-700/60 bg-amber-950/50 px-2 py-0.5 text-xs text-amber-300">{t('blacklist.stale')}</span>}
               </span>
             </li>

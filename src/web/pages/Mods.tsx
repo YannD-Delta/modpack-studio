@@ -18,6 +18,7 @@ import {
   type PlanState,
 } from '../api-plan.js';
 import { ClaudeActions } from '../components/ClaudeActions.js';
+import { ErrorNotice, QueryGate } from '../components/ErrorNotice.js';
 import { getPackNames, t, tf, type MessageKey } from '../i18n/index.js';
 
 type Status = 'anomaly' | 'removed' | 'added' | 'older' | 'newer' | 'different' | 'rebuilt';
@@ -62,7 +63,6 @@ export function Mods() {
   const [baseId, setBaseId] = useState('');
   const [otherId, setOtherId] = useState('');
   const [filter, setFilter] = useState<'all' | Status>('all');
-  const [done, setDone] = useState<Set<string>>(new Set());
   const [openDebug, setOpenDebug] = useState<Set<string>>(new Set());
   const [planError, setPlanError] = useState('');
   const [jobId, setJobId] = useState<string | null>(null);
@@ -73,8 +73,20 @@ export function Mods() {
     queryFn: () => api<ModDiff>(`/mods/diff?base=${baseId}&other=${otherId}`),
     enabled: ready,
   });
-  const planKey = ['plan', baseId, otherId];
-  const plan = useQuery({ queryKey: planKey, queryFn: () => getPlan(baseId, otherId), enabled: ready });
+  const plan = useQuery({ queryKey: ['plan', baseId, otherId], queryFn: () => getPlan(baseId, otherId), enabled: ready });
+  // The comparison currently on screen: answers of requests started under another selection are ignored.
+  const pairRef = useRef('');
+  pairRef.current = `${baseId}:${otherId}`;
+  const isCurrent = (v: { pair: string }) => v.pair === pairRef.current;
+  const pairOf = () => `${baseId}:${otherId}`;
+  const resetComparison = () => {
+    setFilter('all');
+    setOpenDebug(new Set());
+    setPlanError('');
+    setJobId(null);
+  };
+  const pickBase = (v: string) => { setBaseId(v); resetComparison(); };
+  const pickOther = (v: string) => { setOtherId(v); resetComparison(); };
 
   const base = profiles.find((p) => String(p.id) === baseId);
   const other = profiles.find((p) => String(p.id) === otherId);
@@ -111,77 +123,101 @@ export function Mods() {
     tf(`mods.why.${r.status}` as MessageKey, { a, b, from: r.ref?.version ?? '', to: r.cmp?.version ?? '', v: r.cmp?.version ?? '' });
 
   const decide = useMutation({
-    mutationFn: (v: { modId: string; body: object }) => api(`/mods/${encodeURIComponent(v.modId)}/decision`, { method: 'PUT', body: v.body }),
+    mutationFn: (v: { modId: string; body: object; pair: string }) => api(`/mods/${encodeURIComponent(v.modId)}/decision`, { method: 'PUT', body: v.body }),
     onSuccess: (_d, v) => {
-      setDone((s) => new Set(s).add(v.modId));
-      void qc.invalidateQueries({ queryKey: planKey });
+      // A decision changes the diff itself (a pinned older mod stops being "older"), the plan and the lists built from decisions.
+      for (const key of ['diff', 'plan', 'decisions', 'blacklist', 'debug']) void qc.invalidateQueries({ queryKey: [key] });
+      if (isCurrent(v)) setPlanError('');
+    },
+    onError: (err, v) => {
+      if (isCurrent(v)) setPlanError(tf('plan.error', { msg: errMsg(err) }));
     },
   });
 
-  const applyPlanItems = (res: { items?: PlanItem[] } | undefined) => {
-    setPlanError('');
-    if (res?.items) qc.setQueryData<PlanState>(planKey, (old) => ({ decisions: old?.decisions ?? EMPTY_DECISIONS, items: res.items! }));
-    else void qc.invalidateQueries({ queryKey: planKey });
+  // Every plan mutation carries the pair it was started for: the cache key and the error line come from it, not from the current selection.
+  const keyOf = (pair: string) => ['plan', ...pair.split(':')];
+  const applyPlanItems = (res: { items?: PlanItem[] } | undefined, v: { pair: string }) => {
+    if (isCurrent(v)) setPlanError('');
+    if (res?.items) qc.setQueryData<PlanState>(keyOf(v.pair), (old) => ({ decisions: old?.decisions ?? EMPTY_DECISIONS, items: res.items! }));
+    else void qc.invalidateQueries({ queryKey: keyOf(v.pair) });
   };
-  const onPlanError = (err: unknown) => setPlanError(tf('plan.error', { msg: errMsg(err) }));
+  const onPlanError = (err: unknown, v: { pair: string }) => {
+    if (isCurrent(v)) setPlanError(tf('plan.error', { msg: errMsg(err) }));
+  };
 
   const toggle = useMutation({
-    mutationFn: (v: { modId: string; selected: boolean }) => putPlan({ base: Number(baseId), other: Number(otherId), kind: 'mod', keys: [v.modId], selected: v.selected }),
+    mutationFn: (v: { modId: string; selected: boolean; pair: string }) => {
+      const [b, o] = v.pair.split(':');
+      return putPlan({ base: Number(b), other: Number(o), kind: 'mod', keys: [v.modId], selected: v.selected });
+    },
     onSuccess: applyPlanItems,
     onError: onPlanError,
   });
   const selectMany = useMutation({
-    mutationFn: async (keys: string[]) => {
+    mutationFn: async (v: { keys: string[]; pair: string }) => {
+      const [b, o] = v.pair.split(':');
       let last: { items?: PlanItem[] } | undefined;
-      for (let i = 0; i < keys.length; i += PUT_CHUNK) last = await putPlan({ base: Number(baseId), other: Number(otherId), kind: 'mod', keys: keys.slice(i, i + PUT_CHUNK), selected: true });
+      for (let i = 0; i < v.keys.length; i += PUT_CHUNK) last = await putPlan({ base: Number(b), other: Number(o), kind: 'mod', keys: v.keys.slice(i, i + PUT_CHUNK), selected: true });
       return last;
     },
     onSuccess: applyPlanItems,
     onError: onPlanError,
   });
   const clear = useMutation({
-    mutationFn: () => clearModPlan(baseId, otherId),
-    onSuccess: () => applyPlanItems(undefined),
+    mutationFn: (v: { pair: string }) => {
+      const [b, o] = v.pair.split(':');
+      return clearModPlan(b!, o!);
+    },
+    onSuccess: (_r, v) => applyPlanItems(undefined, v),
     onError: onPlanError,
   });
 
   const exportStart = useMutation({
-    mutationFn: () => startExport(Number(baseId), Number(otherId)),
-    onSuccess: (r) => setJobId(r.jobId),
+    mutationFn: (v: { pair: string }) => {
+      const [b, o] = v.pair.split(':');
+      return startExport(Number(b), Number(o));
+    },
+    onSuccess: (r, v) => {
+      if (isCurrent(v)) setJobId(r.jobId);
+    },
     onError: onPlanError,
   });
   const job = useQuery({
     queryKey: ['export-job', jobId],
     queryFn: () => getExportJob(jobId!),
     enabled: !!jobId,
+    retry: false,
     refetchInterval: (q) => {
+      if (q.state.status === 'error') return false; // 401, 404 (unknown job) or a network failure: polling again cannot help
       const s = q.state.data?.status;
       return !s || s === 'queued' || s === 'running' ? 1000 : false;
     },
   });
   const exportName = job.data?.status === 'done' ? job.data.name : null;
   const exported = useQuery({ queryKey: ['export', exportName], queryFn: () => getExport(exportName!), enabled: !!exportName });
-  const exporting = exportStart.isPending || (!!jobId && (!job.data || job.data.status === 'queued' || job.data.status === 'running'));
-  const exportFailed = job.data && ['failed', 'cancelled', 'interrupted'].includes(job.data.status) ? job.data.message ?? job.data.status : null;
+  const exporting = exportStart.isPending || (!!jobId && !job.isError && (!job.data || job.data.status === 'queued' || job.data.status === 'running'));
+  const exportFailed = job.isError ? errMsg(job.error) : job.data && ['failed', 'cancelled', 'interrupted'].includes(job.data.status) ? job.data.message ?? job.data.status : null;
 
   const selectableKeys = rows.filter((r) => planActionOf(r.status) && !planned.has(r.modId)).map((r) => r.modId);
 
   const decisionButton = (r: Row) => {
-    if (done.has(r.modId)) return <span className="text-xs text-emerald-400">✓</span>;
-    if (r.status === 'anomaly') return <button className={action} title={t('mods.tip.acceptRemoval')} aria-label={`${t('mods.acceptRemoval')} ${r.modId}`} onClick={() => decide.mutate({ modId: r.modId, body: { kind: 'ignore', reason: 'retrait accepté' } })}>{t('mods.acceptRemoval')}</button>;
-    if (r.status === 'older') return <button className={action} title={t('mods.tip.pin')} aria-label={`${t('mods.pin')} ${r.modId}`} onClick={() => decide.mutate({ modId: r.modId, body: { kind: 'pin', reason: 'version épinglée' } })}>{t('mods.pin')}</button>;
-    if (r.status === 'added') return <button className={action} title={t('mods.tip.clientOnly')} aria-label={`${t('mods.clientOnly')} ${r.modId}`} onClick={() => decide.mutate({ modId: r.modId, body: { kind: 'side', side: 'client', reason: 'client uniquement' } })}>{t('mods.clientOnly')}</button>;
+    // The check mark comes from the server's decisions, so it is right for every comparison.
+    if ((r.status === 'anomaly' && ignored.has(r.modId)) || (r.status === 'older' && pins.has(r.modId)) || (r.status === 'added' && clientOnly.has(r.modId))) return <span className="text-xs text-emerald-400">✓</span>;
+    const send = (body: object) => decide.mutate({ modId: r.modId, body, pair: pairOf() });
+    if (r.status === 'anomaly') return <button className={action} title={t('mods.tip.acceptRemoval')} aria-label={`${t('mods.acceptRemoval')} ${r.modId}`} onClick={() => send({ kind: 'ignore', reason: 'retrait accepté' })}>{t('mods.acceptRemoval')}</button>;
+    if (r.status === 'older') return <button className={action} title={t('mods.tip.pin')} aria-label={`${t('mods.pin')} ${r.modId}`} onClick={() => send({ kind: 'pin', reason: 'version épinglée' })}>{t('mods.pin')}</button>;
+    if (r.status === 'added') return <button className={action} title={t('mods.tip.clientOnly')} aria-label={`${t('mods.clientOnly')} ${r.modId}`} onClick={() => send({ kind: 'side', side: 'client', reason: 'client uniquement' })}>{t('mods.clientOnly')}</button>;
     return null;
   };
 
   const planButton = (r: Row) => {
     const kind = planActionOf(r.status);
-    if (!kind) return null;
+    if (!kind || pins.has(r.modId)) return null; // the server refuses to plan a pinned mod
     const on = planned.has(r.modId);
     const label = on ? t('plan.planned') : kind === 'update' ? t('plan.update') : t('plan.restore');
     const title = on ? t('plan.tip.planned') : tf(kind === 'update' ? 'plan.tip.update' : 'plan.tip.restore', { a, b });
     return (
-      <button className={on ? plannedBtn : planBtn} aria-pressed={on} aria-label={`${label} ${r.modId}`} title={title} disabled={toggle.isPending} onClick={() => toggle.mutate({ modId: r.modId, selected: !on })}>
+      <button className={on ? plannedBtn : planBtn} aria-pressed={on} aria-label={`${label} ${r.modId}`} title={title} disabled={toggle.isPending} onClick={() => toggle.mutate({ modId: r.modId, selected: !on, pair: pairOf() })}>
         {label}
       </button>
     );
@@ -249,7 +285,7 @@ export function Mods() {
     );
   };
 
-  if (!matrix.data) return <p className="text-slate-400">{t('common.loading')}</p>;
+  if (!matrix.data) return <QueryGate query={matrix} />;
 
   const barVisible = ready && (items.length > 0 || !!jobId);
 
@@ -258,13 +294,13 @@ export function Mods() {
       <h2 className="text-lg font-semibold text-slate-100">{t('mods.title')}</h2>
       <div className="flex flex-wrap items-end gap-4">
         <label className="text-sm text-slate-300">{t('mods.base')}
-          <select value={baseId} onChange={(e) => setBaseId(e.target.value)} className={`${field} mt-1 block min-w-64`}>
+          <select value={baseId} onChange={(e) => pickBase(e.target.value)} className={`${field} mt-1 block min-w-64`}>
             <option value="">{t('mods.choose')}</option>
             {profiles.map((p) => <option key={p.id} value={p.id}>{profileLabel(p)}</option>)}
           </select>
         </label>
         <label className="text-sm text-slate-300">{t('mods.other')}
-          <select value={otherId} onChange={(e) => setOtherId(e.target.value)} className={`${field} mt-1 block min-w-64`}>
+          <select value={otherId} onChange={(e) => pickOther(e.target.value)} className={`${field} mt-1 block min-w-64`}>
             <option value="">{t('mods.choose')}</option>
             {profiles.map((p) => <option key={p.id} value={p.id}>{profileLabel(p)}</option>)}
           </select>
@@ -273,10 +309,12 @@ export function Mods() {
       </div>
 
       {diff.isLoading && <p className="text-slate-400">{t('common.loading')}</p>}
+      {diff.isError && <ErrorNotice error={diff.error} />}
+      {plan.isError && <ErrorNotice error={plan.error} />}
       {diff.data && (
         <>
           <p className="text-sm text-slate-400">{tf('mods.legend', { a, b })}</p>
-          <ClaudeActions base={Number(baseId) || null} other={Number(otherId) || null} actions={['review-updates', 'review-added', 'review-missing']} />
+          <ClaudeActions key={`${baseId}:${otherId}`} base={Number(baseId) || null} other={Number(otherId) || null} actions={['review-updates', 'review-added', 'review-missing']} />
           <div className="flex flex-wrap items-center gap-2">
             <button onClick={() => setFilter('all')} aria-pressed={filter === 'all'} className={`rounded-full border px-3 py-1 text-xs ${filter === 'all' ? 'border-violet-500 bg-violet-950/60 text-violet-200' : 'border-slate-700 text-slate-300 hover:bg-slate-800'}`}>{t('mods.filter.all')} · {all.length}</button>
             {STATUSES.filter((st) => counts[st] > 0).map((st) => (
@@ -285,8 +323,8 @@ export function Mods() {
               </button>
             ))}
             <span className="ml-auto flex gap-2">
-              <button className={action} title={t('plan.tip.selectAll')} disabled={selectableKeys.length === 0 || selectMany.isPending} onClick={() => selectMany.mutate(selectableKeys)}>{t('plan.selectAll')}</button>
-              <button className={action} title={t('plan.tip.clear')} disabled={planned.size === 0 || clear.isPending} onClick={() => clear.mutate()}>{t('plan.clear')}</button>
+              <button className={action} title={t('plan.tip.selectAll')} disabled={selectableKeys.length === 0 || selectMany.isPending} onClick={() => selectMany.mutate({ keys: selectableKeys, pair: pairOf() })}>{t('plan.selectAll')}</button>
+              <button className={action} title={t('plan.tip.clear')} disabled={planned.size === 0 || clear.isPending} onClick={() => clear.mutate({ pair: pairOf() })}>{t('plan.clear')}</button>
             </span>
           </div>
           {planError && <p role="alert" className="text-sm text-rose-400">{planError}</p>}
@@ -323,7 +361,7 @@ export function Mods() {
               className="ml-auto rounded-lg border border-violet-500 bg-violet-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-violet-500 disabled:opacity-50"
               title={t('plan.tip.export')}
               disabled={exporting || items.length === 0}
-              onClick={() => exportStart.mutate()}
+              onClick={() => exportStart.mutate({ pair: pairOf() })}
             >
               {t('plan.export')}
             </button>

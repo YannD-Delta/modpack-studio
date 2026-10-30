@@ -198,6 +198,63 @@ describe('Configs page', () => {
     expect(await screen.findByText('Analyse échouée : cannot read the location: access denied')).toBeTruthy();
   });
 
+  it('shows an error, not "Chargement…", when the profile list cannot be read', async () => {
+    mockApi(() => ({ status: 500, body: { error: 'matrix broke' } }));
+    wrap(<Configs />);
+    expect(await screen.findByText(/Impossible de lire les profils : matrix broke/)).toBeTruthy();
+    expect(screen.queryByText('Chargement…')).toBeNull();
+  });
+
+  it('applies a plan answer to the pair that asked, not to the pair selected meanwhile', async () => {
+    const withFour = [...matrix, { pack: 'Own', version: '2.0', cells: { 'client-clean': null, 'client-launched': profile(4, 'Own', '2.0', 'client', 'launched'), 'client-run': null, 'server-clean': null, 'server-launched': null, 'server-run': null } }];
+    mockApi(standard((url, init) => {
+      if (url.includes('/profiles/matrix')) return { body: withFour };
+      if (url.includes('/configs/plan') && init?.method !== 'PUT') return { body: { paths: [] } };
+      if (url.includes('/configs/plan') && init?.method === 'PUT') return { body: { ok: true, paths: ['config/sub/changed.toml'] } };
+      return undefined;
+    }));
+    const inner = globalThis.fetch;
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((r) => { release = r; });
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+      if (init?.method === 'PUT') await gate;
+      return inner(url, init);
+    });
+    wrap(<Configs />);
+    await pick();
+    await userEvent.click(await screen.findByRole('button', { name: 'Prendre la version de Base 8.3 config/sub/changed.toml' }));
+    await userEvent.selectOptions(screen.getByLabelText('Comparé à'), '4');
+    release();
+    await new Promise((r) => setTimeout(r, 100));
+    expect(await screen.findByText('Prévus dans le plan : 0')).toBeTruthy();
+  });
+
+  it('does not track a scan job on a card that shows another profile by now', async () => {
+    const withFour = [...matrix, { pack: 'Own', version: '2.0', cells: { 'client-clean': null, 'client-launched': profile(4, 'Own', '2.0', 'client', 'launched'), 'client-run': null, 'server-clean': null, 'server-launched': null, 'server-run': null } }];
+    mockApi(standard((url, init) => {
+      if (url.includes('/profiles/matrix')) return { body: withFour };
+      if (url.includes('/configs/inventory?profile=3')) return { status: 409, body: { error: 'never scanned' } };
+      if (url.endsWith('/configs/scan') && init?.method === 'POST') return { status: 202, body: { jobId: '00000000-0000-4000-8000-000000000003' } };
+      if (url.includes('/configs/scan/')) return { body: { status: 'running', progress: 10, message: null } };
+      return undefined;
+    }));
+    const inner = globalThis.fetch;
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((r) => { release = r; });
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+      if (init?.method === 'POST' && String(url).endsWith('/configs/scan')) await gate;
+      return inner(url, init);
+    });
+    wrap(<Configs />);
+    await pick();
+    await userEvent.click((await screen.findAllByRole('button', { name: 'Analyser' }))[0]!);
+    await userEvent.selectOptions(screen.getByLabelText('Comparé à'), '4');
+    release();
+    await new Promise((r) => setTimeout(r, 150));
+    expect(screen.queryByText(/Analyse en cours/)).toBeNull();
+    expect(screen.queryByText(/Analyse en attente/)).toBeNull();
+  });
+
   it('virtualises long lists', async () => {
     const many = Array.from({ length: 1500 }, (_, i) => ({ path: `config/f${String(i).padStart(4, '0')}.toml`, root: 'config', ext: 'toml', kind: 'text' as const, status: 'modified' as const, baseSize: 1, otherSize: 2 }));
     mockApi(standard((url) => (url.includes('/configs/diff') ? { body: { ...diff, files: many, total: many.length, summary: { perStatus: counts({ modified: 1500 }), perRoot: { config: counts({ modified: 1500 }) } } } } : undefined)));

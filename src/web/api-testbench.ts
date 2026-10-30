@@ -1,7 +1,7 @@
 import { api } from './api.js';
 
-export type RunState = 'queued' | 'copying' | 'starting' | 'ready' | 'stopping' | 'done' | 'failed' | 'timeout' | 'crashed';
-export const FINAL_STATES: RunState[] = ['done', 'failed', 'timeout', 'crashed'];
+export type RunState = 'queued' | 'copying' | 'starting' | 'ready' | 'stopping' | 'done' | 'failed' | 'timeout' | 'crashed' | 'interrupted';
+export const FINAL_STATES: RunState[] = ['done', 'failed', 'timeout', 'crashed', 'interrupted'];
 
 export type RunSummary = {
   id: string;
@@ -18,6 +18,8 @@ export type RunSummary = {
   warnLines: number | null;
   crashReports: number;
 };
+/** How the test server went down: asked nicely, killed after the grace period, or gone before Studio stopped it. */
+export type StopOutcome = 'clean' | 'forced' | 'exited-early';
 export type RunResult = {
   status: RunState;
   bootSeconds: number | null;
@@ -29,6 +31,7 @@ export type RunResult = {
   modJars: number;
   disabledMods: string[];
   message?: string;
+  stopOutcome?: StopOutcome;
 };
 export type RunDetail = { meta: Omit<RunSummary, 'status' | 'message' | 'bootSeconds' | 'errorLines' | 'warnLines' | 'crashReports'>; status: RunState; message: string | null; result: RunResult | null };
 export type StartOptions = { profile: number; acceptEula: boolean; memoryMb: number; port: number; timeoutMin: number };

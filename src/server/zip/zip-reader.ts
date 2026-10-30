@@ -1,3 +1,4 @@
+import { isUtf8 } from 'node:buffer';
 import yauzl from 'yauzl';
 
 export class ZipSlipError extends Error {
@@ -28,6 +29,25 @@ const DEFAULT_LIMITS: ZipLimits = {
   maxDepth: 3,
   caseCollision: 'error',
 };
+
+/**
+ * Limits for archives that are only READ in memory and never extracted (server-pack zips, the jars inside them):
+ * case-colliding names and big asset counts are harmless there, and every reader (import, update pack, loader
+ * detection, config scan) must accept what the others accept. Extraction-grade defaults stay for real extraction.
+ */
+export const READ_ONLY_ZIP_LIMITS: Partial<ZipLimits> = { caseCollision: 'allow', maxEntries: 500000, maxRatio: 1000 };
+
+// CP437 upper half (0x80-0xFF): the legacy zip name encoding when general purpose bit 11 is not set.
+const CP437_HIGH =
+  'ÇüéâäàåçêëèïîìÄÅÉæÆôöòûùÿÖÜ¢£¥₧ƒáíóúñÑªº¿⌐¬½¼¡«»░▒▓│┤╡╢╖╕╣║╗╝╜╛┐└┴┬├─┼╞╟╚╔╩╦╠═╬╧╨╤╥╙╘╒╓╫╪┘┌█▄▌▐▀αßΓπΣσµτΦΘΩδ∞φε∩≡±≥≤⌠⌡÷≈°∙·√ⁿ²■ ';
+
+/** Entry name: UTF-8 when flagged or valid UTF-8 (nothing that works today changes), else CP437 so legacy names stay distinct. */
+export function decodeEntryName(raw: Buffer, flags: number): string {
+  if ((flags & 0x800) !== 0 || isUtf8(raw)) return raw.toString('utf8');
+  let out = '';
+  for (const b of raw) out += b < 0x80 ? String.fromCharCode(b) : CP437_HIGH[b - 0x80]!;
+  return out;
+}
 
 // The ratio check only applies above this size: small text files can legitimately compress very well.
 const RATIO_CHECK_MIN_BYTES = 1024 * 1024;
@@ -68,7 +88,7 @@ async function openAtDepth(source: string | Buffer, limits: ZipLimits, depth: nu
       zipfile.on('end', resolve);
       zipfile.on('entry', (e: yauzl.Entry) => {
         try {
-          const name = (e.fileName as unknown as Buffer).toString('utf8');
+          const name = decodeEntryName(e.fileName as unknown as Buffer, e.generalPurposeBitFlag);
           validateName(name);
           if (byName.size + 1 > limits.maxEntries) throw new ZipLimitError(`more than ${limits.maxEntries} entries`);
           total += e.uncompressedSize;

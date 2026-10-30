@@ -6,3 +6,4 @@ if %errorlevel%==0 (
 ) else (
   powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0studio.ps1" %*
 )
+exit /b %errorlevel%

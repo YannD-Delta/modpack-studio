@@ -17,6 +17,10 @@ const PAIRS: [string, string][] = [
   ['ABC', 'DEF'],
   ['', '1.0'],
   ['${file.jarVersion}', '1.0'],
+  ['2.0.0-dev', '2.0.0'],
+  ['1.2.3-dev', '1.2.3-rc1'],
+  ['1.0-beta1', '1.0.0-beta1'],
+  ['v1.2.3', '1.2.3'],
 ];
 
 describe('explainCompare', () => {
@@ -47,6 +51,13 @@ describe('explainCompare', () => {
     const p = explainCompare('${file.jarVersion}', '1.0');
     expect(p.a.unparsable).toBe(true);
     expect(p.a.hashLike).toBe(false);
+  });
+
+  it('names the unknown qualifier that has no order against a release', () => {
+    const e = explainCompare('2.0.0-dev', '2.0.0');
+    expect(e.result).toBe('incomparable');
+    expect(e.deciding).toEqual({ index: 3, tokenA: 'dev', tokenB: null });
+    expect(e.note).toMatch(/qualifier/i);
   });
 
   it('explains equal versions and unknown qualifiers', () => {

@@ -108,4 +108,49 @@ describe('CustomizationsView', () => {
     expect(JSON.parse(calls.find((c) => c.url.endsWith('/plan/export'))!.body!)).toEqual({ base: 3, other: 2 });
     expect(screen.getByRole('link', { name: 'Télécharger le zip' }).getAttribute('href')).toBe('/api/v1/plan/exports/update-pack-1/download');
   });
+
+  it('shows why the export could not start instead of failing silently', async () => {
+    const base = globalThis.fetch;
+    wrap(<CustomizationsView />);
+    await pickThree();
+    await userEvent.click(await screen.findByRole('button', { name: 'Tout garder' }));
+    expect(await screen.findByText('Dans le plan : 3')).toBeTruthy();
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => (String(url).endsWith('/plan/export') ? new Response(JSON.stringify({ error: 'the reference location cannot be read' }), { status: 409, headers: { 'content-type': 'application/json' } }) : base(url, init)));
+    await userEvent.click(screen.getByRole('button', { name: 'Préparer le pack de mise à jour' }));
+    expect(await screen.findByText(/La préparation a échoué : the reference location cannot be read/)).toBeTruthy();
+  });
+
+  it('says so when the export job ends cancelled or interrupted', async () => {
+    const base = globalThis.fetch;
+    wrap(<CustomizationsView />);
+    await pickThree();
+    await userEvent.click(await screen.findByRole('button', { name: 'Tout garder' }));
+    expect(await screen.findByText('Dans le plan : 3')).toBeTruthy();
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => (String(url).includes('/plan/jobs/job-1') ? new Response(JSON.stringify({ id: 'job-1', status: 'interrupted', progress: null, message: null, name: null }), { status: 200, headers: { 'content-type': 'application/json' } }) : base(url, init)));
+    await userEvent.click(screen.getByRole('button', { name: 'Préparer le pack de mise à jour' }));
+    expect(await screen.findByText(/a été interrompue/)).toBeTruthy();
+  });
+
+  it('shows why a plan change was refused', async () => {
+    const base = globalThis.fetch;
+    wrap(<CustomizationsView />);
+    await pickThree();
+    const row = (await screen.findByText('config/mine.toml')).closest('li')!;
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => (init?.method === 'PUT' ? new Response(JSON.stringify({ error: 'only changed or added files can go into the pack' }), { status: 400, headers: { 'content-type': 'application/json' } }) : base(url, init)));
+    await userEvent.click(within(row).getByRole('button', { name: 'Garder dans le pack' }));
+    expect(await screen.findByText(/Plan non enregistré : only changed or added files/)).toBeTruthy();
+  });
+
+  it('shows an error when the profile list cannot be read', async () => {
+    mockApi(() => ({ status: 500, body: { error: 'matrix broke' } }));
+    wrap(<CustomizationsView />);
+    expect(await screen.findByText(/Impossible de lire les profils : matrix broke/)).toBeTruthy();
+  });
+
+  it('tells that the launched profile is only the comparison reference of the exported pack', async () => {
+    wrap(<CustomizationsView />);
+    await pickThree();
+    await userEvent.click(await screen.findByRole('button', { name: 'Tout garder' }));
+    expect(await screen.findByText(/ne lui applique pas le pack/)).toBeTruthy();
+  });
 });

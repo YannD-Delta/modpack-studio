@@ -65,6 +65,31 @@ function Get-JavaProcesses {
   return @(Get-WmiObject -Class Win32_Process -Filter $filter -ErrorAction Stop)
 }
 
+# True when the command line mentions the instance folder as a whole path: slashes are normalised, case and a
+# trailing separator are ignored, and a longer sibling name ("Pack-two" next to "Pack") does not match.
+# After the folder the text must end, or continue with a separator, a quote, or a space outside quotes.
+function Test-CommandLineUses([string]$CommandLine, [string]$Folder) {
+  if ([string]::IsNullOrEmpty($CommandLine)) { return $false }
+  $needle = $Folder.Replace('/', '\').TrimEnd('\')
+  if ($needle.Length -eq 0) { return $false }
+  $hay = $CommandLine.Replace('/', '\')
+  $start = 0
+  while ($start -le ($hay.Length - $needle.Length)) {
+    $i = $hay.IndexOf($needle, $start, [System.StringComparison]::OrdinalIgnoreCase)
+    if ($i -lt 0) { return $false }
+    $end = $i + $needle.Length
+    if ($end -ge $hay.Length) { return $true }
+    $ch = $hay[$end]
+    if ($ch -eq '\' -or $ch -eq '"' -or $ch -eq "'") { return $true }
+    if ([char]::IsWhiteSpace($ch)) {
+      $quotes = $hay.Substring(0, $i).Split('"').Count - 1
+      if (($quotes % 2) -eq 0) { return $true }
+    }
+    $start = $i + 1
+  }
+  return $false
+}
+
 function New-Parent([string]$Path) {
   $parent = [System.IO.Path]::GetDirectoryName($Path)
   if (-not [System.IO.Directory]::Exists($parent)) { [void][System.IO.Directory]::CreateDirectory($parent) }
@@ -75,7 +100,13 @@ $changesPath = Join-Path $pack 'changes.json'
 if (-not (Test-Path -LiteralPath $changesPath -PathType Leaf)) { Fail "changes.json not found next to this script ($pack)" }
 $changes = Get-Content -LiteralPath $changesPath -Raw -Encoding UTF8 | ConvertFrom-Json
 
-if (-not (Test-Path -LiteralPath $InstanceDir -PathType Container)) { Fail "instance folder not found: $InstanceDir" }
+$instOk = $false
+try { $instOk = Test-Path -LiteralPath $InstanceDir -PathType Container } catch { }
+if (-not $instOk) {
+  $hint = ''
+  if ($InstanceDir.Contains('"')) { $hint = ' (a backslash right before the closing quote escaped it: pass the folder without a trailing backslash)' }
+  Fail "instance folder not found: $InstanceDir$hint"
+}
 $inst = (Resolve-Path -LiteralPath $InstanceDir).ProviderPath.TrimEnd('\', '/')
 $modsDir = Join-Path $inst 'mods'
 if (-not (Test-Path -LiteralPath $modsDir -PathType Container)) { Fail "no mods folder in $inst : this does not look like a Minecraft instance, nothing was changed" }
@@ -130,12 +161,12 @@ if ($problems.Count -gt 0) {
 }
 Write-Host "sha256 check: $($jars.Count) jar(s) and $($files.Count) file(s) match changes.json" -ForegroundColor Green
 
-# 2. Best effort: refuse while Minecraft runs from this instance.
+# 2. Best effort: refuse while Minecraft runs from this instance (command-line check; the lock check in step 3b backs it up).
 $running = New-Object System.Collections.ArrayList
 try {
   foreach ($proc in (Get-JavaProcesses)) {
     $cmd = [string]$proc.CommandLine
-    if ($cmd -and $cmd.ToLowerInvariant().Contains($inst.ToLowerInvariant())) { [void]$running.Add($proc.ProcessId) }
+    if (Test-CommandLineUses $cmd $inst) { [void]$running.Add($proc.ProcessId) }
   }
 } catch {
   Write-Host "Note: could not list Java processes, make sure the game is closed." -ForegroundColor Yellow
@@ -168,6 +199,17 @@ foreach ($t in $targets) {
   [void]$copies.Add($t)
 }
 
+# 3b. A file that another program holds open cannot be moved: refuse now, before anything is touched (not bypassed by -Force).
+$busy = New-Object System.Collections.ArrayList
+foreach ($m in $moves) {
+  $held = $null
+  try { $held = [System.IO.File]::Open((Join-Rel $inst $m), 'Open', 'Read', 'None') } catch { [void]$busy.Add($m) } finally { if ($null -ne $held) { $held.Dispose() } }
+}
+if ($busy.Count -gt 0) {
+  foreach ($b in $busy) { Write-Host "  in use: $b" -ForegroundColor Red }
+  Fail "in use by another program (close the game and any tool reading these files): nothing was changed"
+}
+
 $backupName = '_studio-backup-' + (Get-Date -Format 'yyyyMMdd-HHmmss')
 $backup = Join-Path $inst $backupName
 if (-not $Apply) { Write-Host 'DRY RUN: nothing will be changed. Run again with -Apply to do it.' -ForegroundColor Yellow }
@@ -182,27 +224,51 @@ if (-not $Apply) {
 # 4. Apply: move first (backup), then copy. Nothing is ever deleted.
 if (Test-Path -LiteralPath $backup) { Fail "backup folder already exists: $backup, wait one second and run again" }
 [void][System.IO.Directory]::CreateDirectory($backup)
-$moved = 0
-$copied = 0
+$moved = New-Object System.Collections.ArrayList
+$copied = New-Object System.Collections.ArrayList
+$current = ''
 try {
   foreach ($m in $moves) {
+    $current = $m
     $dst = Join-Rel $backup $m
     New-Parent $dst
     [System.IO.File]::Move((Join-Rel $inst $m), $dst)
-    $moved++
+    [void]$moved.Add($m)
   }
   foreach ($c in $copies) {
+    $current = $c[1]
     $dst = Join-Rel $inst $c[1]
     New-Parent $dst
     [System.IO.File]::Copy($c[0], $dst, $false)
-    $copied++
+    [void]$copied.Add($c[1])
   }
 } catch {
-  Write-Host "ERROR: stopped after $moved move(s) and $copied copy(ies): $($_.Exception.Message)" -ForegroundColor Red
-  Write-Host "The files already moved are in $backup."
+  $reason = $_.Exception.Message
+  Write-Host "ERROR: stopped after $($moved.Count) move(s) and $($copied.Count) copy(ies), at $current : $reason" -ForegroundColor Red
+  # Roll back with this run's own backup, still without deleting: files copied by this run are set aside first
+  # (a copy may sit where an original must return), then the originals are moved back.
+  $aside = Join-Path $backup '_copied-by-the-failed-run'
+  $stuck = New-Object System.Collections.ArrayList
+  for ($k = $copied.Count - 1; $k -ge 0; $k--) {
+    try {
+      $to = Join-Rel $aside $copied[$k]
+      New-Parent $to
+      [System.IO.File]::Move((Join-Rel $inst $copied[$k]), $to)
+    } catch { [void]$stuck.Add($copied[$k]) }
+  }
+  for ($k = $moved.Count - 1; $k -ge 0; $k--) {
+    try { [System.IO.File]::Move((Join-Rel $backup $moved[$k]), (Join-Rel $inst $moved[$k])) } catch { [void]$stuck.Add($moved[$k]) }
+  }
+  if ($stuck.Count -eq 0) {
+    Write-Host "Rolled back: $($moved.Count) original file(s) restored, $($copied.Count) copied file(s) set aside in $aside. The instance is as before." -ForegroundColor Yellow
+    Write-Host "Fix the cause and run again: it is safe. The backup folder $backupName holds nothing you need."
+  } else {
+    foreach ($s in $stuck) { Write-Host "  could not restore: $s" -ForegroundColor Red }
+    Write-Host "Rollback incomplete. To restore by hand: move the files of $backup back to their place, and remove the new copies listed above." -ForegroundColor Red
+  }
   exit 1
 }
-Write-Host "Done: $moved file(s) moved to $backup, $copied file(s) copied. Nothing was deleted." -ForegroundColor Green
+Write-Host "Done: $($moved.Count) file(s) moved to $backup, $($copied.Count) file(s) copied. Nothing was deleted." -ForegroundColor Green
 Write-Host "To undo: move the files of $backupName back to their place."
 exit 0
 `;

@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
-import { api } from './api.js';
+import { useEffect, useState } from 'react';
+import { api, UNAUTHORIZED_EVENT } from './api.js';
 import { setPackNames, t } from './i18n/index.js';
 import { settingsApi } from './api-settings.js';
 import { Blacklist } from './pages/Blacklist.js';
@@ -29,10 +29,17 @@ export function App() {
   const me = useQuery({ queryKey: ['me'], queryFn: () => api('/auth/me'), retry: false });
   const settings = useQuery({ queryKey: ['settings'], queryFn: settingsApi.get, enabled: me.isSuccess, retry: false });
   if (settings.data?.packs) setPackNames(settings.data.packs); // pages read the names while they render
+  // Any 401 from a page (session expired, Studio restarted): re-check the session, which shows the login form.
+  useEffect(() => {
+    const onLost = () => void qc.invalidateQueries({ queryKey: ['me'] });
+    window.addEventListener(UNAUTHORIZED_EVENT, onLost);
+    return () => window.removeEventListener(UNAUTHORIZED_EVENT, onLost);
+  }, [qc]);
   const [tab, setTab] = useState<(typeof TABS)[number]['id']>('profiles');
 
-  if (me.isLoading) return <div className="flex min-h-screen items-center justify-center bg-slate-950 text-slate-400">{t('common.loading')}</div>;
-  if (me.isError) return <Login onLoggedIn={() => qc.invalidateQueries({ queryKey: ['me'] })} />;
+  // The pack names come from /settings: wait for them so no form starts with the built-in defaults.
+  if (me.isLoading || (me.isSuccess && settings.isLoading)) return <div className="flex min-h-screen items-center justify-center bg-slate-950 text-slate-400">{t('common.loading')}</div>;
+  if (me.isError) return <Login onLoggedIn={() => qc.invalidateQueries()} />;
 
   const View = TABS.find((x) => x.id === tab)!.view;
   return (
@@ -52,7 +59,7 @@ export function App() {
           </nav>
           <button
             onClick={async () => {
-              await api('/auth/logout', { method: 'POST' });
+              await api('/auth/logout', { method: 'POST' }).catch(() => undefined);
               qc.invalidateQueries({ queryKey: ['me'] });
             }}
             className="text-sm text-slate-400 hover:text-slate-100"

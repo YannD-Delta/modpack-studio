@@ -9,17 +9,27 @@ export type JarInfo = {
   kind: 'mod' | 'library';
   mods: ModDecl[];
   libraryKey?: string;
+  /** Set when the jar carries a mod metadata file but no mod could be read from it: reported as an import issue, never a library. */
+  unparsed?: string;
   nested: JarInfo[];
 };
 
 const PLATFORM_DEPENDENCIES = new Set(['minecraft', 'neoforge', 'forge']);
 
+/** Metadata files that mean "this jar is a mod" even though we cannot read a mod id out of them. */
+const UNSUPPORTED_METADATA = ['quilt.mod.json', 'mcmod.info'];
+
 async function readText(zip: ZipHandle, name: string): Promise<string | null> {
-  if (!zip.entries().some((e) => e.name === name)) return null;
+  return (await readTextState(zip, name)).text;
+}
+
+/** Like readText, but tells an absent entry from one that exists and cannot be read. A leading BOM is dropped. */
+async function readTextState(zip: ZipHandle, name: string): Promise<{ present: boolean; text: string | null }> {
+  if (!zip.entries().some((e) => e.name === name)) return { present: false, text: null };
   try {
-    return (await zip.read(name)).toString('utf8');
+    return { present: true, text: (await zip.read(name)).toString('utf8').replace(/^\uFEFF/, '') };
   } catch {
-    return null;
+    return { present: true, text: null };
   }
 }
 
@@ -100,12 +110,16 @@ export async function readJarInfo(zip: ZipHandle, fileName: string): Promise<Jar
   const nested = await readNested(zip);
   let mods: ModDecl[] = [];
   let loader: JarInfo['loader'] = null;
+  const broken: string[] = []; // metadata files that exist but gave no mod
 
   for (const [entry, kind] of [['META-INF/neoforge.mods.toml', 'neoforge'], ['META-INF/mods.toml', 'forge']] as const) {
-    const toml = await readText(zip, entry);
-    if (toml === null) continue;
-    const parsed = parseToml(toml);
-    if (parsed.length === 0) continue;
+    const { present, text: toml } = await readTextState(zip, entry);
+    if (!present) continue;
+    const parsed = toml === null ? [] : parseToml(toml);
+    if (toml === null || parsed.length === 0) {
+      broken.push(`${entry} ${toml === null ? 'cannot be read' : 'declares no mod id'}`);
+      continue;
+    }
     loader = kind;
     mods = await Promise.all(
       parsed.map(async (m) => ({
@@ -118,19 +132,24 @@ export async function readJarInfo(zip: ZipHandle, fileName: string): Promise<Jar
   }
 
   if (mods.length === 0) {
-    const fabric = await readText(zip, 'fabric.mod.json');
-    if (fabric) {
+    const { present, text: fabric } = await readTextState(zip, 'fabric.mod.json');
+    if (present) {
       try {
-        const j = JSON.parse(fabric) as { id?: string; version?: string; environment?: string };
-        if (j.id) {
+        const j = JSON.parse(fabric ?? '') as { id?: unknown; version?: unknown; environment?: unknown } | null;
+        if (typeof j?.id === 'string' && j.id !== '') {
           loader = 'fabric';
           const side: DeclaredSide = j.environment === 'client' ? 'client' : j.environment === 'server' ? 'server' : 'both';
-          mods = [{ modId: j.id, version: await resolveVersion(zip, j.version ?? null, fileName), declaredSide: side }];
-        }
+          mods = [{ modId: j.id, version: await resolveVersion(zip, typeof j.version === 'string' ? j.version : null, fileName), declaredSide: side }];
+        } else broken.push('fabric.mod.json has no usable string "id"');
       } catch {
-        // malformed fabric.mod.json: treated as a library below
+        broken.push(fabric === null ? 'fabric.mod.json cannot be read' : 'fabric.mod.json is not valid JSON');
       }
     }
+  }
+
+  if (mods.length === 0) {
+    for (const name of UNSUPPORTED_METADATA) if (zip.entries().some((e) => e.name === name)) broken.push(`${name} is not supported`);
+    if (broken.length > 0) return { fileName, loader: null, kind: 'library', mods: [], unparsed: `mod metadata could not be read: ${broken.join('; ')}`, nested };
   }
 
   if (mods.length === 0) return { fileName, loader: null, kind: 'library', mods: [], libraryKey: await libraryKey(zip, fileName), nested };

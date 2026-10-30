@@ -8,6 +8,7 @@ export default defineConfig({
     testTimeout: 30000,
     pool: 'forks',
     // Tests that omit dataDir must never read or write the real ./data folder.
-    env: { STUDIO_DATA: path.join(os.tmpdir(), 'modpack-studio-vitest-data') },
+    // One folder per run, so concurrent runs never share state.
+    env: { STUDIO_DATA: path.join(os.tmpdir(), `modpack-studio-vitest-${process.pid}`) },
   },
 });

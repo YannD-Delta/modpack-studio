@@ -9,6 +9,9 @@ import { TestBench } from '../../../src/web/pages/TestBench.js';
 type Handler = (url: string, init?: RequestInit) => { status?: number; body: unknown } | undefined;
 let calls: { url: string; method: string; body?: string }[] = [];
 let startReply: { status?: number; body: unknown };
+let runsReply: { status?: number; body: unknown };
+let detailReply: { status?: number; body: unknown };
+let matrixReply: { status?: number; body: unknown };
 
 const profile = (id: number, side: string, kind = 'folder') => ({ id, pack: 'Own', version: 'test', side, state: 'launched', locationKind: kind, location: `/x/${id}`, immutable: true });
 const matrix = [
@@ -49,13 +52,16 @@ const wrap = (ui: ReactElement) => render(<QueryClientProvider client={new Query
 
 beforeEach(() => {
   startReply = { status: 202, body: { runId: run.id, jobId: 'j1' } };
+  runsReply = { body: [run] };
+  detailReply = { body: detail };
+  matrixReply = { body: matrix };
   mockApi((url, init) => {
     const method = init?.method ?? 'GET';
-    if (url.includes('/profiles/matrix')) return { body: matrix };
-    if (url.endsWith('/testbench/runs')) return { body: [run] };
+    if (url.includes('/profiles/matrix')) return matrixReply;
+    if (url.endsWith('/testbench/runs')) return runsReply;
     if (url.endsWith('/testbench/server') && method === 'POST') return startReply;
     if (url.includes('/log')) return { body: { lines: ['[10:00:01] [main/ERROR] [mod_x]: Failed to load mod_x'], total: 1 } };
-    if (url.includes(`/testbench/runs/${run.id}`)) return { body: detail };
+    if (url.includes(`/testbench/runs/${run.id}`)) return detailReply;
     if (url.endsWith('/assistant/actions')) return { body: [{ id: 'analyze-test-run', label: 'Analyser ce test', tip: 'Claude lit le journal du test.' }] };
     if (url.endsWith('/settings')) return { body: { keys: { claude: { configured: true, last4: 'abcd' }, curseforge: { configured: false, last4: null } }, assistant: { model: 'claude-sonnet-5-5', effort: 'medium' }, models: [], efforts: [] } };
     return { body: {} };
@@ -105,5 +111,48 @@ describe('TestBench page', () => {
     await userEvent.selectOptions(select, '5');
     await userEvent.click(screen.getByRole('button', { name: 'Lancer le test' }));
     expect(await screen.findByText(/cannot be read/)).toBeTruthy();
+  });
+
+  it('treats an interrupted run as finished: French label, Cancel disabled', async () => {
+    runsReply = { body: [{ ...run, status: 'interrupted' }] };
+    detailReply = { body: { ...detail, status: 'interrupted', result: null } };
+    wrap(<TestBench />);
+    expect((await screen.findAllByText('interrompu')).length).toBeGreaterThan(0);
+    const cancel = (await screen.findByRole('button', { name: 'Annuler' })) as HTMLButtonElement;
+    expect(cancel.disabled).toBe(true);
+  });
+
+  it('warns when the server had to be killed or exited early, and stays quiet on a clean stop', async () => {
+    detailReply = { body: { ...detail, result: { ...detail.result, stopOutcome: 'forced' } } };
+    wrap(<TestBench />);
+    expect(await screen.findByText(/Arrêt forcé/)).toBeTruthy();
+    cleanup();
+    detailReply = { body: { ...detail, result: { ...detail.result, stopOutcome: 'exited-early' } } };
+    wrap(<TestBench />);
+    expect(await screen.findByText(/s'est arrêté tout seul/)).toBeTruthy();
+    cleanup();
+    detailReply = { body: { ...detail, result: { ...detail.result, stopOutcome: 'clean' } } };
+    wrap(<TestBench />);
+    expect(await screen.findByText(/Arrêt propre/)).toBeTruthy();
+  });
+
+  it('shows an error, not an empty list, when the runs request fails', async () => {
+    runsReply = { status: 500, body: { error: 'boom' } };
+    wrap(<TestBench />);
+    expect(await screen.findByText(/Impossible de lire les tests/)).toBeTruthy();
+    expect(screen.queryByText("Aucun test pour l'instant.")).toBeNull();
+  });
+
+  it('shows an error when the run detail request fails', async () => {
+    detailReply = { status: 500, body: { error: 'detail broke' } };
+    wrap(<TestBench />);
+    expect(await screen.findByText(/Impossible de lire ce test/)).toBeTruthy();
+  });
+
+  it('shows an error instead of an empty server list when the profiles request fails', async () => {
+    matrixReply = { status: 500, body: { error: 'matrix broke' } };
+    wrap(<TestBench />);
+    expect(await screen.findByText(/Impossible de lire les profils/)).toBeTruthy();
+    expect(screen.queryByText(/Aucun profil serveur/)).toBeNull();
   });
 });

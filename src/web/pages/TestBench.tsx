@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { api, flattenProfiles, profileLabel, type MatrixRow } from '../api.js';
-import { FINAL_STATES, testbenchApi, type RunState } from '../api-testbench.js';
+import { FINAL_STATES, testbenchApi, type RunState, type StopOutcome } from '../api-testbench.js';
 import { ClaudeActions } from '../components/ClaudeActions.js';
 import { t, tf, type MessageKey } from '../i18n/index.js';
 
@@ -19,6 +19,7 @@ const STATE_STYLE: Record<RunState, string> = {
   failed: 'border-rose-700/60 bg-rose-950/50 text-rose-300',
   timeout: 'border-amber-700/60 bg-amber-950/50 text-amber-300',
   crashed: 'border-rose-700/60 bg-rose-950/50 text-rose-300',
+  interrupted: 'border-amber-700/60 bg-amber-950/50 text-amber-300',
 };
 
 const isFinal = (s: RunState) => FINAL_STATES.includes(s);
@@ -34,12 +35,24 @@ function StatePill({ status }: { status: RunState }) {
   return <span className={`rounded-full border px-2 py-0.5 text-xs ${STATE_STYLE[status] ?? STATE_STYLE.queued}`}>{t(`testbench.status.${status}` as MessageKey)}</span>;
 }
 
+const STOP_STYLE: Record<StopOutcome, string> = { clean: 'text-slate-400', forced: 'text-amber-300', 'exited-early': 'text-amber-300' };
+
+function QueryError(props: { text: string; onRetry: () => void }) {
+  return (
+    <p role="alert" className="flex flex-wrap items-center gap-3 text-sm text-rose-300">
+      {props.text}
+      <button className={action} onClick={props.onRetry}>{t('testbench.error.retry')}</button>
+    </p>
+  );
+}
+
 function RunDetailPanel({ id }: { id: string }) {
   const qc = useQueryClient();
-  const run = useQuery({ queryKey: ['testbench-run', id], queryFn: () => testbenchApi.run(id), refetchInterval: (q) => (q.state.data && isFinal(q.state.data.status) ? false : 2000) });
+  const run = useQuery({ queryKey: ['testbench-run', id], queryFn: () => testbenchApi.run(id), refetchInterval: (q) => (q.state.status === 'error' || (q.state.data && isFinal(q.state.data.status)) ? false : 2000) });
   const running = !!run.data && !isFinal(run.data.status);
   const log = useQuery({ queryKey: ['testbench-log', id], queryFn: () => testbenchApi.log(id), refetchInterval: running ? 2000 : false });
   const cancel = useMutation({ mutationFn: () => testbenchApi.cancel(id), onSuccess: () => qc.invalidateQueries({ queryKey: ['testbench-run', id] }) });
+  if (run.isError) return <QueryError text={tf('testbench.error.run', { msg: run.error.message })} onRetry={() => void run.refetch()} />;
   if (!run.data) return null;
   const d = run.data;
   const r = d.result;
@@ -49,10 +62,12 @@ function RunDetailPanel({ id }: { id: string }) {
         <h3 className="font-semibold text-slate-100">{t('testbench.detail')} · {d.meta.label}</h3>
         <span className="flex items-center gap-2">
           <StatePill status={d.status} />
-          {running && <button className={action} title={t('testbench.cancelTip')} onClick={() => cancel.mutate()}>{t('testbench.cancel')}</button>}
+          <button className={action} title={t('testbench.cancelTip')} disabled={!running || cancel.isPending} onClick={() => cancel.mutate()}>{t('testbench.cancel')}</button>
         </span>
       </div>
       {d.message && <p className="text-sm text-amber-300">{d.message}</p>}
+      {cancel.isError && <p role="alert" className="text-sm text-rose-300">{cancel.error.message}</p>}
+      {r?.stopOutcome && STOP_STYLE[r.stopOutcome] && <p role={r.stopOutcome === 'clean' ? undefined : 'status'} className={`text-sm ${STOP_STYLE[r.stopOutcome]}`}>{t(`testbench.stop.${r.stopOutcome}` as MessageKey)}</p>}
       {r && (
         <p className="text-sm text-slate-300">
           {r.bootSeconds !== null && `${tf('testbench.boot', { s: String(r.bootSeconds) })} · `}
@@ -85,7 +100,7 @@ function RunDetailPanel({ id }: { id: string }) {
 export function TestBench() {
   const qc = useQueryClient();
   const matrix = useQuery({ queryKey: ['matrix'], queryFn: () => api<MatrixRow[]>('/profiles/matrix') });
-  const runs = useQuery({ queryKey: ['testbench-runs'], queryFn: testbenchApi.runs, refetchInterval: (q) => (q.state.data?.some((r) => !isFinal(r.status)) ? 3000 : false) });
+  const runs = useQuery({ queryKey: ['testbench-runs'], queryFn: testbenchApi.runs, refetchInterval: (q) => (q.state.status !== 'error' && q.state.data?.some((r) => !isFinal(r.status)) ? 3000 : false) });
   const servers = useMemo(() => flattenProfiles(matrix.data ?? []).filter((p) => p.side === 'server' && (p.locationKind === 'folder' || p.locationKind === 'smb')), [matrix.data]);
 
   const [profile, setProfile] = useState('');
@@ -117,6 +132,7 @@ export function TestBench() {
       <p className="max-w-3xl text-sm text-slate-400">{t('testbench.intro')}</p>
 
       <div className="space-y-3 rounded-xl border border-slate-800 bg-slate-900/50 p-4">
+        {matrix.isError && <QueryError text={tf('testbench.error.matrix', { msg: matrix.error.message })} onRetry={() => void matrix.refetch()} />}
         {matrix.data && servers.length === 0 && <p className="text-sm text-amber-300">{t('testbench.noServer')}</p>}
         <div className="flex flex-wrap items-end gap-4">
           <label className="text-sm text-slate-300">{t('testbench.profile')}
@@ -145,7 +161,8 @@ export function TestBench() {
 
       <div className="space-y-2">
         <h3 className="text-sm font-semibold text-slate-200">{t('testbench.runs')}</h3>
-        {list.length === 0 && <p className="text-sm text-slate-500">{t('testbench.noRuns')}</p>}
+        {runs.isError && <QueryError text={tf('testbench.error.runs', { msg: runs.error.message })} onRetry={() => void runs.refetch()} />}
+        {list.length === 0 && !runs.isError && !runs.isLoading && <p className="text-sm text-slate-500">{t('testbench.noRuns')}</p>}
         <ul className="space-y-1.5">
           {list.map((r) => (
             <li key={r.id}>

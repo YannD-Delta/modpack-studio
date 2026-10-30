@@ -1,6 +1,5 @@
 import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
-import { z } from 'zod';
 import { API_PREFIX } from '../../shared/constants.js';
 import {
   AnomaliesQuerySchema,
@@ -10,32 +9,41 @@ import {
   DecisionBodySchema,
   DiffQuerySchema,
   LoaderCheckQuerySchema,
+  NewModIdSchema,
 } from '../../shared/schemas/mods.js';
 import type { Db } from '../db/open.js';
-import { checkLoaderAgreement, detectLoader, type LoaderInfo } from '../loader/detect-loader.js';
+import { checkLoaderAgreement, detectLoaderForProfile, type LoaderInfo } from '../loader/detect-loader.js';
 import { addToBlacklist, effectiveBlacklist, getPins, recomputeAtmDerived, setDecision } from '../mods/blacklist-service.js';
-import { AtmVersionMismatchError, anomalies, buildBlockers, deriveAtmSides, diffModSets } from '../mods/diff.js';
+import { AtmVersionMismatchError, anomalies, buildBlockers, comparePairProblem, deriveAtmSides, diffModSets } from '../mods/diff.js';
 import { findDuplicateIds, loadModSet, resolvedAnomalies } from '../mods/modset-store.js';
 import { getProfile, type Profile } from '../profiles/profile-service.js';
 import { readPackNames } from '../settings/packs.js';
 import type { AppDeps } from './app.js';
 import { sendBadRequest } from './routes-profiles.js';
 
+/** Every error answer of this file is { error, code?, ...extra }, the same shape as the other routes. */
 class HttpError extends Error {
-  constructor(public readonly status: number, message: string) {
+  constructor(
+    public readonly status: number,
+    message: string,
+    public readonly code?: string,
+    public readonly extra: Record<string, unknown> = {},
+  ) {
     super(message);
   }
 }
 
-async function loaderOf(profile: Profile): Promise<LoaderInfo> {
-  return detectLoader(profile.locationKind === 'zip' ? { kind: 'serverZip', path: profile.location } : { kind: 'curseforgeInstance', path: profile.location });
+/** null = the location holds no readable loader information (zip, CurseForge instance or unpacked server folder). */
+function loaderOf(profile: Profile): Promise<LoaderInfo | null> {
+  return detectLoaderForProfile(profile);
 }
 
 function profileOr404(db: Db, id: number): Profile {
   try {
     return getProfile(db, id);
-  } catch {
-    throw new HttpError(404, `profile ${id} not found`);
+  } catch (err) {
+    if (err instanceof Error && /not found$/.test(err.message)) throw new HttpError(404, `profile ${id} not found`, 'profile_not_found');
+    throw err; // a database failure is a 500, not a missing profile
   }
 }
 
@@ -50,6 +58,10 @@ async function loadAtmPair(db: Db, serverId: number, clientId: number, upstream:
   if (server.pack !== upstream || server.side !== 'server' || client.pack !== upstream || client.side !== 'client') {
     throw new HttpError(409, `the pair must be a ${upstream} server profile and a ${upstream} client profile`);
   }
+  // The split comes from the pack's own server pack and client: a played or launched copy can carry added or removed mods.
+  for (const p of [server, client]) {
+    if (p.state !== 'clean') throw new HttpError(400, `profile ${p.id} is a ${p.state} copy: the sides can only be derived from clean profiles`, 'profile_not_clean');
+  }
   const serverSet = loadModSet(db, server.id);
   const clientSet = loadModSet(db, client.id);
   if (serverSet.size === 0 || clientSet.size === 0) throw new HttpError(409, 'both profiles must be imported first');
@@ -57,11 +69,13 @@ async function loadAtmPair(db: Db, serverId: number, clientId: number, upstream:
   if (skipped.length > 0) throw new HttpError(409, `import incomplete, unreadable jars: ${skipped.join(', ')}`);
   let agreement;
   try {
-    agreement = checkLoaderAgreement({ server: await loaderOf(server), client: await loaderOf(client) });
+    const [serverLoader, clientLoader] = await Promise.all([loaderOf(server), loaderOf(client)]);
+    if (!serverLoader || !clientLoader) throw new Error(`no readable loader information for profile ${serverLoader ? client.id : server.id}`);
+    agreement = checkLoaderAgreement({ server: serverLoader, client: clientLoader });
   } catch (err) {
     throw new HttpError(409, `cannot verify the loader: ${err instanceof Error ? err.message : String(err)}`);
   }
-  if (!agreement.ok) throw new HttpError(409, `NeoForge/Minecraft differ between the ${upstream} server pack and client: ${agreement.mismatches.map((m) => m.field).join(', ')}`);
+  if (!agreement.ok) throw new HttpError(409, `The mod loader or Minecraft version differ between the ${upstream} server pack and client: ${agreement.mismatches.map((m) => m.field).join(', ')}`);
   return { server, client, serverSet, clientSet };
 }
 
@@ -69,16 +83,24 @@ export function registerModRoutes(api: FastifyInstance, deps: AppDeps): void {
   const { db } = deps;
 
   api.setErrorHandler((err, _req, reply) => {
-    if (err instanceof HttpError) return reply.code(err.status).send({ error: err.message });
+    if (err instanceof HttpError) return reply.code(err.status).send({ ...err.extra, error: err.message, ...(err.code ? { code: err.code } : {}) });
+    const e = err as { statusCode?: number; code?: string; message: string };
+    const status = e.statusCode;
+    // Framework errors (bad JSON, body too large...) answer the same shape instead of Fastify's { statusCode, error: 'Bad Request', message }.
+    if (status && status >= 400 && status < 500) return reply.code(status).send({ error: e.message, ...(e.code ? { code: e.code } : {}) });
     return reply.send(err);
   });
 
   api.get(`${API_PREFIX}/mods/diff`, async (req, reply) => {
     const q = DiffQuerySchema.safeParse(req.query);
     if (!q.success) return sendBadRequest(reply, q.error);
-    profileOr404(db, q.data.base);
-    profileOr404(db, q.data.other);
-    return diffModSets(loadModSet(db, q.data.base), loadModSet(db, q.data.other), { pins: getPins(db) });
+    const base = profileOr404(db, q.data.base);
+    const other = profileOr404(db, q.data.other);
+    const baseSet = loadModSet(db, base.id);
+    const otherSet = loadModSet(db, other.id);
+    const problem = comparePairProblem(base, other, baseSet, otherSet);
+    if (problem) throw new HttpError(400, problem.message, problem.code);
+    return diffModSets(baseSet, otherSet, { pins: getPins(db) });
   });
 
   api.get(`${API_PREFIX}/mods/atm-sides`, async (req, reply) => {
@@ -88,7 +110,7 @@ export function registerModRoutes(api: FastifyInstance, deps: AppDeps): void {
     try {
       return deriveAtmSides(serverSet, clientSet, { server: server.version, client: client.version });
     } catch (err) {
-      if (err instanceof AtmVersionMismatchError) throw new HttpError(409, err.message);
+      if (err instanceof AtmVersionMismatchError) throw new HttpError(409, err.message, 'atm_version_mismatch');
       throw err;
     }
   });
@@ -108,7 +130,8 @@ export function registerModRoutes(api: FastifyInstance, deps: AppDeps): void {
     for (const id of q.data.profiles.split(',').map(Number)) {
       const p = profileOr404(db, id);
       try {
-        infos[`${p.pack} ${p.version} ${p.side}`] = await loaderOf(p);
+        const info = await loaderOf(p);
+        if (info) infos[`${p.pack} ${p.version} ${p.side} ${p.state}`] = info; // unknown loader: nothing to compare
       } catch (err) {
         throw new HttpError(409, `cannot read the loader of profile ${id}: ${err instanceof Error ? err.message : String(err)}`);
       }
@@ -149,13 +172,13 @@ export function registerModRoutes(api: FastifyInstance, deps: AppDeps): void {
       recomputeAtmDerived(db, server.version, sides.clientOnly);
       return { ok: true, added: sides.clientOnly.length };
     } catch (err) {
-      if (err instanceof AtmVersionMismatchError) throw new HttpError(409, err.message);
+      if (err instanceof AtmVersionMismatchError) throw new HttpError(409, err.message, 'atm_version_mismatch');
       throw err;
     }
   });
 
   api.put(`${API_PREFIX}/mods/:modId/decision`, async (req, reply) => {
-    const modId = z.string().min(1).safeParse((req.params as { modId: string }).modId);
+    const modId = NewModIdSchema.safeParse((req.params as { modId: string }).modId);
     const body = DecisionBodySchema.safeParse(req.body);
     if (!modId.success) return sendBadRequest(reply, modId.error);
     if (!body.success) return sendBadRequest(reply, body.error);

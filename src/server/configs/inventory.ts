@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
-import { openZip } from '../zip/zip-reader.js';
+import { READ_ONLY_ZIP_LIMITS, openZip } from '../zip/zip-reader.js';
 
 /** Folders of an instance or server pack whose files are compared. Everything else (mods, saves, logs, options.txt) is ignored. */
 export const TRACKED_ROOTS = ['config', 'defaultconfigs', 'kubejs', 'scripts', 'datapacks', 'global_packs'] as const;
@@ -41,6 +41,12 @@ const SNIFF_BYTES = 8192;
 
 const TRACKED = new Set<string>(TRACKED_ROOTS);
 
+/** An entry name that is a directory (trailing slash or backslash), which is never a file. */
+export const isDirectoryEntry = (name: string): boolean => name.endsWith('/') || name.endsWith('\\');
+
+/** Reason of the `.` issue raised when none of the tracked folders exists: a mistyped location must fail, not scan as an empty pack. */
+const noRootReason = (where: string): string => `none of ${TRACKED_ROOTS.join(', ')} found in ${where}`;
+
 /** Canonical (lowercase) tracked root of a relative path, or null. */
 export function rootOf(rel: string): TrackedRoot | null {
   const first = rel.split('/')[0]!.toLowerCase();
@@ -70,9 +76,10 @@ function classify(rel: string, size: number, head: Buffer, maxText: number): Pic
   return { kind: head.includes(0) ? 'binary' : 'text' };
 }
 
-function describe(err: unknown): string {
+/** `where`: a missing path is a missing location when it is the folder or zip itself, and a vanished file otherwise. */
+function describe(err: unknown, where: 'file' | 'location' = 'file'): string {
   const code = (err as NodeJS.ErrnoException)?.code;
-  if (code === 'ENOENT') return 'file disappeared during the scan';
+  if (code === 'ENOENT') return where === 'location' ? 'location not found' : 'file disappeared during the scan';
   if (code === 'ENAMETOOLONG') return 'path too long';
   if (code === 'EACCES' || code === 'EPERM') return 'access denied';
   if (code === 'EBUSY') return 'file locked by another program';
@@ -99,14 +106,14 @@ async function hashFile(abs: string): Promise<{ sha256: string; size: number; he
 async function listFolder(
   base: string,
   issues: ScanIssue[],
-  opts: { concurrency: number; signal?: AbortSignal; onFound?: (count: number) => void },
+  opts: { concurrency: number; signal?: AbortSignal; onFound?: (count: number) => void; onRoot?: () => void },
 ): Promise<{ rel: string; abs: string }[]> {
   const out: { rel: string; abs: string }[] = [];
   let top: fs.Dirent[];
   try {
     top = await fsp.readdir(base, { withFileTypes: true });
   } catch (err) {
-    issues.push({ path: '.', reason: `cannot read the location: ${describe(err)}` });
+    issues.push({ path: '.', reason: `cannot read the location: ${describe(err, 'location')}` });
     return out;
   }
 
@@ -114,6 +121,7 @@ async function listFolder(
   for (const e of top) {
     const root = e.name.toLowerCase();
     if (!TRACKED.has(root)) continue;
+    opts.onRoot?.();
     if (e.isSymbolicLink()) issues.push({ path: root, reason: 'symbolic link or junction, not followed' });
     else if (e.isDirectory()) level.push({ abs: path.join(base, e.name), rel: root });
   }
@@ -192,9 +200,13 @@ export async function scanInstanceTree(source: ScanSource, opts: ScanOptions = {
     const concurrency = opts.concurrency ?? 16;
     opts.onProgress?.(0, 'listing files: 0 found');
     let lastReported = 0;
+    let sawRoot = false;
     const list = await listFolder(source.path, issues, {
       concurrency,
       signal: opts.signal,
+      onRoot: () => {
+        sawRoot = true;
+      },
       onFound: (n) => {
         if (n - lastReported >= 50) {
           lastReported = n;
@@ -202,6 +214,7 @@ export async function scanInstanceTree(source: ScanSource, opts: ScanOptions = {
         }
       },
     });
+    if (!sawRoot && issues.length === 0) issues.push({ path: '.', reason: noRootReason('the location') });
     opts.onProgress?.(0, `listing files: ${list.length} found`);
     const tick = progressReporter(list.length, opts.onProgress);
     // Many files at once: the instances sit on a slow cloud-synced drive, where latency (not CPU) is the cost.
@@ -227,9 +240,9 @@ export async function scanInstanceTree(source: ScanSource, opts: ScanOptions = {
     let zip;
     try {
       // Read-only, never extracted: case collisions are harmless, and big server packs exceed the default entry count.
-      zip = await openZip(source.path, { caseCollision: 'allow', maxEntries: 500000, maxRatio: 1000 });
+      zip = await openZip(source.path, { ...READ_ONLY_ZIP_LIMITS });
     } catch (err) {
-      issues.push({ path: '.', reason: `cannot open the zip: ${describe(err)}` });
+      issues.push({ path: '.', reason: `cannot open the zip: ${describe(err, 'location')}` });
       opts.onProgress?.(100);
       return { files, issues };
     }
@@ -237,14 +250,18 @@ export async function scanInstanceTree(source: ScanSource, opts: ScanOptions = {
       const entries = zip.entries();
       const prefix = detectZipPrefix(entries.map((e) => e.name.replace(/\\/g, '/')));
       const wanted: { rel: string; name: string }[] = [];
+      let sawRoot = false;
       for (const e of entries) {
         const rel0 = e.name.replace(/\\/g, '/').slice(prefix.length);
         const root = rootOf(rel0);
         if (!root) continue;
+        sawRoot = true;
+        if (isDirectoryEntry(rel0)) continue; // the reader only drops forward-slash directory entries: this is not a zero-byte file
         const rel = `${root}${rel0.slice(root.length)}`;
         if (rel.split('/').length < 2 || isExcludedPath(rel)) continue;
         wanted.push({ rel, name: e.name });
       }
+      if (!sawRoot) issues.push({ path: '.', reason: noRootReason('the zip (expected at its root or inside a single top-level folder)') });
       const tick = progressReporter(wanted.length, opts.onProgress);
       for (const { rel, name } of wanted) {
         checkAbort();

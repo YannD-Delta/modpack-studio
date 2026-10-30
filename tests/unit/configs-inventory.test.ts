@@ -117,7 +117,23 @@ describe('scanInstanceTree (folder)', () => {
   it('returns an issue for a missing location', async () => {
     const inv = await scanInstanceTree({ kind: 'folder', path: path.join(tmp, 'nope') });
     expect(inv.files.size).toBe(0);
-    expect(inv.issues).toHaveLength(1);
+    expect(inv.issues).toEqual([{ path: '.', reason: 'cannot read the location: location not found' }]);
+  });
+
+  it('reports a location without any tracked folder instead of an empty inventory', async () => {
+    put(tmp, 'mods/a.jar', 'jar');
+    put(tmp, 'saves/w/level.dat', 'x');
+    const inv = await scanInstanceTree({ kind: 'folder', path: tmp });
+    expect(inv.files.size).toBe(0);
+    expect(inv.issues).toEqual([{ path: '.', reason: expect.stringMatching(/none of .*config.* found in the location/) }]);
+  });
+
+  it('accepts a tracked folder that is empty or only holds excluded files', async () => {
+    put(tmp, 'config/old.toml.bak', 'x');
+    fs.mkdirSync(path.join(tmp, 'kubejs'));
+    const inv = await scanInstanceTree({ kind: 'folder', path: tmp });
+    expect(inv.files.size).toBe(0);
+    expect(inv.issues).toEqual([]);
   });
 });
 
@@ -134,6 +150,34 @@ describe('scanInstanceTree (zip)', () => {
     const inv = await scanInstanceTree({ kind: 'zip', path: zipPath });
     expect([...inv.files.keys()].sort()).toEqual(['config/atm.toml', 'kubejs/startup_scripts/s.js']);
     expect(inv.files.get('kubejs/startup_scripts/s.js')!.sha256).toBe(sha('//s\n'));
+  });
+
+  it('never lists directory entries, whatever their separator, as zero-byte files', async () => {
+    const zipPath = path.join(tmp, 'dirs.zip');
+    fs.writeFileSync(zipPath, buildZip([
+      { name: 'config\\sub\\', data: Buffer.alloc(0) },
+      { name: 'config/other/', data: Buffer.alloc(0) },
+      { name: 'config\\sub\\a.toml', data: Buffer.from('a = 1\n') },
+    ]));
+    const inv = await scanInstanceTree({ kind: 'zip', path: zipPath });
+    expect([...inv.files.keys()]).toEqual(['config/sub/a.toml']);
+    expect(inv.issues).toEqual([]);
+  });
+
+  it('reports a zip without any tracked folder (a stray file next to the wrapper folder defeats the prefix detection)', async () => {
+    const zipPath = path.join(tmp, 'readme.zip');
+    fs.writeFileSync(zipPath, buildZip([
+      { name: 'README.txt', data: Buffer.from('hi') },
+      { name: 'Wrapper/config/a.toml', data: Buffer.from('a = 1\n') },
+    ]));
+    const inv = await scanInstanceTree({ kind: 'zip', path: zipPath });
+    expect(inv.files.size).toBe(0);
+    expect(inv.issues).toEqual([{ path: '.', reason: expect.stringMatching(/none of .* found in the zip/) }]);
+  });
+
+  it('reports a missing zip as not found', async () => {
+    const inv = await scanInstanceTree({ kind: 'zip', path: path.join(tmp, 'nope.zip') });
+    expect(inv.issues).toEqual([{ path: '.', reason: 'cannot open the zip: location not found' }]);
   });
 
   it('detects the wrapper prefix only when every entry shares a non-root folder', () => {

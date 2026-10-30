@@ -134,11 +134,25 @@ describe('configs api', () => {
   });
 
   it('fails the scan job of a missing location and keeps the 409', async () => {
-    const id = await mk({ pack: 'Own', version: '2.0', side: 'client', state: 'launched', locationKind: 'folder', location: path.join(tmp, 'missing') });
+    const gone = tree(path.join(tmp, 'missing'), { 'config/a.toml': 'a = 1\n' });
+    const id = await mk({ pack: 'Own', version: '2.0', side: 'client', state: 'launched', locationKind: 'folder', location: gone });
+    fs.rmSync(gone, { recursive: true, force: true }); // the drive is unplugged after the profile was registered
     const job = await scan(id);
     expect(job.status).toBe('failed');
-    expect(job.message).toMatch(/cannot read the location/);
-    expect((await call('GET', `/configs/inventory?profile=${id}`)).statusCode).toBe(409);
+    expect(job.message).toMatch(/cannot read the location: location not found/);
+    expect(job.message).not.toMatch(/disappeared/);
+    const inv = await call('GET', `/configs/inventory?profile=${id}`);
+    expect(inv.statusCode).toBe(409);
+    expect(inv.json()).toMatchObject({ code: 'not_scanned' });
+  });
+
+  it('fails the scan of a location with no tracked folder instead of caching an empty inventory', async () => {
+    const dir = tree(path.join(tmp, 'parent'), { 'mods/a.jar': 'jar', 'saves/w/level.dat': 'x' });
+    const id = await mk({ pack: 'Own', version: '2.1', side: 'client', state: 'launched', locationKind: 'folder', location: dir });
+    const job = await scan(id);
+    expect(job.status).toBe('failed');
+    expect(job.message).toMatch(/none of .*config.* found in the location/);
+    expect((await call('GET', `/configs/inventory?profile=${id}`)).statusCode).toBe(409); // nothing cached: an immutable profile would keep it forever
   });
 
   it('compares known binaries by size unless the scan is deep', async () => {
@@ -147,7 +161,14 @@ describe('configs api', () => {
     await scan(lmp);
     const quick = (await call('GET', `/configs/diff?base=${atm}&other=${lmp}`)).json().files.find((f: { path: string }) => f.path === 'config/icon.png');
     expect(quick.status).toBe('identical'); // same size, content not read
+    expect((await call('GET', `/configs/diff?base=${atm}&other=${lmp}`)).json().sizeOnlyIdentical).toBe(1);
+    expect((await call('GET', `/configs/inventory?profile=${atm}`)).json().sizeOnlyFiles).toBe(1);
+    // one side deep, the other quick: the sizes decide, a pseudo-hash is never compared with a sha256
     await scan(atm, false, true);
+    const mixed = (await call('GET', `/configs/diff?base=${atm}&other=${lmp}`)).json();
+    expect(mixed.files.find((f: { path: string }) => f.path === 'config/icon.png')).toMatchObject({ status: 'identical', sizeOnly: true });
+    expect(mixed.sizeOnlyIdentical).toBeGreaterThan(0);
+    expect((await call('GET', `/configs/inventory?profile=${atm}`)).json().sizeOnlyFiles).toBe(0);
     await scan(lmp, false, true);
     const deep = (await call('GET', `/configs/diff?base=${atm}&other=${lmp}`)).json().files.find((f: { path: string }) => f.path === 'config/icon.png');
     expect(deep.status).toBe('binaryDiffers');

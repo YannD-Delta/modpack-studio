@@ -39,7 +39,8 @@ export function pairLoader(base: { profile: Profile; inv: CachedInventory }, oth
     const reader = (readers[side] ??= openProfileReader(src));
     const buf = await reader.read(path, maxBytes);
     const entry = s.inv.files[path];
-    const stale = !!entry && entry.size <= maxBytes && (buf.length !== entry.size || sha256(buf) !== entry.sha256);
+    // A quick-scan entry has no real hash (`size:<n>`): only its size can be checked.
+    const stale = !!entry && entry.size <= maxBytes && (buf.length !== entry.size || (!entry.sizeOnly && sha256(buf) !== entry.sha256));
     return { buf, stale };
   };
   const load = async (side: 'base' | 'other', path: string, maxBytes = NORMALIZE_MAX_BYTES): Promise<Buffer> => {

@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { detectStartScript, EulaNotAcceptedError, prepareServerDir, runServerTest, summarizeLog } from '../../src/server/testbench/server-test.js';
+import { blankPauseLines, detectStartScript, EulaNotAcceptedError, LogSummarizer, NotEnoughSpaceError, prepareServerDir, runServerTest, summarizeLog } from '../../src/server/testbench/server-test.js';
 
 let tmp: string;
 beforeEach(() => {
@@ -90,6 +90,98 @@ describe('prepareServerDir', () => {
   });
 });
 
+describe('prepareServerDir safety', () => {
+  const run = (src: string, name = 'd', extra: Record<string, unknown> = {}) => prepareServerDir({ sourceDir: src, destDir: path.join(tmp, name), port: 25570, memoryMb: 4096, acceptEula: false, ...extra });
+  const levelOf = (name = 'd') => /^level-name=(.*)$/m.exec(fs.readFileSync(path.join(tmp, name, 'server.properties'), 'utf8'))?.[1];
+
+  it.each(['../shared-world', 'D:/fast-disk/world', '/abs/world', 'worlds/../../x'])('forces level-name=world in the copy when the source says %s', async (level) => {
+    const src = makeSource();
+    put(src, 'server.properties', `level-name=${level}\nmotd=Own\n`);
+    await run(src);
+    expect(levelOf()).toBe('world');
+    expect(fs.readFileSync(path.join(tmp, 'd', 'server.properties'), 'utf8')).toMatch(/^motd=Own$/m);
+  });
+
+  it('leaves a world kept in a sub folder behind, with its dimensions, but copies its siblings', async () => {
+    const src = makeSource();
+    put(src, 'server.properties', 'level-name=worlds/survival\n');
+    put(src, 'worlds/survival/level.dat', 'W');
+    put(src, 'worlds/survival_nether/level.dat', 'N');
+    put(src, 'worlds/readme.txt', 'keep');
+    await run(src);
+    expect(fs.existsSync(path.join(tmp, 'd', 'worlds', 'survival'))).toBe(false);
+    expect(fs.existsSync(path.join(tmp, 'd', 'worlds', 'survival_nether'))).toBe(false);
+    expect(fs.existsSync(path.join(tmp, 'd', 'worlds', 'readme.txt'))).toBe(true);
+    expect(levelOf()).toBe('world');
+  });
+
+  it('never recreates a link of the source in the copy and reports it, whatever it points to', async () => {
+    const src = makeSource();
+    const shared = path.join(tmp, 'shared-mods');
+    put(shared, 'x.jar', 'jar');
+    put(shared, 'SimpleDiscordLink-1.jar', 'jar');
+    fs.rmSync(path.join(src, 'mods'), { recursive: true });
+    fs.symlinkSync(shared, path.join(src, 'mods'), 'junction');
+    const out = await run(src);
+    expect(out.skippedLinks).toEqual(['mods']);
+    expect(fs.existsSync(path.join(tmp, 'd', 'mods'))).toBe(false);
+    expect(fs.existsSync(path.join(shared, 'SimpleDiscordLink-1.jar'))).toBe(true); // nothing was renamed through a link
+    expect(fs.readFileSync(path.join(src, 'server.properties'), 'utf8')).toContain('online-mode=true');
+  });
+
+  it('copies the content of a source folder that is itself a link into a real folder', async () => {
+    const real = makeSource();
+    const link = path.join(tmp, 'link-to-server');
+    fs.symlinkSync(real, link, 'junction');
+    await run(link);
+    expect(fs.lstatSync(path.join(tmp, 'd')).isSymbolicLink()).toBe(false);
+    expect(fs.existsSync(path.join(tmp, 'd', 'mods', 'a.jar'))).toBe(true);
+    expect(fs.readFileSync(path.join(real, 'server.properties'), 'utf8')).toContain('online-mode=true');
+  });
+
+  it('ignores a link inside a folder that is not copied anyway', async () => {
+    const src = makeSource();
+    fs.mkdirSync(path.join(tmp, 'elsewhere'));
+    fs.symlinkSync(path.join(tmp, 'elsewhere'), path.join(src, 'logs', 'old'), 'junction');
+    const out = await run(src);
+    expect(out.skippedLinks).toEqual([]);
+  });
+
+  it('fails early with code not-enough-space, before copying anything', async () => {
+    const src = makeSource();
+    const err = await run(src, 'd', { getFreeBytes: async () => 10 }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(NotEnoughSpaceError);
+    expect((err as NotEnoughSpaceError).code).toBe('not-enough-space');
+    expect(fs.existsSync(path.join(tmp, 'd', 'mods'))).toBe(false);
+  });
+
+  it('stops copying when cancelled', async () => {
+    const ctrl = new AbortController();
+    ctrl.abort();
+    await expect(run(makeSource(), 'd', { signal: ctrl.signal })).rejects.toThrow(/cancel/i);
+    expect(fs.existsSync(path.join(tmp, 'd', 'mods', 'a.jar'))).toBe(false);
+  });
+});
+
+describe('blankPauseLines', () => {
+  it('blanks standalone pause lines, keeps the other bytes and the CRLF', () => {
+    const f = path.join(tmp, 'x.bat');
+    fs.writeFileSync(f, '@echo off\r\njava -jar s.jar\r\n@PAUSE >nul\r\n  pause\r\necho pausefoo\r\nrem pause\r\n', 'latin1');
+    blankPauseLines(f);
+    expect(fs.readFileSync(f, 'latin1')).toBe('@echo off\r\njava -jar s.jar\r\n\r\n\r\necho pausefoo\r\nrem pause\r\n');
+  });
+});
+
+describe('LogSummarizer', () => {
+  it('gives the same summary as summarizeLog whatever the chunk boundaries', () => {
+    const text = '[1:00:00] [a/ERROR] [m]: x\r\n[1:00:01] [a/WARN] [m]: y\n[1:00:02] [a/INFO] [m]: Done (3,5s)! For help\n[1:00:03] [a/ERROR] [m]: tail without newline';
+    const s = new LogSummarizer();
+    for (let i = 0; i < text.length; i += 7) s.push(text.slice(i, i + 7));
+    expect(s.end()).toEqual(summarizeLog(text));
+    expect(summarizeLog(text)).toMatchObject({ errorLines: 2, warnLines: 1, bootSeconds: 3.5 });
+  });
+});
+
 describe('detectStartScript', () => {
   it('prefers run.bat, then startserver.bat, then start.bat, and returns null without any', () => {
     const d = path.join(tmp, 's');
@@ -124,7 +216,7 @@ describe('summarizeLog', () => {
 });
 
 /** A stand-in for the game server: a tiny Node script that behaves like one of three servers. */
-function fakeServer(mode: 'ok' | 'crash' | 'hang'): { command: string; args: string[] } {
+function fakeServer(mode: 'ok' | 'crash' | 'hang' | 'stubborn' | 'dies'): { command: string; args: string[] } {
   const script = path.join(tmp, `fake-${mode}.cjs`);
   fs.writeFileSync(
     script,
@@ -138,7 +230,8 @@ function fakeServer(mode: 'ok' | 'crash' | 'hang'): { command: string; args: str
       "  fs.writeFileSync('crash-reports/crash-test.txt', 'Description: exception in loading');",
       '  process.exit(1);',
       '}',
-      "if (mode === 'ok') setTimeout(() => console.log('[10:00:02] [Server thread/INFO] [DedicatedServer]: Done (1.234s)! For help, type \"help\"'), 150);",
+      "if (mode === 'ok' || mode === 'stubborn' || mode === 'dies') setTimeout(() => console.log('[10:00:02] [Server thread/INFO] [DedicatedServer]: Done (1.234s)! For help, type \"help\"'), 150);",
+      "if (mode === 'dies') setTimeout(() => process.exit(3), 400);",
       "process.stdin.setEncoding('utf8');",
       "process.stdin.on('data', (d) => { if (mode === 'ok' && d.includes('stop')) { console.log('[10:00:03] [Server thread/INFO]: Stopping server'); process.exit(0); } });",
       'setInterval(() => {}, 1000);',
@@ -203,5 +296,140 @@ describe('runServerTest', () => {
     const r = await runServerTest({ ...opts, startCommand: fakeServer('ok') });
     expect(r.status).toBe('failed');
     expect(r.message).toMatch(/eula/i);
+  });
+});
+
+describe('runServerTest outcome and housekeeping', () => {
+  const base = (name: string) => ({ sourceDir: makeSource(), runDir: path.join(tmp, name), port: 25570, memoryMb: 1024, acceptEula: false, readyTimeoutMs: 5000, settleMs: 50, stopGraceMs: 3000 });
+
+  it('removes the server copy at the end but keeps the result, the log and the crash reports', async () => {
+    const r = await runServerTest({ ...base('crash2'), startCommand: fakeServer('crash') });
+    const dir = path.join(tmp, 'crash2');
+    expect(fs.existsSync(path.join(dir, 'server'))).toBe(false);
+    expect(fs.existsSync(path.join(dir, 'result.json'))).toBe(true);
+    expect(fs.existsSync(path.join(dir, 'console.log'))).toBe(true);
+    expect(fs.readFileSync(path.join(dir, 'crash-reports', 'crash-test.txt'), 'utf8')).toContain('exception in loading');
+    expect(r.crashReports).toEqual(['crash-test.txt']);
+  });
+
+  it('keeps the copy only when asked to', async () => {
+    await runServerTest({ ...base('keep'), startCommand: fakeServer('ok'), keepCopy: true });
+    expect(fs.existsSync(path.join(tmp, 'keep', 'server', 'mods', 'a.jar'))).toBe(true);
+  });
+
+  it('removes the partial copy of a failed run (not enough space) and reports the code', async () => {
+    const r = await runServerTest({ ...base('space'), startCommand: fakeServer('ok'), getFreeBytes: async () => 5 });
+    expect(r.status).toBe('failed');
+    expect(r.code).toBe('not-enough-space');
+    expect(fs.existsSync(path.join(tmp, 'space', 'server'))).toBe(false);
+  });
+
+  it('reports stopOutcome clean after a normal stop and exited-early after a crash', async () => {
+    expect((await runServerTest({ ...base('o1'), startCommand: fakeServer('ok') })).stopOutcome).toBe('clean');
+    expect((await runServerTest({ ...base('o2'), startCommand: fakeServer('crash') })).stopOutcome).toBe('exited-early');
+  });
+
+  it('reports forced when the server ignores stop and has to be killed, the status staying done', async () => {
+    const r = await runServerTest({ ...base('o3'), stopGraceMs: 300, startCommand: fakeServer('stubborn') });
+    expect(r.status).toBe('done');
+    expect(r.stopOutcome).toBe('forced');
+    expect(JSON.parse(fs.readFileSync(path.join(tmp, 'o3', 'result.json'), 'utf8')).stopOutcome).toBe('forced');
+  });
+
+  it('reports exited-early when the server dies by itself right after Done', async () => {
+    const r = await runServerTest({ ...base('o4'), settleMs: 3000, startCommand: fakeServer('dies') });
+    expect(r.status).toBe('done');
+    expect(r.stopOutcome).toBe('exited-early');
+    expect(r.exitCode).toBe(3);
+  });
+
+  it('a cancel during the settle pause after Done ends the run at once as failed/cancelled', async () => {
+    const ctrl = new AbortController();
+    const t0 = Date.now();
+    const r = await runServerTest({
+      ...base('o5'),
+      settleMs: 20_000,
+      startCommand: fakeServer('ok'),
+      signal: ctrl.signal,
+      onStatus: (s) => {
+        if (s === 'ready') ctrl.abort();
+      },
+    });
+    expect(r.status).toBe('failed');
+    expect(r.message).toMatch(/cancel/i);
+    expect(Date.now() - t0).toBeLessThan(10_000);
+  });
+
+  it('a cancel during the copy returns before any process is started', async () => {
+    const marker = path.join(tmp, 'started.txt');
+    const script = path.join(tmp, 'marker.cjs');
+    fs.writeFileSync(script, `require('fs').writeFileSync(${JSON.stringify(marker)}, 'x'); setInterval(() => {}, 1000);`);
+    const ctrl = new AbortController();
+    ctrl.abort();
+    const r = await runServerTest({ ...base('o6'), startCommand: { command: process.execPath, args: [script] }, signal: ctrl.signal });
+    expect(r.status).toBe('failed');
+    expect(r.message).toMatch(/cancel/i);
+    expect(fs.existsSync(marker)).toBe(false);
+  });
+
+  it('caps the console log (head then a marker) while the summary still counts every line', async () => {
+    const script = path.join(tmp, 'noisy.cjs');
+    fs.writeFileSync(
+      script,
+      "for (let i = 0; i < 2000; i++) console.log('[10:00:00] [main/ERROR] [m]: line ' + i + ' ' + 'x'.repeat(100)); console.log('[10:00:02] [Server thread/INFO]: Done (1.0s)! For help'); process.stdin.on('data', () => process.exit(0)); setInterval(() => {}, 1000);",
+    );
+    const r = await runServerTest({ ...base('o7'), startCommand: { command: process.execPath, args: [script] }, maxLogBytes: 20_000 });
+    const size = fs.statSync(path.join(tmp, 'o7', 'console.log')).size;
+    expect(size).toBeLessThan(21_000);
+    expect(fs.readFileSync(path.join(tmp, 'o7', 'console.log'), 'utf8')).toMatch(/log truncated/);
+    expect(r.status).toBe('done');
+    expect(r.summary.errorLines).toBe(2000);
+    expect(r.bootSeconds).toBe(1);
+  });
+
+  it('survives an I/O error on the console log (the run still ends with a result)', async () => {
+    const opts = base('o8');
+    fs.mkdirSync(path.join(opts.runDir, 'console.log'), { recursive: true }); // opening it for writing fails with EISDIR
+    const r = await runServerTest({ ...opts, startCommand: fakeServer('ok') });
+    expect(r.status).toBe('done');
+    expect(fs.existsSync(path.join(opts.runDir, 'result.json'))).toBe(true);
+  });
+});
+
+/** Real cmd.exe path: a start script that ends in pause must not hold the run. */
+describe.skipIf(process.platform !== 'win32')('runServerTest with a real start script', () => {
+  function sourceWithBat(bat: (nodeExe: string, script: string) => string, mode: 'ok' | 'crash') {
+    const src = makeSource();
+    const fake = fakeServer(mode);
+    fs.writeFileSync(path.join(src, 'run.bat'), bat(fake.command, fake.args[0]!).replace(/\n/g, '\r\n'));
+    return src;
+  }
+  const opts = (src: string, name: string) => ({ sourceDir: src, runDir: path.join(tmp, name), port: 25570, memoryMb: 1024, acceptEula: false, readyTimeoutMs: 8000, settleMs: 50, stopGraceMs: 6000 });
+
+  it('a start script ending in pause: a clean stop does not wait for the wrapper', async () => {
+    const src = sourceWithBat((node, script) => `@echo off\n"${node}" "${script}"\npause\n`, 'ok');
+    const t0 = Date.now();
+    const r = await runServerTest(opts(src, 'bat-ok'));
+    expect(r.status).toBe('done');
+    expect(r.exitCode).toBe(0);
+    expect(r.stopOutcome).toBe('clean');
+    expect(Date.now() - t0).toBeLessThan(5500);
+  });
+
+  it('a start script ending in pause: a crash before Done is a crash, not a timeout', async () => {
+    const src = sourceWithBat((node, script) => `@echo off\n"${node}" "${script}"\npause >nul\n`, 'crash');
+    const t0 = Date.now();
+    const r = await runServerTest(opts(src, 'bat-crash'));
+    expect(r.status).toBe('crashed');
+    expect(Date.now() - t0).toBeLessThan(7000);
+  });
+
+  it('a wrapper that lingers after the server stopped is killed with its whole tree after the grace period', async () => {
+    const src = sourceWithBat((node, script) => `@echo off\n"${node}" "${script}"\nping -n 40 127.0.0.1 >nul\n`, 'ok');
+    const t0 = Date.now();
+    const r = await runServerTest({ ...opts(src, 'bat-linger'), stopGraceMs: 1500 });
+    expect(r.status).toBe('done');
+    expect(r.stopOutcome).toBe('forced');
+    expect(Date.now() - t0).toBeLessThan(9000);
   });
 });

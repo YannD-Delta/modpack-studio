@@ -24,7 +24,10 @@ $env:Path = $env:Path -replace '"', ''
 
 function Say($text, $color = 'Gray') { Write-Host $text -ForegroundColor $color }
 
-function Confirm($question) { return (Read-Host "$question (o/N)") -match '^(o|y)' }
+function Confirm($question) {
+    if ($Action) { return $false }   # non-interactive: never wait for an answer
+    return ([string](Read-Host "$question (y/N)")).Trim() -match '^(y|yes)$'
+}
 
 function Get-NodeMajor {
     $cmd = Get-Command node -ErrorAction SilentlyContinue
@@ -48,10 +51,19 @@ function Ensure-Node {
     }
     if (-not (Confirm 'Install Node.js LTS with winget now?')) { return $false }
     winget install --id OpenJS.NodeJS.LTS -e --accept-package-agreements --accept-source-agreements
+    if ($LASTEXITCODE -ne 0) {
+        Say "winget failed (exit $LASTEXITCODE). Install Node.js LTS from https://nodejs.org and run this again." Red
+        return $false
+    }
     Update-PathFromRegistry
     if ((Get-NodeMajor) -ge $minNode) { return $true }
     Say 'Node.js was installed but is not visible yet. Close this window and open it again.' Yellow
     return $false
+}
+
+# Every action that runs npm starts here; a missing Node.js is an error (exit code 1 in non-interactive mode).
+function Require-Node {
+    if (-not (Ensure-Node)) { throw "Node.js $minNode or newer is required." }
 }
 
 function Run-Npm {
@@ -66,19 +78,31 @@ function Has-Password {
     try { return [bool]((Get-Content -Raw $file | ConvertFrom-Json).passwordHash) } catch { return $false }
 }
 
+# Skips the install when node_modules already matches the current package-lock.json (remembered in a stamp file).
 function Do-Install {
-    if (-not (Ensure-Node)) { return }
+    Require-Node
+    $lock = Join-Path $root 'package-lock.json'
+    $stamp = Join-Path $root 'node_modules\.studio-lock-sha'
+    $sha = if (Test-Path $lock) { (Get-FileHash -Algorithm SHA256 $lock).Hash } else { '' }
+    if ($sha -and (Test-Path $stamp) -and ((Get-Content -Raw $stamp).Trim() -eq $sha)) {
+        Say 'Dependencies are up to date.' Gray
+        return
+    }
     Say 'Installing dependencies (npm ci)...' Cyan
-    if (Test-Path (Join-Path $root 'package-lock.json')) { Run-Npm ci } else { Run-Npm install }
+    if ($sha) { Run-Npm ci } else { Run-Npm install }
+    if ($sha) { Set-Content -Encoding Ascii -Path $stamp -Value $sha }
 }
 
 function Do-Password {
+    Require-Node
     if (-not (Test-Path (Join-Path $root 'node_modules'))) { Do-Install }
+    $old = $env:STUDIO_DATA
     $env:STUDIO_DATA = $dataDir
-    Run-Npm run set-password
+    try { Run-Npm run set-password } finally { $env:STUDIO_DATA = $old }
 }
 
 function Do-Build {
+    Require-Node
     if (-not (Test-Path (Join-Path $root 'node_modules'))) { Do-Install }
     Say 'Building the web interface...' Cyan
     Run-Npm run build:web
@@ -86,24 +110,40 @@ function Do-Build {
 
 function Do-Setup {
     Do-Install
-    if ((Get-NodeMajor) -lt $minNode) { return }
     Do-Build
     if (-not (Has-Password)) { Say 'No password yet, choose one for the web interface.' Cyan; Do-Password }
     Say 'Setup done. Use "Start" to run it.' Green
 }
 
 function Start-Server([string]$data) {
-    if (-not (Ensure-Node)) { return }
-    if (-not (Test-Path (Join-Path $root 'node_modules')) -or -not (Test-Path (Join-Path $root 'dist\web'))) { Do-Setup }
-    $env:STUDIO_DATA = $data
+    Require-Node
+    if (-not (Test-Path (Join-Path $root 'node_modules'))) { Do-Install }
+    if (-not (Test-Path (Join-Path $root 'dist\web'))) { Do-Build }
     $port = 8480
     $file = Join-Path $data 'settings.json'
     if (Test-Path $file) {
         try { $p = (Get-Content -Raw $file | ConvertFrom-Json).port; if ($p) { $port = $p } } catch { }
     }
-    Say "Starting on http://127.0.0.1:$port (Ctrl+C to stop). Data: $data" Green
-    Start-Job -ScriptBlock { param($u) Start-Sleep 4; Start-Process $u } -ArgumentList "http://127.0.0.1:$port" | Out-Null
-    Run-Npm start
+    $url = "http://127.0.0.1:$port/"
+    Say "Starting on $url (Ctrl+C to stop). Data: $data" Green
+    $oldData = $env:STUDIO_DATA
+    $env:STUDIO_DATA = $data
+    # Open the browser once the server really answers (up to 60 s); if it never starts, nothing opens.
+    $opener = Start-Job -ScriptBlock {
+        param($u)
+        for ($i = 0; $i -lt 60; $i++) {
+            try { Invoke-WebRequest -Uri $u -UseBasicParsing -TimeoutSec 2 | Out-Null; Start-Process $u; return } catch { Start-Sleep 1 }
+        }
+    } -ArgumentList $url
+    try {
+        & npm start
+        if ($LASTEXITCODE -ne 0) { throw "the server stopped with exit code $LASTEXITCODE" }
+    }
+    finally {
+        Stop-Job $opener -ErrorAction SilentlyContinue
+        Remove-Job $opener -Force -ErrorAction SilentlyContinue
+        $env:STUDIO_DATA = $oldData
+    }
 }
 
 function Do-Start {
@@ -112,7 +152,7 @@ function Do-Start {
 }
 
 function Do-Demo {
-    if (-not (Ensure-Node)) { return }
+    Require-Node
     if (-not (Test-Path (Join-Path $root 'node_modules'))) { Do-Install }
     if (-not (Test-Path (Join-Path $root 'dist\web'))) { Do-Build }
     Say "Building synthetic demo data in $demoDir (password: demo)..." Cyan
@@ -122,12 +162,14 @@ function Do-Demo {
 }
 
 function Do-Test {
+    Require-Node
     if (-not (Test-Path (Join-Path $root 'node_modules'))) { Do-Install }
     Run-Npm run typecheck
     Run-Npm test
 }
 
 function Do-Package {
+    Require-Node
     if (-not (Test-Path (Join-Path $root 'node_modules'))) { Do-Install }
     $version = (Get-Content -Raw (Join-Path $root 'package.json') | ConvertFrom-Json).version
     Say "Packaging version $version..." Cyan
@@ -135,6 +177,7 @@ function Do-Package {
 }
 
 function Do-Task {
+    if ($Action) { throw 'the task action asks for the install directory: run it from the menu' }
     $dir = Read-Host 'Install directory of the packaged app (e.g. D:\ModpackStudio)'
     if (-not $dir) { return }
     $script = Join-Path $root 'scripts\install-task.ps1'
@@ -165,7 +208,10 @@ function Invoke-Action([string]$name) {
     }
 }
 
-if ($Action) { Invoke-Action $Action; return }
+if ($Action) {
+    try { Invoke-Action $Action } catch { Say "Error: $($_.Exception.Message)" Red; exit 1 }
+    exit 0
+}
 
 while ($true) {
     try { Clear-Host } catch { }   # fails when the console is redirected
@@ -184,9 +230,9 @@ while ($true) {
     Write-Host ''
     $choice = Read-Host 'Choice'
     $map = @{ '1' = 'setup'; '2' = 'start'; '3' = 'demo'; '4' = 'password'; '5' = 'build'; '6' = 'test'; '7' = 'package'; '8' = 'task' }
-    if ($choice -eq '0') { break }
+    if ($null -eq $choice -or $choice -eq '0') { break }   # null = closed input
     if (-not $map.ContainsKey($choice)) { continue }
     try { Invoke-Action $map[$choice] } catch { Say "Error: $($_.Exception.Message)" Red }
     Write-Host ''
-    Read-Host 'Press Enter to return to the menu' | Out-Null
+    if ($null -eq (Read-Host 'Press Enter to return to the menu')) { break }
 }

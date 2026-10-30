@@ -6,8 +6,9 @@ import { API_PREFIX } from '../../shared/constants.js';
 import { makeClient, RefusedError, runPrompt } from '../assistant/anthropic.js';
 import { ACTION_INFO, ACTIONS, buildPrompt, buildTestRunPrompt, fillNames, PAIR_ACTIONS, type BuiltPrompt, type PairActionId } from '../assistant/prompts.js';
 import { audit } from '../db/audit.js';
-import { detectLoader, type LoaderInfo } from '../loader/detect-loader.js';
-import { readInstanceSources, storeSources } from '../mods/curseforge-sources.js';
+import { detectLoaderForProfile, type LoaderInfo } from '../loader/detect-loader.js';
+import { readInstanceSourcesChecked, storeSources } from '../mods/curseforge-sources.js';
+import { comparePairProblem } from '../mods/diff.js';
 import { loadModSet } from '../mods/modset-store.js';
 import { getProfile, type Profile } from '../profiles/profile-service.js';
 import { readPackNames } from '../settings/packs.js';
@@ -29,7 +30,7 @@ type AnyBody = z.infer<typeof PromptBody> | z.infer<typeof RunBody>;
 
 async function loaderOf(p: Profile): Promise<LoaderInfo | null> {
   try {
-    return await detectLoader(p.locationKind === 'zip' ? { kind: 'serverZip', path: p.location } : { kind: 'curseforgeInstance', path: p.location });
+    return await detectLoaderForProfile(p);
   } catch {
     return null; // the prompt says "loader non détecté": a missing loader file must not block the analysis
   }
@@ -39,7 +40,7 @@ function profileOr404(deps: AppDeps, id: number, reply: FastifyReply): Profile |
   try {
     return getProfile(deps.db, id);
   } catch {
-    void reply.code(404).send({ error: `profile ${id} not found` });
+    void reply.code(404).send({ error: `profile ${id} not found`, code: 'profile_not_found' });
     return null;
   }
 }
@@ -62,11 +63,11 @@ export function registerAssistantRoutes(api: FastifyInstance, deps: AppDeps): vo
     if ('runId' in data) {
       const run = validRunId(data.runId) ? readRun(dataDir, data.runId) : null;
       if (!run) {
-        void reply.code(404).send({ error: 'run not found' });
+        void reply.code(404).send({ error: 'run not found', code: 'run_not_found' });
         return null;
       }
       if (!run.result) {
-        void reply.code(409).send({ error: 'this test is not finished yet' });
+        void reply.code(409).send({ error: 'this test is not finished yet', code: 'run_not_finished' });
         return null;
       }
       return buildTestRunPrompt({ run, logTail: readLogTail(dataDir, data.runId, 150)?.lines ?? [], crashHead: readCrashHead(dataDir, data.runId), mode, names: readPackNames(dataDir) });
@@ -75,8 +76,16 @@ export function registerAssistantRoutes(api: FastifyInstance, deps: AppDeps): vo
     if (!base) return null;
     const other = profileOr404(deps, data.other, reply);
     if (!other) return null;
-    if (loadModSet(db, base.id).size === 0 || loadModSet(db, other.id).size === 0) {
-      void reply.code(409).send({ error: 'both profiles must be imported first' });
+    const baseSet = loadModSet(db, base.id);
+    const otherSet = loadModSet(db, other.id);
+    if (baseSet.size === 0 || otherSet.size === 0) {
+      void reply.code(409).send({ error: 'both profiles must be imported first', code: 'profiles_not_imported' });
+      return null;
+    }
+    // Both are imported here, so the only possible problem is a client against a server pack (every client-only mod would look missing).
+    const problem = comparePairProblem(base, other, baseSet, otherSet);
+    if (problem) {
+      void reply.code(400).send({ error: problem.message, code: problem.code });
       return null;
     }
     const [baseLoader, otherLoader] = await Promise.all([loaderOf(base), loaderOf(other)]);
@@ -98,15 +107,24 @@ export function registerAssistantRoutes(api: FastifyInstance, deps: AppDeps): vo
     const built = await build(body.data, 'api', reply);
     if (!built) return reply;
     const prefs = readPrefs(dataDir);
+    // A closed page cancels the paid call (the response is not finished when its socket closes).
+    const abort = new AbortController();
+    reply.raw.on('close', () => {
+      if (!reply.raw.writableFinished) abort.abort();
+    });
     try {
-      const result = await runPrompt(makeClient(key, { fetchImpl: deps.fetchImpl }), { model: prefs.model, effort: prefs.effort, prompt: built.prompt });
+      const result = await runPrompt(makeClient(key, { fetchImpl: deps.fetchImpl }), { model: prefs.model, effort: prefs.effort, prompt: built.prompt, signal: abort.signal });
+      if (!result.truncated && !result.text) return reply.code(502).send({ error: 'Claude returned an empty answer', code: 'unexpected' });
       // The prompt itself is not stored: it lists the whole mod set.
-      audit(db, 'assistant.run', body.data.action, { target: 'runId' in body.data ? body.data.runId : { base: body.data.base, other: body.data.other }, model: result.model, effort: prefs.effort, inputTokens: result.inputTokens, outputTokens: result.outputTokens });
-      return { text: result.text, model: result.model, effort: prefs.effort, inputTokens: result.inputTokens, outputTokens: result.outputTokens, rows: built.rows, shown: built.shown };
+      audit(db, 'assistant.run', body.data.action, { target: 'runId' in body.data ? body.data.runId : { base: body.data.base, other: body.data.other }, model: result.model, effort: prefs.effort, inputTokens: result.inputTokens, outputTokens: result.outputTokens, truncated: result.truncated });
+      const answer = { text: result.text, model: result.model, effort: prefs.effort, inputTokens: result.inputTokens, outputTokens: result.outputTokens, rows: built.rows, shown: built.shown };
+      // An answer cut at the token limit is still shown, but flagged: it may stop in the middle of the list.
+      return result.truncated ? { ...answer, truncated: true, code: 'truncated' } : answer;
     } catch (err) {
       if (err instanceof RefusedError) return reply.code(422).send({ error: 'Claude declined to answer this request', code: 'refused' });
       if (err instanceof Anthropic.AuthenticationError || err instanceof Anthropic.PermissionDeniedError) return reply.code(502).send({ error: 'the API refused the key', code: 'rejected' });
       if (err instanceof Anthropic.RateLimitError) return reply.code(429).send({ error: 'rate limited, try again in a moment', code: 'rate_limited' });
+      if (err instanceof Anthropic.APIConnectionTimeoutError) return reply.code(502).send({ error: 'the Anthropic API did not answer in time', code: 'unreachable' });
       if (err instanceof Anthropic.APIConnectionError) return reply.code(502).send({ error: 'the Anthropic API is unreachable', code: 'unreachable' });
       if (err instanceof Anthropic.APIError) return reply.code(502).send({ error: `the API answered ${err.status ?? 'an error'}`, code: 'unexpected' });
       throw err;
@@ -119,8 +137,10 @@ export function registerAssistantRoutes(api: FastifyInstance, deps: AppDeps): vo
     if (!id.success) return sendBadRequest(reply, id.error);
     const profile = profileOr404(deps, id.data, reply);
     if (!profile) return reply;
-    if (profile.locationKind === 'zip' || profile.locationKind === 'agent') return reply.code(409).send({ error: 'only an instance folder has a minecraftinstance.json' });
-    const sources = readInstanceSources(profile.location);
+    if (profile.locationKind === 'zip' || profile.locationKind === 'agent') return reply.code(409).send({ error: 'only an instance folder has a minecraftinstance.json', code: 'not_an_instance_folder' });
+    const sources = readInstanceSourcesChecked(profile.location);
+    // An unreadable file (a launcher may be rewriting it) must never wipe the links already stored.
+    if (sources === null) return reply.code(409).send({ error: 'minecraftinstance.json could not be read: the stored links are unchanged', code: 'instance_unreadable' });
     storeSources(db, profile.id, sources);
     audit(db, 'profile.sources', String(profile.id), { count: sources.length });
     return { count: sources.length };

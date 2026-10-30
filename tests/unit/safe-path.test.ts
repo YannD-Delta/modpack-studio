@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PathEscapeError, safeResolve } from '../../src/server/fs-safe/safe-path.js';
 
 let tmp: string;
@@ -49,9 +49,30 @@ describe('safeResolve accepts', () => {
     expect(p.toLowerCase()).toBe(path.join(root, 'config').toLowerCase());
   });
 
-  const unc = '\\\\localhost\\C$\\Windows';
-  const uncOk = (() => { try { return fs.existsSync(unc); } catch { return false; } })();
-  it.skipIf(!uncOk)('children of a UNC root', () => {
-    expect(safeResolve(unc, 'System32').toLowerCase()).toBe((unc + '\\System32').toLowerCase());
+  // Hermetic: a synthetic UNC root with the two fs calls safeResolve makes stubbed, so nothing reaches SMB, DNS or a real system folder.
+  describe('a UNC root (stubbed file system)', () => {
+    const unc = '\\\\srv\\share\\pack';
+    beforeEach(() => {
+      vi.spyOn(fs, 'existsSync').mockReturnValue(true);
+      vi.spyOn(fs.realpathSync, 'native').mockImplementation((p) => String(p));
+    });
+    afterEach(() => vi.restoreAllMocks());
+
+    it('resolves children below the root, root compared case-insensitively', () => {
+      expect(safeResolve(unc, 'config\\mod.toml').toLowerCase()).toBe((unc + '\\config\\mod.toml').toLowerCase());
+      expect(safeResolve(unc.toUpperCase(), 'config').toLowerCase()).toBe((unc + '\\config').toLowerCase());
+    });
+
+    it('rejects a link whose real path leaves the root', () => {
+      vi.mocked(fs.realpathSync.native).mockImplementation((p) => (String(p).endsWith('link') ? '\\\\srv\\share\\other' : String(p)));
+      expect(() => safeResolve(unc, 'link')).toThrow(PathEscapeError);
+    });
+  });
+
+  // Opt-in only: the real admin share is never probed unless the flag is set (the flag is read before any fs call).
+  const realUnc = '\\\\localhost\\C$\\Windows';
+  const realUncOk = process.env.STUDIO_TEST_REAL_UNC === '1' && (() => { try { return fs.existsSync(realUnc); } catch { return false; } })();
+  it.skipIf(!realUncOk)('children of a real UNC root (opt-in)', () => {
+    expect(safeResolve(realUnc, 'System32').toLowerCase()).toBe((realUnc + '\\System32').toLowerCase());
   });
 });

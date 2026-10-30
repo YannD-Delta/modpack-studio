@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState, type FormEvent } from 'react';
 import { api, CELL_KEYS, type MatrixRow, type Profile } from '../api.js';
-import { t, getPackNames } from '../i18n/index.js';
+import { ErrorNotice, errorText } from '../components/ErrorNotice.js';
+import { t, tf, getPackNames } from '../i18n/index.js';
 
 const STATE_STYLE: Record<string, string> = {
   clean: 'border-emerald-700/60 bg-emerald-950/50 text-emerald-300',
@@ -29,18 +30,46 @@ export function Profiles() {
   const qc = useQueryClient();
   const matrix = useQuery({ queryKey: ['matrix'], queryFn: () => api<MatrixRow[]>('/profiles/matrix') });
   const events = useJobEvents();
-  const [form, setForm] = useState({ pack: getPackNames().upstream, version: '', side: 'server', state: 'clean', locationKind: 'zip', location: '' });
+  // The form keeps the role (followed pack or own pack), never a pack name: the name is read from Settings at render and submit time.
+  const [form, setForm] = useState({ role: 'upstream' as 'upstream' | 'own', version: '', side: 'server', state: 'clean', locationKind: 'zip', location: '' });
   const [notice, setNotice] = useState<string | null>(null);
+  const [editing, setEditing] = useState<{ id: number; location: string } | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState<number | null>(null);
+  const names = getPackNames();
 
   const create = useMutation({
-    mutationFn: () => api('/profiles', { method: 'POST', body: form }),
+    mutationFn: () => {
+      const { role, ...rest } = form;
+      return api('/profiles', { method: 'POST', body: { ...rest, pack: getPackNames()[role] } });
+    },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['matrix'] }),
-    onError: (e: Error) => setNotice(e.message),
+    onError: (e: Error) => setNotice(errorText(e)),
+  });
+  const saveLocation = useMutation({
+    mutationFn: (v: { id: number; location: string }) => api(`/profiles/${v.id}`, { method: 'PATCH', body: { location: v.location } }),
+    onSuccess: () => {
+      setEditing(null);
+      setNotice(t('profiles.locationSaved'));
+      void qc.invalidateQueries({ queryKey: ['matrix'] });
+    },
+    onError: (e: Error) => setNotice(errorText(e)),
+  });
+  const remove = useMutation({
+    mutationFn: (id: number) => api(`/profiles/${id}`, { method: 'DELETE' }),
+    onSuccess: () => {
+      setConfirmingDelete(null);
+      setNotice(t('profiles.deleted'));
+      void qc.invalidateQueries({ queryKey: ['matrix'] });
+    },
+    onError: (e: Error) => {
+      setConfirmingDelete(null);
+      setNotice(errorText(e));
+    },
   });
   const runImport = useMutation({
     mutationFn: (p: Profile) => api(`/profiles/${p.id}/import`, { method: 'POST', body: { source: { kind: p.locationKind === 'zip' ? 'zip' : 'folder', path: p.location } } }),
     onSuccess: () => setNotice(t('profiles.importStarted')),
-    onError: (e: Error) => setNotice(e.message),
+    onError: (e: Error) => setNotice(errorText(e)),
   });
 
   const submit = (e: FormEvent) => {
@@ -64,6 +93,7 @@ export function Profiles() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800">
+              {matrix.isError && <tr><td colSpan={7} className="px-4 py-6"><ErrorNotice error={matrix.error} /></td></tr>}
               {matrix.data?.length === 0 && (
                 <tr><td colSpan={7} className="px-4 py-6 text-slate-400">{t('profiles.empty')}</td></tr>
               )}
@@ -74,11 +104,37 @@ export function Profiles() {
                     const p = row.cells[k];
                     return p ? (
                       <td key={k} data-testid="cell-filled" className="px-3 py-2">
-                        <div className={`flex items-center justify-between gap-2 rounded-lg border px-2 py-1 text-xs ${STATE_STYLE[p.state] ?? ''}`}>
-                          <span>✓ {p.locationKind}</span>
-                          <button aria-label={`${t('profiles.import')} ${p.id}`} onClick={() => runImport.mutate(p)} className="rounded bg-slate-800 px-1.5 py-0.5 text-slate-200 hover:bg-slate-700">
-                            {t('profiles.import')}
-                          </button>
+                        <div className={`space-y-1 rounded-lg border px-2 py-1 text-xs ${STATE_STYLE[p.state] ?? ''}`}>
+                          <div className="flex items-center justify-between gap-2">
+                            <span>✓ {p.locationKind}</span>
+                            <button aria-label={`${t('profiles.import')} ${p.id}`} onClick={() => runImport.mutate(p)} className="rounded bg-slate-800 px-1.5 py-0.5 text-slate-200 hover:bg-slate-700">
+                              {t('profiles.import')}
+                            </button>
+                          </div>
+                          <div className="break-all font-mono text-[11px] opacity-80" title={t('profiles.locationShown')}>{p.location}</div>
+                          <div className="text-[11px]">
+                            {p.importedAt ? t('profiles.imported') : t('profiles.notImported')}
+                            {(p.importIssueCount ?? 0) > 0 && <span className="ml-1 text-amber-300">· {tf('profiles.skipped', { n: String(p.importIssueCount) })}</span>}
+                          </div>
+                          {editing?.id === p.id ? (
+                            <div className="flex gap-1">
+                              <input aria-label={`${t('profiles.location')} ${p.id}`} value={editing.location} onChange={(e) => setEditing({ id: p.id, location: e.target.value })} className={`${field} min-w-0 flex-1 px-1.5 py-0.5 text-xs`} />
+                              <button aria-label={`${t('profiles.saveLocation')} ${p.id}`} disabled={saveLocation.isPending || !editing.location.trim()} onClick={() => saveLocation.mutate(editing)} className="rounded bg-slate-800 px-1.5 py-0.5 text-slate-200 hover:bg-slate-700 disabled:opacity-50">{t('profiles.saveLocation')}</button>
+                              <button onClick={() => setEditing(null)} className="rounded bg-slate-800 px-1.5 py-0.5 text-slate-200 hover:bg-slate-700">{t('profiles.cancel')}</button>
+                            </div>
+                          ) : (
+                            <div className="flex gap-1">
+                              <button aria-label={`${t('profiles.editLocation')} ${p.id}`} onClick={() => setEditing({ id: p.id, location: p.location })} className="rounded bg-slate-800 px-1.5 py-0.5 text-slate-200 hover:bg-slate-700">{t('profiles.editLocation')}</button>
+                              {confirmingDelete === p.id ? (
+                                <>
+                                  <button aria-label={`${t('profiles.confirmDelete')} ${p.id}`} disabled={remove.isPending} onClick={() => remove.mutate(p.id)} className="rounded bg-rose-900 px-1.5 py-0.5 text-rose-100 hover:bg-rose-800 disabled:opacity-50">{t('profiles.confirmDelete')}</button>
+                                  <button onClick={() => setConfirmingDelete(null)} className="rounded bg-slate-800 px-1.5 py-0.5 text-slate-200 hover:bg-slate-700">{t('profiles.cancel')}</button>
+                                </>
+                              ) : (
+                                <button aria-label={`${t('profiles.delete')} ${p.id}`} onClick={() => setConfirmingDelete(p.id)} className="rounded bg-slate-800 px-1.5 py-0.5 text-slate-200 hover:bg-slate-700">{t('profiles.delete')}</button>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </td>
                     ) : (
@@ -99,8 +155,8 @@ export function Profiles() {
       </div>
 
       <form onSubmit={submit} className="flex flex-wrap items-end gap-3 rounded-xl border border-slate-800 bg-slate-900/50 p-4">
-        <select aria-label="Pack" value={form.pack} onChange={(e) => setForm({ ...form, pack: e.target.value })} className={field}>
-          <option>{getPackNames().upstream}</option><option>{getPackNames().own}</option>
+        <select aria-label="Pack" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as 'upstream' | 'own' })} className={field}>
+          <option value="upstream">{names.upstream}</option><option value="own">{names.own}</option>
         </select>
         <input aria-label={t('profiles.version')} placeholder={t('profiles.version')} value={form.version} onChange={(e) => setForm({ ...form, version: e.target.value })} className={`${field} w-28`} />
         <select aria-label="Côté" value={form.side} onChange={(e) => setForm({ ...form, side: e.target.value })} className={field}>
@@ -110,7 +166,7 @@ export function Profiles() {
           <option>clean</option><option>launched</option><option>run</option>
         </select>
         <select aria-label="Type" value={form.locationKind} onChange={(e) => setForm({ ...form, locationKind: e.target.value })} className={field}>
-          <option>zip</option><option>folder</option><option>smb</option><option>agent</option>
+          <option>zip</option><option>folder</option><option>smb</option>
         </select>
         <input aria-label={t('profiles.location')} placeholder={t('profiles.location')} value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} className={`${field} min-w-72 flex-1`} />
         <button type="submit" className="rounded-lg bg-violet-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-violet-500">{t('profiles.create')}</button>

@@ -24,6 +24,9 @@ const MAX_VIEW_BYTES = 1024 * 1024;
 const MAX_DIFF_LINES = 5000;
 const MAX_ISSUES_SHOWN = 200;
 
+/** Machine-readable `code` of the errors of this area (the web client reads `error` and `code`). */
+const CODE = { notScanned: 'not_scanned', triadState: 'triad_state', triadMismatch: 'triad_mismatch', triadDistinct: 'triad_distinct' } as const;
+
 class ConfigsHttpError extends Error {
   constructor(public readonly status: number, message: string, public readonly extra: object = {}) {
     super(message);
@@ -64,6 +67,22 @@ function relOr400(rel: string): string {
   }
 }
 
+/**
+ * The three copies of a three-copy analysis must really be a clean, a launched and a played copy of the same pack, version and side:
+ * otherwise the answer would be confident but meaningless.
+ */
+function assertTriad(p: { clean: Profile; launched: Profile; played: Profile }): void {
+  if (new Set([p.clean.id, p.launched.id, p.played.id]).size !== 3) throw new ConfigsHttpError(400, 'pick three different profiles', { code: CODE.triadDistinct });
+  const roles = [['clean', p.clean, 'clean'], ['launched', p.launched, 'launched'], ['played', p.played, 'run']] as const;
+  for (const [role, profile, state] of roles) {
+    if (profile.state !== state) throw new ConfigsHttpError(400, `the ${role} copy must be a profile in state ${state}, not ${profile.state}`, { code: CODE.triadState, role, profileId: profile.id });
+  }
+  const same = (f: (x: Profile) => string) => new Set([p.clean, p.launched, p.played].map(f)).size === 1;
+  if (!same((x) => x.pack) || !same((x) => x.version) || !same((x) => x.side)) {
+    throw new ConfigsHttpError(400, 'the clean, launched and played copies must be the same pack, version and side', { code: CODE.triadMismatch });
+  }
+}
+
 const profileInfo = (p: Profile, scannedAt: string | null) => ({ id: p.id, pack: p.pack, version: p.version, side: p.side, state: p.state, immutable: p.immutable, scannedAt });
 
 type Handler = (req: FastifyRequest, reply: FastifyReply) => Promise<unknown>;
@@ -74,7 +93,7 @@ const guarded = (fn: Handler): Handler => async (req, reply) => {
     return await fn(req, reply);
   } catch (err) {
     if (err instanceof ConfigsHttpError) return reply.code(err.status).send({ error: err.message, ...err.extra });
-    if (err instanceof NotScannedError) return reply.code(409).send({ error: err.message, notScanned: err.profileId });
+    if (err instanceof NotScannedError) return reply.code(409).send({ error: err.message, code: CODE.notScanned, notScanned: err.profileId });
     if (err instanceof InvalidRelPathError || err instanceof PathEscapeError) return reply.code(400).send({ error: err.message });
     throw err;
   }
@@ -142,6 +161,8 @@ export function registerConfigsRoutes(api: FastifyInstance, deps: AppDeps): void
       total: Object.keys(inv.files).length,
       bytes,
       perRoot,
+      /** Known binaries (textures...) that were only compared by size (quick scan): their content was never read. */
+      sizeOnlyFiles: Object.values(inv.files).filter((e) => e.sizeOnly).length,
       issueCount: inv.issues.length,
       issues: inv.issues.slice(0, MAX_ISSUES_SHOWN),
       ...(q.data.full === '1' ? { files: inv.files } : {}),
@@ -265,9 +286,13 @@ export function registerConfigsRoutes(api: FastifyInstance, deps: AppDeps): void
   api.get(`${API_PREFIX}/configs/customizations`, guarded(async (req, reply) => {
     const q = TriadQuery.safeParse(req.query);
     if (!q.success) return sendBadRequest(reply, q.error);
-    if (new Set([q.data.clean, q.data.launched, q.data.played]).size !== 3) throw new ConfigsHttpError(400, 'pick three different profiles');
+    if (new Set([q.data.clean, q.data.launched, q.data.played]).size !== 3) throw new ConfigsHttpError(400, 'pick three different profiles', { code: CODE.triadDistinct });
     const profiles = { clean: profileOr404(db, q.data.clean), launched: profileOr404(db, q.data.launched), played: profileOr404(db, q.data.played) };
-    return analyzeCustomizations(dataDir, profiles, { includeUntouched: q.data.untouched === '1' });
+    assertTriad(profiles);
+    const result = await analyzeCustomizations(dataDir, profiles, { includeUntouched: q.data.untouched === '1' });
+    // The analysis uses the last scan of each copy (a played copy is not rescanned by the analysis): say when that was.
+    const at = (p: Profile) => readInventoryCache(dataDir, p.id)?.scannedAt ?? null;
+    return { ...result, scannedAt: { clean: at(profiles.clean), launched: at(profiles.launched), played: at(profiles.played) } };
   }));
 
   /** Files to keep in the pack are stored as a plan from the played instance (the source) against the launched one. */
@@ -275,8 +300,9 @@ export function registerConfigsRoutes(api: FastifyInstance, deps: AppDeps): void
     const body = TriadPlanBody.safeParse(req.body);
     if (!body.success) return sendBadRequest(reply, body.error);
     const { clean, launched, played, paths, selected } = body.data;
-    if (new Set([clean, launched, played]).size !== 3) throw new ConfigsHttpError(400, 'pick three different profiles');
+    if (new Set([clean, launched, played]).size !== 3) throw new ConfigsHttpError(400, 'pick three different profiles', { code: CODE.triadDistinct });
     const profiles = { clean: profileOr404(db, clean), launched: profileOr404(db, launched), played: profileOr404(db, played) };
+    assertTriad(profiles);
     let keys = paths;
     if (selected) {
       const found = await analyzeCustomizations(dataDir, profiles);

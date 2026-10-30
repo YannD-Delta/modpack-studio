@@ -21,3 +21,10 @@ describe('runInPool', () => {
     await expect(runInPool('nope', {})).rejects.toThrow(/unknown task/i);
   });
 });
+
+describe('sha256-buffer', () => {
+  it('hashes bytes handed over by the caller', async () => {
+    const expected = crypto.createHash('sha256').update('abc').digest('hex');
+    expect(await runInPool<{ sha256: string; size: number }>('sha256-buffer', { buffer: Buffer.from('abc') })).toEqual({ sha256: expected, size: 3 });
+  });
+});

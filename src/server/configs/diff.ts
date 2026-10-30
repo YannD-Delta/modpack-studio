@@ -10,12 +10,24 @@ export const STATUS_ORDER: FileStatus[] = ['onlyInBase', 'modified', 'binaryDiff
 export const PLANNABLE: ReadonlySet<FileStatus> = new Set<FileStatus>(['modified', 'onlyInBase']);
 
 export type InventoryFiles = Record<string, InventoryEntry>;
-export type DiffFile = { path: string; root: string; ext: string; kind: FileKind; status: FileStatus; baseSize: number | null; otherSize: number | null };
+export type DiffFile = {
+  path: string;
+  root: string;
+  ext: string;
+  kind: FileKind;
+  status: FileStatus;
+  baseSize: number | null;
+  otherSize: number | null;
+  /** Set on an `identical` file when at least one side was scanned quick (size only): the content was not byte-verified. */
+  sizeOnly?: true;
+};
 export type ConfigDiff = {
   summary: { perStatus: Record<FileStatus, number>; perRoot: Record<string, Record<FileStatus, number>> };
   files: DiffFile[];
   total: number;
   truncated: boolean;
+  /** How many `identical` files were only compared by size (one side has no real hash). 0 when every comparison was byte-exact. */
+  sizeOnlyIdentical: number;
 };
 export type ContentLoader = (side: 'base' | 'other', path: string) => Promise<Buffer>;
 export type DiffOptions = { load?: ContentLoader; concurrency?: number; maxFiles?: number };
@@ -69,8 +81,11 @@ export async function diffInventories(base: InventoryFiles, other: InventoryFile
       continue;
     }
     const kind: FileKind = a.kind === 'binary' || b.kind === 'binary' ? 'binary' : 'text';
-    if (a.sha256 === b.sha256) {
-      files.push({ ...mk(path, a, 'identical', a.size, b.size), kind });
+    // A quick scan stores `size:<n>` instead of a sha256: that pseudo-hash must never be compared with a real one, so either side
+    // being size-only means the sizes decide (equal sizes = unchanged, but not byte-verified).
+    const approx = !!(a.sizeOnly || b.sizeOnly);
+    if (approx ? a.size === b.size : a.sha256 === b.sha256) {
+      files.push({ ...mk(path, a, 'identical', a.size, b.size), kind, ...(approx ? { sizeOnly: true as const } : {}) });
     } else if (a.tooLarge || b.tooLarge) {
       files.push({ ...mk(path, a, 'tooLarge', a.size, b.size), kind: 'binary' });
     } else if (kind === 'binary') {
@@ -105,7 +120,8 @@ export async function diffInventories(base: InventoryFiles, other: InventoryFile
   }
   files.sort((x, y) => STATUS_ORDER.indexOf(x.status) - STATUS_ORDER.indexOf(y.status) || (x.path < y.path ? -1 : x.path > y.path ? 1 : 0));
   const max = opts.maxFiles ?? MAX_DIFF_FILES;
-  return { summary: { perStatus, perRoot }, files: files.slice(0, max), total: files.length, truncated: files.length > max };
+  const sizeOnlyIdentical = files.filter((f) => f.sizeOnly).length;
+  return { summary: { perStatus, perRoot }, files: files.slice(0, max), total: files.length, truncated: files.length > max, sizeOnlyIdentical };
 }
 
 /** Clears the in-memory equality cache (tests). */

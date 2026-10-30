@@ -10,6 +10,7 @@ import { openDb, type Db } from '../../src/server/db/open.js';
 import { closePool } from '../../src/server/jobs/pool.js';
 import { JobRunner } from '../../src/server/jobs/runner.js';
 import { createProfile } from '../../src/server/profiles/profile-service.js';
+import { markOrphanRuns } from '../../src/server/testbench/runs.js';
 
 let tmp: string;
 let db: Db;
@@ -18,6 +19,7 @@ let cookie: string;
 let serverProfile: number;
 let clientProfile: number;
 let fake: { command: string; args: string[] };
+let timings: { settleMs: number; stopGraceMs: number };
 
 function put(root: string, rel: string, content: string) {
   const full = path.join(root, ...rel.split('/'));
@@ -45,7 +47,8 @@ beforeEach(async () => {
   fake = { command: process.execPath, args: [script] };
   db = openDb(':memory:');
   const config: Config = { bindHost: '127.0.0.1', port: 0, passwordHash: hashPassword('pw'), allowedHosts: [] };
-  app = buildApp({ db, jobs: new JobRunner(db), config, dataDir: path.join(tmp, 'data'), testBenchStartCommand: fake });
+  timings = { settleMs: 50, stopGraceMs: 2000 };
+  app = buildApp({ db, jobs: new JobRunner(db), config, dataDir: path.join(tmp, 'data'), testBenchStartCommand: fake, testBenchTimings: timings });
   await app.ready();
   cookie = String((await app.inject({ method: 'POST', url: '/api/v1/auth/login', payload: { password: 'pw' } })).headers['set-cookie']).split(';')[0]!;
   serverProfile = createProfile(db, { pack: 'Own', version: 'test', side: 'server', state: 'launched', locationKind: 'folder', location: src }).id;
@@ -125,13 +128,120 @@ describe('testbench api', () => {
     expect((await call('GET', '/testbench/runs/x/log?tail=0')).statusCode).toBe(400);
   });
 
-  it('cancels a run in progress', async () => {
-    const { runId } = (await call('POST', '/testbench/server', { profile: serverProfile, timeoutMin: 5 })).json() as { runId: string };
-    await waitFor(async () => (await call('GET', `/testbench/runs/${runId}`)).json().status === 'starting');
+  const runState = async (runId: string) => (await call('GET', `/testbench/runs/${runId}`)).json();
+  const start = async (extra: Record<string, unknown> = {}) => (await call('POST', '/testbench/server', { profile: serverProfile, timeoutMin: 5, ...extra })).json() as { runId: string; jobId: string };
+
+  it('cancels a run before Done: failed with a cancel message', async () => {
+    const { runId } = await start();
+    await waitFor(async () => (await runState(runId)).status === 'starting');
     expect((await call('POST', `/testbench/runs/${runId}/cancel`)).statusCode).toBe(200);
-    await waitFor(async () => {
-      const s = (await call('GET', `/testbench/runs/${runId}`)).json().status;
-      return s === 'failed' || s === 'done';
+    const d = await waitFor(async () => {
+      const r = await runState(runId);
+      return r.result ? r : false;
     });
+    expect(d.status).toBe('failed');
+    expect(d.message).toMatch(/cancel/i);
+  });
+
+  it('cancels a run during the pause after Done, right away', async () => {
+    timings.settleMs = 20_000;
+    const { runId } = await start();
+    await waitFor(async () => (await runState(runId)).status === 'ready');
+    const t0 = Date.now();
+    expect((await call('POST', `/testbench/runs/${runId}/cancel`)).statusCode).toBe(200);
+    const d = await waitFor(async () => {
+      const r = await runState(runId);
+      return r.result ? r : false;
+    });
+    expect(d.status).toBe('failed');
+    expect(d.message).toMatch(/cancel/i);
+    expect(Date.now() - t0).toBeLessThan(10_000);
+  });
+
+  it('refuses to cancel a run that is already finished, and leaves its result alone', async () => {
+    const { runId } = await start();
+    const done = await waitFor(async () => {
+      const r = await runState(runId);
+      return r.status === 'done' ? r : false;
+    });
+    const res = await call('POST', `/testbench/runs/${runId}/cancel`);
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toMatchObject({ code: 'run-finished' });
+    expect((await runState(runId)).result).toEqual(done.result);
+  });
+
+  it('a run cancelled while queued ends interrupted instead of staying queued forever', async () => {
+    timings.settleMs = 20_000;
+    const a = await start();
+    const b = await start({ port: 25571 });
+    expect(b.runId).not.toBe(a.runId);
+    expect((await runState(b.runId)).status).toBe('queued');
+    expect((await call('POST', `/testbench/runs/${b.runId}/cancel`)).statusCode).toBe(200);
+    const dB = await runState(b.runId);
+    expect(dB.status).toBe('interrupted');
+    expect(dB.result.status).toBe('interrupted');
+    expect((await call('POST', `/testbench/runs/${b.runId}/cancel`)).statusCode).toBe(409);
+    expect((await call('GET', '/testbench/runs')).json().find((r: { id: string }) => r.id === b.runId).status).toBe('interrupted');
+    await call('POST', `/testbench/runs/${a.runId}/cancel`);
+  });
+
+  it('a run left live by a previous process is interrupted at startup and when read', async () => {
+    const dataDir = path.join(tmp, 'data');
+    const runDir = path.join(dataDir, 'tests', 'old-run');
+    put(runDir, 'meta.json', JSON.stringify({ id: 'old-run', profileId: serverProfile, label: 'Own', memoryMb: 1024, port: 25570, createdAt: '2020-01-01T00:00:00.000Z', jobId: null }));
+    put(runDir, 'status.json', JSON.stringify({ status: 'ready', message: null, at: '2020-01-01T00:00:00.000Z' }));
+    expect(markOrphanRuns(dataDir)).toBe(1);
+    expect(markOrphanRuns(dataDir)).toBe(0); // finished runs are never rewritten
+    const d = await runState('old-run');
+    expect(d.status).toBe('interrupted');
+    expect(d.message).toMatch(/restarted/);
+
+    // same thing seen through the job row: the job was interrupted, the run left a live status behind
+    const { runId, jobId } = await start();
+    await waitFor(async () => (db.sqlite.prepare('SELECT status FROM job WHERE id = ?').get(jobId) as { status: string }).status === 'done');
+    fs.rmSync(path.join(tmp, 'data', 'tests', runId, 'result.json'), { force: true });
+    db.sqlite.prepare("UPDATE job SET status = 'interrupted' WHERE id = ?").run(jobId);
+    expect((await runState(runId)).status).toBe('interrupted');
+  });
+
+  it('lists a run whose job was interrupted without a result as interrupted, and exposes the stop outcome of a finished one', async () => {
+    const finished = await start();
+    const done = await waitFor(async () => {
+      const r = await runState(finished.runId);
+      return r.result ? r : false;
+    });
+    expect(['clean', 'forced', 'exited-early']).toContain(done.result.stopOutcome);
+    const { runId, jobId } = await start({ port: 25573 });
+    await waitFor(async () => (db.sqlite.prepare('SELECT status FROM job WHERE id = ?').get(jobId) as { status: string }).status === 'done');
+    fs.rmSync(path.join(tmp, 'data', 'tests', runId, 'result.json'), { force: true });
+    fs.writeFileSync(path.join(tmp, 'data', 'tests', runId, 'status.json'), JSON.stringify({ status: 'starting', message: null, at: new Date().toISOString() }));
+    db.sqlite.prepare("UPDATE job SET status = 'interrupted' WHERE id = ?").run(jobId);
+    const listed = (await call('GET', '/testbench/runs')).json() as { id: string; status: string }[];
+    expect(listed.find((r) => r.id === runId)?.status).toBe('interrupted');
+  });
+
+  it('gives two starts of the same profile in the same second different runs, and a double click only one job', async () => {
+    timings.settleMs = 20_000;
+    const first = await start();
+    const doubleClick = await start();
+    expect(doubleClick).toMatchObject({ runId: first.runId, jobId: first.jobId });
+    const other = await start({ port: 25572 });
+    expect(other.runId).not.toBe(first.runId);
+    expect(other.jobId).not.toBe(first.jobId);
+    const metaOf = (id: string) => JSON.parse(fs.readFileSync(path.join(tmp, 'data', 'tests', id, 'meta.json'), 'utf8')) as { jobId: string };
+    expect(metaOf(first.runId).jobId).toBe(first.jobId);
+    expect(metaOf(other.runId).jobId).toBe(other.jobId);
+    await call('POST', `/testbench/runs/${other.runId}/cancel`);
+    await call('POST', `/testbench/runs/${first.runId}/cancel`);
+  });
+
+  it('removes the server copy after the run unless keepCopy is set', async () => {
+    const { runId } = await start();
+    await waitFor(async () => (await runState(runId)).status === 'done');
+    expect(fs.existsSync(path.join(tmp, 'data', 'tests', runId, 'server'))).toBe(false);
+    expect(fs.existsSync(path.join(tmp, 'data', 'tests', runId, 'console.log'))).toBe(true);
+    const kept = await start({ keepCopy: true, port: 25573 });
+    await waitFor(async () => (await runState(kept.runId)).status === 'done');
+    expect(fs.existsSync(path.join(tmp, 'data', 'tests', kept.runId, 'server', 'mods', 'a.jar'))).toBe(true);
   });
 });

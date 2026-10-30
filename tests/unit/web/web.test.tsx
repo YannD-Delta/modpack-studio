@@ -4,6 +4,8 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import type { ReactElement } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { App } from '../../../src/web/App.js';
+import { setPackNames } from '../../../src/web/i18n/index.js';
 import { Blacklist } from '../../../src/web/pages/Blacklist.js';
 import { Login } from '../../../src/web/pages/Login.js';
 import { Mods } from '../../../src/web/pages/Mods.js';
@@ -22,6 +24,7 @@ function mockApi(handler: Handler) {
 }
 const wrap = (ui: ReactElement) => render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>{ui}</QueryClientProvider>);
 afterEach(() => {
+  setPackNames({ upstream: 'Base', own: 'Own' });
   cleanup();
   vi.unstubAllGlobals();
 });
@@ -112,5 +115,120 @@ describe('Blacklist', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Ajouter tout (Base)' }));
     await waitFor(() => expect(calls.filter((c) => c.method === 'PUT').length).toBe(1));
     expect(JSON.parse(calls.find((c) => c.method === 'PUT')!.body!)).toEqual({ action: 'adopt-atm', server: 1, client: 2 });
+  });
+
+  it('offers only clean profiles in the adopt selects (the server refuses played copies)', async () => {
+    const played = [{ pack: 'Base', version: '8.3', cells: { 'server-clean': profile(1, 'Base', '8.3', 'server', 'clean', 'zip'), 'server-launched': profile(4, 'Base', '8.3', 'server', 'launched'), 'client-clean': profile(2, 'Base', '8.3', 'client', 'clean'), 'client-launched': profile(5, 'Base', '8.3', 'client', 'launched'), 'client-run': profile(6, 'Base', '8.3', 'client', 'run'), 'server-run': null } }];
+    mockApi((url) => ({ body: url.includes('/profiles/matrix') ? played : [] }));
+    wrap(<Blacklist />);
+    const server = await screen.findByLabelText('Pack serveur Base');
+    const optionIds = (el: HTMLElement) => [...el.querySelectorAll('option')].map((o) => o.value).filter(Boolean);
+    expect(optionIds(server)).toEqual(['1']);
+    expect(optionIds(screen.getByLabelText('Client Base'))).toEqual(['2']);
+  });
+});
+
+describe('Profiles actions', () => {
+  const imported = { ...profile(1, 'Base', '8.3', 'server', 'clean', 'zip'), location: '/data/base.zip', importedAt: '2026-10-01T10:00:00Z', importIssueCount: 3 };
+  const fresh = { ...profile(2, 'Base', '8.3', 'client', 'clean'), location: '/data/base-client', importedAt: null, importIssueCount: 0 };
+  const m = [{ pack: 'Base', version: '8.3', cells: { 'server-clean': imported, 'client-clean': fresh, 'client-launched': null, 'client-run': null, 'server-launched': null, 'server-run': null } }];
+
+  it('creates a profile under the configured pack name, not the built-in default', async () => {
+    setPackNames({ upstream: 'Alpha Pack', own: 'Beta Pack' });
+    mockApi(() => ({ body: [] }));
+    wrap(<Profiles />);
+    await userEvent.type(screen.getByLabelText('Version'), '1.0');
+    await userEvent.type(screen.getByLabelText('Chemin (zip ou dossier)'), '/x');
+    await userEvent.click(screen.getByRole('button', { name: 'Créer le profil' }));
+    await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url.endsWith('/profiles'))).toBe(true));
+    expect(JSON.parse(calls.find((c) => c.method === 'POST')!.body!)).toMatchObject({ pack: 'Alpha Pack', version: '1.0' });
+    await userEvent.selectOptions(screen.getByLabelText('Pack'), 'Beta Pack');
+    await userEvent.click(screen.getByRole('button', { name: 'Créer le profil' }));
+    await waitFor(() => expect(calls.filter((c) => c.method === 'POST').length).toBe(2));
+    expect(JSON.parse(calls.filter((c) => c.method === 'POST')[1]!.body!).pack).toBe('Beta Pack');
+  });
+
+  it('shows the location, the import state and the skipped jars', async () => {
+    mockApi(() => ({ body: m }));
+    wrap(<Profiles />);
+    expect(await screen.findByText('/data/base.zip')).toBeTruthy();
+    expect(screen.getByText('importé')).toBeTruthy();
+    expect(screen.getByText(/3 jar ignoré/)).toBeTruthy();
+    expect(screen.getByText('pas encore importé')).toBeTruthy();
+  });
+
+  it('edits the location with a PATCH', async () => {
+    mockApi((_u, init) => ({ body: init?.method === 'PATCH' ? { ok: true } : m }));
+    wrap(<Profiles />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Modifier le chemin 2' }));
+    const input = screen.getByLabelText('Chemin (zip ou dossier) 2');
+    await userEvent.clear(input);
+    await userEvent.type(input, '/moved');
+    await userEvent.click(screen.getByRole('button', { name: 'Enregistrer 2' }));
+    await waitFor(() => expect(calls.some((c) => c.method === 'PATCH')).toBe(true));
+    const patch = calls.find((c) => c.method === 'PATCH')!;
+    expect(patch.url).toBe('/api/v1/profiles/2');
+    expect(JSON.parse(patch.body!)).toEqual({ location: '/moved' });
+  });
+
+  it('deletes only after a second confirmation click and shows the 409 message', async () => {
+    mockApi((_u, init) => (init?.method === 'DELETE' ? { status: 409, body: { error: 'a job is running', code: 'job_running' } } : { body: m }));
+    wrap(<Profiles />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Supprimer 2' }));
+    expect(calls.some((c) => c.method === 'DELETE')).toBe(false);
+    await userEvent.click(screen.getByRole('button', { name: 'Confirmer la suppression 2' }));
+    expect(await screen.findByText('Erreur : a job is running')).toBeTruthy();
+  });
+});
+
+describe('Errors and stale state', () => {
+  it('shows a French error instead of loading forever when the matrix fails', async () => {
+    mockApi(() => ({ status: 500, body: { error: 'database is locked' } }));
+    wrap(<Mods />);
+    expect(await screen.findByText('Erreur : database is locked')).toBeTruthy();
+    expect(screen.queryByText('Chargement…')).toBeNull();
+  });
+
+  it('prints the configured followed-pack name on derived blacklist rows', async () => {
+    setPackNames({ upstream: 'Alpha Pack', own: 'Own' });
+    mockApi((url) => ({ body: url.includes('/profiles/matrix') ? [{ pack: 'Alpha Pack', version: '1', cells: { 'server-clean': profile(1, 'Alpha Pack', '1', 'server', 'clean') } }] : [{ modId: 'cli', origin: 'atm_derived', stale: false }] }));
+    wrap(<Blacklist />);
+    await userEvent.selectOptions(await screen.findByLabelText('Pack serveur Alpha Pack'), '1');
+    expect(await screen.findByText('Alpha Pack', { selector: 'span.rounded-full' })).toBeTruthy();
+  });
+
+  it('refreshes the diff after a decision and resets the filter when the selection changes', async () => {
+    const d = { added: [], removed: [], updated: [{ modId: 'a', from: { modId: 'a', version: '1.1', sha256: 'x', file: 'a-1.1.jar' }, to: { modId: 'a', version: '1.0', sha256: 'y', file: 'a-1.0.jar' }, direction: 'older' }], rebuilt: [], unchanged: 0 };
+    mockApi((url, init) => {
+      if (url.includes('/profiles/matrix')) return { body: matrix };
+      if (url.includes('/mods/diff')) return { body: d };
+      if (url.includes('/plan?')) return { body: { items: [], decisions: { pins: [], ignored: [], clientOnly: [] } } };
+      if (init?.method === 'PUT') return { body: { ok: true } };
+      return { body: {} };
+    });
+    wrap(<Mods />);
+    await userEvent.selectOptions(await screen.findByLabelText('Référence'), '2');
+    await userEvent.selectOptions(screen.getByLabelText('Comparé à'), '3');
+    await userEvent.click(await screen.findByRole('button', { name: /Pas à jour · 1/ }));
+    const before = calls.filter((c) => c.url.includes('/mods/diff')).length;
+    await userEvent.click(screen.getByRole('button', { name: 'Épingler a' }));
+    await waitFor(() => expect(calls.filter((c) => c.url.includes('/mods/diff')).length).toBeGreaterThan(before));
+    await userEvent.selectOptions(screen.getByLabelText('Comparé à'), '1');
+    await userEvent.selectOptions(screen.getByLabelText('Comparé à'), '3');
+    expect((await screen.findByRole('button', { name: /^Tout · / })).getAttribute('aria-pressed')).toBe('true');
+  });
+});
+
+describe('App session handling', () => {
+  it('falls back to the login form when a page call answers 401', async () => {
+    let loggedOut = false;
+    mockApi((url) => {
+      if (url.includes('/auth/me')) return loggedOut ? { status: 401, body: { error: 'unauthorized' } } : { body: { ok: true } };
+      if (url.includes('/settings')) return { body: { packs: { upstream: 'Base', own: 'Own' } } };
+      loggedOut = true;
+      return { status: 401, body: { error: 'unauthorized' } };
+    });
+    wrap(<App />);
+    expect(await screen.findByLabelText('Mot de passe')).toBeTruthy();
   });
 });

@@ -24,7 +24,7 @@ describe('readJarInfo', () => {
   it('resolves ${file.jarVersion} from the manifest, else from the file name', async () => {
     const withManifest = await info({ fileName: 'a-9.9.9.jar', loader: 'neoforge', mods: [one('a', 'x')], placeholderVersion: true, manifestVersion: '1.2.3' });
     expect(withManifest.mods[0]!.version).toBe('1.2.3');
-    const fromName = await info({ fileName: 'allthemodium-2.1.8-1.19.2-43.1.1.jar', loader: 'neoforge', mods: [one('a', 'x')], placeholderVersion: true });
+    const fromName = await info({ fileName: 'somemod-2.1.8-1.19.2-43.1.1.jar', loader: 'neoforge', mods: [one('a', 'x')], placeholderVersion: true });
     expect(fromName.mods[0]!.version).toBe('2.1.8-1.19.2-43.1.1');
   });
 
@@ -65,5 +65,38 @@ describe('readJarInfo', () => {
     const zip = await openZip(await makeZip({ 'META-INF/neoforge.mods.toml': '\u0000\u0001 not toml [[[', 'META-INF/MANIFEST.MF': 'Manifest-Version: 1.0\r\n' }));
     const r = await readJarInfo(zip, 'broken-1.0.jar');
     expect(r.kind).toBe('library');
+  });
+});
+
+describe('readJarInfo with unreadable metadata', () => {
+  const parse = async (entries: Record<string, string>) => readJarInfo(await openZip(await makeZip(entries)), 'x-1.0.jar');
+
+  it('reads a fabric.mod.json that starts with a BOM', async () => {
+    const r = await parse({ 'fabric.mod.json': '﻿{"id":"fab","version":"2.0"}' });
+    expect(r.kind).toBe('mod');
+    expect(r.mods[0]).toMatchObject({ modId: 'fab', version: '2.0' });
+  });
+
+  it.each([
+    ['trailing comma', '{"id":"fab",}'],
+    ['object id', '{"id":{"a":1},"version":"1"}'],
+    ['array id', '{"id":["a"]}'],
+    ['null document', 'null'],
+  ])('flags a fabric.mod.json with %s as unparsed, not as a library', async (_label, json) => {
+    const r = await parse({ 'fabric.mod.json': json });
+    expect(r.unparsed).toMatch(/fabric\.mod\.json/);
+    expect(r.libraryKey).toBeUndefined();
+  });
+
+  it('flags a mods.toml without any mod id, and unsupported quilt/mcmod metadata', async () => {
+    expect((await parse({ 'META-INF/mods.toml': 'modLoader="javafml"\n' })).unparsed).toMatch(/mods\.toml/);
+    expect((await parse({ 'quilt.mod.json': '{}' })).unparsed).toMatch(/quilt/);
+    expect((await parse({ 'mcmod.info': '[]' })).unparsed).toMatch(/mcmod/);
+  });
+
+  it('still treats a jar without any mod metadata as a library', async () => {
+    const r = await parse({ 'a/B.class': 'x' });
+    expect(r.kind).toBe('library');
+    expect(r.unparsed).toBeUndefined();
   });
 });

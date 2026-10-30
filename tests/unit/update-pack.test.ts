@@ -6,7 +6,7 @@ import path from 'node:path';
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openDb, type Db } from '../../src/server/db/open.js';
 import { closePool } from '../../src/server/jobs/pool.js';
-import { buildUpdatePack, exportSafeName, type ChangesJson } from '../../src/server/mods/update-pack.js';
+import { buildUpdatePack, exportSafeName, removeStaleExportLeftovers, type ChangesJson } from '../../src/server/mods/update-pack.js';
 import { importModSet } from '../../src/server/mods/import-modset.js';
 import { isSafePlanFileKey } from '../../src/server/plan/plan-keys.js';
 import { setPlanItems } from '../../src/server/plan/plan-store.js';
@@ -110,6 +110,7 @@ describe('buildUpdatePack', () => {
     expect(changes.mods.find((m) => m.modId === 'b')).toMatchObject({ action: 'restore', replaces: null });
     expect(changes.base.label).toMatch(/Base 8\.3/);
     expect(fs.readFileSync(path.join(r.folder, 'CHANGES.md'), 'utf8')).toMatch(/\| a \| 1\.0 \| 1\.1 \|/);
+    expect(fs.readFileSync(path.join(r.folder, 'CHANGES.md'), 'utf8')).toContain('without a trailing backslash (`...\\MyInstance`, not `...\\MyInstance\\`)');
 
     // the zip lives next to the folder, never inside it, and holds every file under the export name
     expect(r.zipPath).toBe(path.join(exportsDir, `${r.name}.zip`));
@@ -190,6 +191,53 @@ describe('buildUpdatePack', () => {
     const { base, other } = await scenario();
     setPlanItems(db, base.id, other.id, 'mod', ['a'], true);
     await expect(build(base, other, path.join(other.location, 'exports'))).rejects.toThrow(/inside/);
+  });
+});
+
+describe('buildUpdatePack: real file names, duplicates, leftovers', () => {
+  const removeTxt = (folder: string) => fs.readFileSync(path.join(folder, 'remove.txt'), 'utf8').trim().split(/\r?\n/);
+
+  it('names the file the target really has when identical bytes sit under another name', async () => {
+    const { base, other, exportsDir, lmp } = await scenario();
+    fs.renameSync(path.join(lmp.clientDir, 'mods', 'a-1.0.jar'), path.join(lmp.clientDir, 'mods', 'a-1.0 (1).jar'));
+    setPlanItems(db, base.id, other.id, 'mod', ['a'], true);
+    const r = await build(base, other, exportsDir);
+    expect(removeTxt(r.folder)).toEqual(['a-1.0 (1).jar']);
+    expect(r.warnings.join('\n')).toMatch(/named a-1\.0 \(1\)\.jar in the target/);
+  });
+
+  it('warns when the target does not have the jar at all', async () => {
+    const { base, other, exportsDir, lmp } = await scenario();
+    fs.rmSync(path.join(lmp.clientDir, 'mods', 'a-1.0.jar'));
+    setPlanItems(db, base.id, other.id, 'mod', ['a'], true);
+    const r = await build(base, other, exportsDir);
+    expect(r.warnings.join('\n')).toMatch(/a-1\.0\.jar was not found in the target/);
+  });
+
+  it('lists both jars when the target has two for one mod id, and warns', async () => {
+    const atm = await writeAtmPack(path.join(tmp, 'atm'), { atm: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: [], clientMods: [jar('a', '2.0')] });
+    const own = await writeAtmPack(path.join(tmp, 'own'), { atm: '1.0', neoforge: '21.1.259', mc: '1.21.1', serverMods: [], clientMods: [jar('a', '1.0'), jar('a', '0.9')] });
+    const base = createProfile(db, { pack: 'Base', version: '8.3', side: 'client', state: 'clean', locationKind: 'folder', location: atm.clientDir });
+    const other = createProfile(db, { pack: 'Own', version: '1.0', side: 'client', state: 'clean', locationKind: 'folder', location: own.clientDir });
+    await importModSet(db, { kind: 'folder', path: atm.clientDir }, base.id, ctx);
+    await importModSet(db, { kind: 'folder', path: own.clientDir }, other.id, ctx);
+    setPlanItems(db, base.id, other.id, 'mod', ['a'], true);
+    const r = await build(base, other, path.join(tmp, 'data', 'exports'));
+    expect(removeTxt(r.folder).sort()).toEqual(['a-0.9.jar', 'a-1.0.jar']);
+    expect(r.warnings.join('\n')).toMatch(/a has several jars in the target/);
+    expect(fs.readFileSync(path.join(r.folder, 'CHANGES.md'), 'utf8')).toMatch(/several jars/);
+  });
+
+  it('removeStaleExportLeftovers deletes only .partial leftovers', () => {
+    const dir = path.join(tmp, 'exports');
+    fs.mkdirSync(path.join(dir, 'update-x-1.partial'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'update-x-1.partial', 'big.jar'), 'x');
+    fs.writeFileSync(path.join(dir, 'update-x-1.zip.partial'), 'x');
+    fs.mkdirSync(path.join(dir, 'update-x-2'));
+    fs.writeFileSync(path.join(dir, 'update-x-2.zip'), 'x');
+    expect(removeStaleExportLeftovers(dir).sort()).toEqual(['update-x-1.partial', 'update-x-1.zip.partial']);
+    expect(fs.readdirSync(dir).sort()).toEqual(['update-x-2', 'update-x-2.zip']);
+    expect(removeStaleExportLeftovers(path.join(tmp, 'nope'))).toEqual([]);
   });
 });
 

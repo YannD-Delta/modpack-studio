@@ -27,6 +27,12 @@ describe('diffModSets', () => {
     expect(diffModSets(set([['a', 'ABC', 'h1']]), set([['a', 'DEF', 'h2']])).updated[0]!.direction).toBe('different');
   });
 
+  it('reports a pre-release word against a release as different, in both directions, and a pin does not silence it', () => {
+    expect(diffModSets(set([['a', '2.0.0', 'h1']]), set([['a', '2.0.0-dev', 'h2']])).updated[0]!.direction).toBe('different');
+    expect(diffModSets(set([['a', '2.0.0-dev', 'h1']]), set([['a', '2.0.0', 'h2']])).updated[0]!.direction).toBe('different');
+    expect(diffModSets(set([['a', '2.0.0', 'h1']]), set([['a', '2.0.0-dev', 'h2']]), { pins: new Set(['a']) }).updated).toHaveLength(1);
+  });
+
   it('does not report a pinned id', () => {
     const d = diffModSets(set([['a', '2.0', 'h1']]), set([['a', '1.0', 'h2']]), { pins: new Set(['a']) });
     expect(d.updated).toEqual([]);
@@ -53,11 +59,11 @@ describe('deriveAtmSides', () => {
   const atmS = set([['both1', '1', 's1'], ['srv', '1', 's2']]);
   const atmC = set([['both1', '1', 's1'], ['cli', '1', 's3']]);
 
-  it('derives client-only, server-only and both from ATM own client and server sets', () => {
+  it('derives client-only, server-only and both from base own client and server sets', () => {
     expect(deriveAtmSides(atmS, atmC, { server: '8.3', client: '8.3' })).toEqual({ clientOnly: ['cli'], serverOnly: ['srv'], both: ['both1'] });
   });
 
-  it('refuses when the ATM client and server versions differ', () => {
+  it('refuses when the base client and server versions differ', () => {
     expect(() => deriveAtmSides(atmS, atmC, { server: '8.2', client: '8.3' })).toThrow(AtmVersionMismatchError);
   });
 });
@@ -72,7 +78,7 @@ describe('ownLayer, anomalies and blockers', () => {
     expect(layer.added.map((e) => e.modId)).toEqual(['mine']);
   });
 
-  it('lists ATM client mods missing from Own as anomalies, minus resolved ones', () => {
+  it('lists base client mods missing from Own as anomalies, minus resolved ones', () => {
     expect(anomalies(atmC, lmpC).map((e) => e.modId)).toEqual(['b']);
     expect(anomalies(atmC, lmpC, new Set(['b']))).toEqual([]);
   });

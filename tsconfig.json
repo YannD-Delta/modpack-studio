@@ -8,9 +8,10 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "resolveJsonModule": true,
+    "noEmit": true,
     "jsx": "react-jsx",
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "types": ["node", "vite/client"]
   },
-  "include": ["src", "tests", "drizzle.config.ts", "vitest.config.ts", "vite.config.ts"]
+  "include": ["src", "tests", "scripts", "drizzle.config.ts", "vitest.config.ts", "vite.config.ts"]
 }

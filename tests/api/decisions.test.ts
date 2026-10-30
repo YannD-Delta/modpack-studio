@@ -179,3 +179,40 @@ describe('debug api', () => {
     expect(text).not.toMatch(/passwordHash|allowedHosts|lanIp|session/i);
   });
 });
+
+describe('input bounds are the same on create, edit and delete', () => {
+  const longId = 'm'.repeat(100);
+  const longReason = 'x'.repeat(500);
+
+  it('rejects an id or a reason that the edit routes could not handle', async () => {
+    const tooLongId = await call('PUT', '/blacklist', { action: 'add', modId: 'm'.repeat(101), reason: '' });
+    expect(tooLongId.statusCode).toBe(400);
+    expect(tooLongId.json().error).toMatch(/modId/);
+    expect((await call('PUT', '/blacklist', { action: 'add', modId: 'ok', reason: 'x'.repeat(501) })).statusCode).toBe(400);
+    expect((await call('PUT', '/mods/ok/decision', { kind: 'pin', reason: 'x'.repeat(501) })).statusCode).toBe(400);
+  });
+
+  it('rejects a blank or padded id on create', async () => {
+    for (const modId of ['   ', ' padded', 'padded ']) {
+      expect((await call('PUT', '/blacklist', { action: 'add', modId, reason: '' })).statusCode).toBe(400);
+    }
+    expect((await call('PUT', `/mods/${encodeURIComponent('   ')}/decision`, { kind: 'pin', reason: '' })).statusCode).toBe(400);
+  });
+
+  it('rejects a side on a pin or an ignore decision, stores nothing', async () => {
+    const res = await call('PUT', '/mods/x/decision', { kind: 'pin', side: 'client' });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toMatch(/side/);
+    expect((await call('GET', '/decisions')).json().decisions).toEqual([]);
+  });
+
+  it('lets a 100 character id with a 500 character reason be created, re-saved and removed', async () => {
+    expect((await call('PUT', '/blacklist', { action: 'add', modId: longId, reason: longReason })).statusCode).toBe(200);
+    expect((await call('PUT', `/blacklist/entry/${longId}/reason`, { reason: longReason })).statusCode).toBe(200);
+    expect((await call('DELETE', `/blacklist/entry/${longId}`)).statusCode).toBe(200);
+
+    expect((await call('PUT', `/mods/${longId}/decision`, { kind: 'pin', reason: longReason })).statusCode).toBe(200);
+    expect((await call('PUT', `/decisions/${longId}/pin/reason`, { reason: longReason })).statusCode).toBe(200);
+    expect((await call('DELETE', `/decisions/${longId}/pin`)).statusCode).toBe(200);
+  });
+});

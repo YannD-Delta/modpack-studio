@@ -22,8 +22,8 @@ let cookie: string;
 let dataDir: string;
 let sent: { url: string; body: Record<string, unknown>; headers: Record<string, string> }[];
 let answer: { status: number; body: unknown };
-let atm: number;
-let lmp: number;
+let upstreamId: number;
+let ownId: number;
 
 /** One mod set per profile, written straight into the tables the importer fills. */
 function seed(profileId: number, mods: [string, string, string][]) {
@@ -51,15 +51,15 @@ beforeEach(async () => {
   await app.ready();
   cookie = String((await app.inject({ method: 'POST', url: '/api/v1/auth/login', payload: { password: 'pw' } })).headers['set-cookie']).split(';')[0]!;
 
-  atm = createProfile(db, { pack: 'Base', version: '8.3', side: 'client', state: 'clean', locationKind: 'folder', location: path.join(dataDir, 'atm') }).id;
-  lmp = createProfile(db, { pack: 'Own', version: 'test', side: 'client', state: 'launched', locationKind: 'folder', location: path.join(dataDir, 'lmp') }).id;
-  seed(atm, [['alpha', '2.0', 'alpha-2.0.jar'], ['beta', '1.0', 'beta-1.0.jar'], ['same', '1.0', 'same-1.0.jar'], ['gone', '3.1', 'gone-3.1.jar']]);
-  seed(lmp, [['alpha', '1.0', 'alpha-1.0.jar'], ['beta', '1.5', 'beta-1.5.jar'], ['same', '1.0', 'same-1.0.jar'], ['mine', '0.9', 'mine-0.9.jar']]);
-  storeSources(db, atm, [
+  upstreamId = createProfile(db, { pack: 'Base', version: '8.3', side: 'client', state: 'clean', locationKind: 'folder', location: path.join(dataDir, 'upstreamId') }).id;
+  ownId = createProfile(db, { pack: 'Own', version: 'test', side: 'client', state: 'launched', locationKind: 'folder', location: path.join(dataDir, 'ownId') }).id;
+  seed(upstreamId, [['alpha', '2.0', 'alpha-2.0.jar'], ['beta', '1.0', 'beta-1.0.jar'], ['same', '1.0', 'same-1.0.jar'], ['gone', '3.1', 'gone-3.1.jar']]);
+  seed(ownId, [['alpha', '1.0', 'alpha-1.0.jar'], ['beta', '1.5', 'beta-1.5.jar'], ['same', '1.0', 'same-1.0.jar'], ['mine', '0.9', 'mine-0.9.jar']]);
+  storeSources(db, upstreamId, [
     { fileName: 'alpha-2.0.jar', projectId: 11, fileId: 1, name: 'Alpha', url: 'https://www.curseforge.com/minecraft/mc-mods/alpha' },
     { fileName: 'gone-3.1.jar', projectId: 33, fileId: 3, name: 'Gone', url: 'https://www.curseforge.com/minecraft/mc-mods/gone' },
   ]);
-  storeSources(db, lmp, [{ fileName: 'mine-0.9.jar', projectId: 44, fileId: 4, name: 'Mine', url: 'https://www.curseforge.com/minecraft/mc-mods/mine' }]);
+  storeSources(db, ownId, [{ fileName: 'mine-0.9.jar', projectId: 44, fileId: 4, name: 'Mine', url: 'https://www.curseforge.com/minecraft/mc-mods/mine' }]);
 });
 afterEach(async () => {
   await app.close();
@@ -71,7 +71,7 @@ afterAll(() => closePool());
 const call = (method: 'GET' | 'POST', url: string, payload?: unknown) => app.inject({ method, url: `/api/v1${url}`, headers: { cookie }, payload: payload as object | undefined });
 
 describe('prompt builder', () => {
-  const ctx = () => ({ base: getProfile(db, atm), other: getProfile(db, lmp), baseLoader: { loader: 'neoforge' as const, loaderVersion: '21.1.259', mcVersion: '1.21.1' }, otherLoader: null, names: { upstream: 'Base', own: 'Own' } });
+  const ctx = () => ({ base: getProfile(db, upstreamId), other: getProfile(db, ownId), baseLoader: { loader: 'neoforge' as const, loaderVersion: '21.1.259', mcVersion: '1.21.1' }, otherLoader: null, names: { upstream: 'Base', own: 'Own' } });
 
   it('lists the out-of-date mods with both versions and the CurseForge page, and nothing else', () => {
     const b = buildPrompt(db, { action: 'review-updates', ...ctx(), mode: 'chat' });
@@ -94,7 +94,7 @@ describe('prompt builder', () => {
     const p = buildPrompt(db, { action: 'migrate-old-pack', ...ctx(), mode: 'chat' }).prompt;
     expect(p).toContain('ancien pack');
     expect(p).toContain('en commun avec Base');
-    expect(p).toContain('version NeoForge');
+    expect(p).toContain('version neoforge');
     expect(p).toContain('- mine 0.9');
   });
 
@@ -109,20 +109,28 @@ describe('prompt builder', () => {
     expect(buildPrompt(db, { action: 'review-added', ...ctx(), mode: 'api' }).prompt).toContain('pas accès à internet');
   });
 
+  it('never names a loader that was not detected', () => {
+    const p = buildPrompt(db, { action: 'migrate-old-pack', ...ctx(), baseLoader: { loader: 'fabric' as const, loaderVersion: '0.16', mcVersion: '1.20.1' }, mode: 'chat' }).prompt;
+    expect(p).not.toMatch(/neoforge/i);
+    expect(p).toContain('version fabric');
+    const none = buildPrompt(db, { action: 'migrate-old-pack', ...ctx(), baseLoader: null, mode: 'chat' }).prompt;
+    expect(none).not.toMatch(/neoforge/i);
+  });
+
   it('speaks with the pack names chosen in Settings instead of Base and Own', () => {
-    const names = { upstream: 'All the Mods', own: 'MonPack' };
+    const names = { upstream: 'Alpha Pack', own: 'Beta Pack' };
     const p = buildPrompt(db, { action: 'migrate-old-pack', ...ctx(), names, mode: 'chat' }).prompt;
-    expect(p).toContain('maintenir MonPack');
-    expect(p).toContain('construit sur All the Mods');
-    expect(p).toContain('en commun avec All the Mods');
+    expect(p).toContain('maintenir Beta Pack');
+    expect(p).toContain('construit sur Alpha Pack');
+    expect(p).toContain('en commun avec Alpha Pack');
     // the profile header lines still show the names stored with the profiles; every sentence of the prompt follows the settings
-    expect(p.split('\n').filter((l) => !l.startsWith('Référence') && !l.startsWith('Comparé')).join('\n')).not.toMatch(/Base|\bLMP\b/);
+    expect(p.split('\n').filter((l) => !l.startsWith('Référence') && !l.startsWith('Comparé')).join('\n')).not.toMatch(/Base/);
     expect(p).not.toContain('{upstream}');
     expect(p).not.toContain('{own}');
   });
 
   it('caps a long list and says so', () => {
-    for (let i = 0; i < 12; i++) seed(lmp, [[`extra${i}`, '1.0', `extra${i}-1.0.jar`]]);
+    for (let i = 0; i < 12; i++) seed(ownId, [[`extra${i}`, '1.0', `extra${i}-1.0.jar`]]);
     const b = buildPrompt(db, { action: 'review-added', ...ctx(), mode: 'chat', maxRows: 5 });
     expect(b.shown).toBe(5);
     expect(b.rows).toBe(13);
@@ -138,17 +146,17 @@ describe('assistant api', () => {
   });
 
   it('returns a copyable prompt without needing a key, and rejects unknown input', async () => {
-    const res = await call('POST', '/assistant/prompt', { action: 'review-updates', base: atm, other: lmp });
+    const res = await call('POST', '/assistant/prompt', { action: 'review-updates', base: upstreamId, other: ownId });
     expect(res.statusCode).toBe(200);
     expect(res.json().prompt).toContain('alpha');
-    expect((await call('POST', '/assistant/prompt', { action: 'nope', base: atm, other: lmp })).statusCode).toBe(400);
-    expect((await call('POST', '/assistant/prompt', { action: 'review-updates', base: 999, other: lmp })).statusCode).toBe(404);
+    expect((await call('POST', '/assistant/prompt', { action: 'nope', base: upstreamId, other: ownId })).statusCode).toBe(400);
+    expect((await call('POST', '/assistant/prompt', { action: 'review-updates', base: 999, other: ownId })).statusCode).toBe(404);
     const empty = createProfile(db, { pack: 'Own', version: 'empty', side: 'client', state: 'launched', locationKind: 'folder', location: path.join(dataDir, 'empty') }).id;
-    expect((await call('POST', '/assistant/prompt', { action: 'review-updates', base: atm, other: empty })).statusCode).toBe(409);
+    expect((await call('POST', '/assistant/prompt', { action: 'review-updates', base: upstreamId, other: empty })).statusCode).toBe(409);
   });
 
   it('refuses to run without a key', async () => {
-    const res = await call('POST', '/assistant/run', { action: 'review-updates', base: atm, other: lmp });
+    const res = await call('POST', '/assistant/run', { action: 'review-updates', base: upstreamId, other: ownId });
     expect(res.statusCode).toBe(409);
     expect(res.json().code).toBe('not_configured');
     expect(sent).toHaveLength(0);
@@ -157,7 +165,7 @@ describe('assistant api', () => {
   it('runs an action with the saved key, model and effort, and returns the text', async () => {
     setSecret(dataDir, 'claude', KEY);
     
-    const res = await call('POST', '/assistant/run', { action: 'review-updates', base: atm, other: lmp });
+    const res = await call('POST', '/assistant/run', { action: 'review-updates', base: upstreamId, other: ownId });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ text: 'Verdict : garder.', model: 'claude-sonnet-5-5', effort: 'medium', inputTokens: 120, outputTokens: 30, rows: 1 });
     expect(res.body).not.toContain(KEY);
@@ -174,14 +182,14 @@ describe('assistant api', () => {
     setSecret(dataDir, 'claude', KEY);
     const saved = await app.inject({ method: 'PUT', url: '/api/v1/settings/assistant', headers: { cookie }, payload: { model: 'claude-opus-5-5', effort: 'high' } });
     expect(saved.statusCode).toBe(200);
-    await call('POST', '/assistant/run', { action: 'review-added', base: atm, other: lmp });
+    await call('POST', '/assistant/run', { action: 'review-added', base: upstreamId, other: ownId });
     expect(sent[0]!.body.model).toBe('claude-opus-5-5');
     expect(sent[0]!.body.output_config).toMatchObject({ effort: 'high' });
   });
 
   it('keeps the prompt and the key out of the audit log', async () => {
     setSecret(dataDir, 'claude', KEY);
-    await call('POST', '/assistant/run', { action: 'review-updates', base: atm, other: lmp });
+    await call('POST', '/assistant/run', { action: 'review-updates', base: upstreamId, other: ownId });
     const rows = JSON.stringify(db.sqlite.prepare('SELECT action, target, detail FROM audit_log').all());
     expect(rows).toContain('assistant.run');
     expect(rows).not.toContain(KEY);
@@ -195,7 +203,7 @@ describe('assistant api', () => {
   ])('maps an API answer of %i to %i %s', async (apiStatus, status, code) => {
     setSecret(dataDir, 'claude', KEY);
     answer = { status: apiStatus, body: { type: 'error', error: { type: 'x', message: 'boom' } } };
-    const res = await call('POST', '/assistant/run', { action: 'review-updates', base: atm, other: lmp });
+    const res = await call('POST', '/assistant/run', { action: 'review-updates', base: upstreamId, other: ownId });
     expect(res.statusCode).toBe(status);
     expect(res.json().code).toBe(code);
     expect(res.body).not.toContain(KEY);
@@ -204,19 +212,85 @@ describe('assistant api', () => {
   it('reports a refusal instead of an empty answer', async () => {
     setSecret(dataDir, 'claude', KEY);
     answer = { status: 200, body: { id: 'm', type: 'message', role: 'assistant', model: 'claude-sonnet-5-5', content: [], stop_reason: 'refusal', stop_sequence: null, usage: { input_tokens: 1, output_tokens: 0 } } };
-    const res = await call('POST', '/assistant/run', { action: 'review-updates', base: atm, other: lmp });
+    const res = await call('POST', '/assistant/run', { action: 'review-updates', base: upstreamId, other: ownId });
     expect(res.statusCode).toBe(422);
     expect(res.json().code).toBe('refused');
   });
 
+  it('ignores ANTHROPIC_BASE_URL from the environment and always calls the official API', async () => {
+    setSecret(dataDir, 'claude', KEY);
+    process.env.ANTHROPIC_BASE_URL = 'https://gateway.invalid';
+    try {
+      await call('POST', '/assistant/run', { action: 'review-updates', base: upstreamId, other: ownId });
+    } finally {
+      delete process.env.ANTHROPIC_BASE_URL;
+    }
+    expect(sent[0]!.url.startsWith('https://api.anthropic.com/')).toBe(true);
+  });
+
+  it('flags an answer cut at max_tokens instead of returning it as a normal one', async () => {
+    setSecret(dataDir, 'claude', KEY);
+    answer = { status: 200, body: { id: 'm', type: 'message', role: 'assistant', model: 'claude-sonnet-5-5', content: [{ type: 'text', text: 'Début' }], stop_reason: 'max_tokens', stop_sequence: null, usage: { input_tokens: 1, output_tokens: 16000 } } };
+    const res = await call('POST', '/assistant/run', { action: 'review-updates', base: upstreamId, other: ownId });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ text: 'Début', truncated: true, code: 'truncated' });
+  });
+
+  it('reports an empty answer as an error', async () => {
+    setSecret(dataDir, 'claude', KEY);
+    answer = { status: 200, body: { id: 'm', type: 'message', role: 'assistant', model: 'claude-sonnet-5-5', content: [], stop_reason: 'end_turn', stop_sequence: null, usage: { input_tokens: 1, output_tokens: 0 } } };
+    const res = await call('POST', '/assistant/run', { action: 'review-updates', base: upstreamId, other: ownId });
+    expect(res.statusCode).toBe(502);
+    expect(res.json().code).toBe('unexpected');
+  });
+
+  it('does not retry a failing paid call', async () => {
+    setSecret(dataDir, 'claude', KEY);
+    answer = { status: 529, body: { type: 'error', error: { type: 'overloaded_error', message: 'busy' } } };
+    await call('POST', '/assistant/run', { action: 'review-updates', base: upstreamId, other: ownId });
+    expect(sent).toHaveLength(1);
+  });
+
+  it('gives a stable code to every precondition error', async () => {
+    setSecret(dataDir, 'claude', KEY);
+    const missing = await call('POST', '/assistant/run', { action: 'review-updates', base: 999, other: ownId });
+    expect(missing.json()).toMatchObject({ code: 'profile_not_found' });
+    const empty = createProfile(db, { pack: 'Own', version: 'empty2', side: 'client', state: 'launched', locationKind: 'folder', location: path.join(dataDir, 'empty2') }).id;
+    const res = await call('POST', '/assistant/run', { action: 'review-updates', base: upstreamId, other: empty });
+    expect(res.json()).toMatchObject({ code: 'profiles_not_imported' });
+  });
+
+  it('refuses to compare a client with a server profile', async () => {
+    setSecret(dataDir, 'claude', KEY);
+    const srv = createProfile(db, { pack: 'Own', version: 'srv', side: 'server', state: 'clean', locationKind: 'folder', location: path.join(dataDir, 'srv') }).id;
+    seed(srv, [['alpha', '1.0', 'alpha-1.0.jar']]);
+    for (const url of ['/assistant/prompt', '/assistant/run']) {
+      const res = await call('POST', url, { action: 'review-updates', base: upstreamId, other: srv });
+      expect(res.statusCode, url).toBe(400);
+      expect(res.json(), url).toMatchObject({ code: 'sides_differ' });
+    }
+  });
+
   it('refreshes the CurseForge sources of an instance folder from its minecraftinstance.json', async () => {
-    const dir = path.join(dataDir, 'lmp');
+    const dir = path.join(dataDir, 'ownId');
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, 'minecraftinstance.json'), JSON.stringify({ installedAddons: [{ addonID: 7, name: 'Seven', fileNameOnDisk: 'alpha-1.0.jar', installedFile: { id: 70 } }] }));
-    const res = await call('POST', `/profiles/${lmp}/sources`);
+    const res = await call('POST', `/profiles/${ownId}/sources`);
     expect(res.json()).toEqual({ count: 1 });
-    expect((await call('POST', '/assistant/prompt', { action: 'review-updates', base: atm, other: lmp })).json().prompt).toContain('https://www.curseforge.com/projects/7');
+    expect((await call('POST', '/assistant/prompt', { action: 'review-updates', base: upstreamId, other: ownId })).json().prompt).toContain('https://www.curseforge.com/projects/7');
     expect((await call('POST', '/profiles/999/sources')).statusCode).toBe(404);
+  });
+
+  it('keeps the stored CurseForge links when minecraftinstance.json cannot be read', async () => {
+    const dir = path.join(dataDir, 'ownId');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'minecraftinstance.json'), JSON.stringify({ installedAddons: [{ addonID: 7, name: 'Seven', fileNameOnDisk: 'alpha-1.0.jar', installedFile: { id: 70 } }] }));
+    expect((await call('POST', `/profiles/${ownId}/sources`)).json()).toEqual({ count: 1 });
+    fs.writeFileSync(path.join(dir, 'minecraftinstance.json'), '{ half written');
+    const res = await call('POST', `/profiles/${ownId}/sources`);
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toMatchObject({ code: 'instance_unreadable' });
+    expect((await call('POST', '/assistant/prompt', { action: 'review-updates', base: upstreamId, other: ownId })).json().prompt).toContain('https://www.curseforge.com/projects/7');
   });
 });
 
@@ -224,7 +298,7 @@ describe('assistant api: server test analysis', () => {
   function writeRun(id: string, finished: boolean) {
     const dir = path.join(dataDir, 'tests', id);
     fs.mkdirSync(path.join(dir, 'server', 'crash-reports'), { recursive: true });
-    fs.writeFileSync(path.join(dir, 'meta.json'), JSON.stringify({ id, profileId: lmp, label: 'Own test · server · launched', memoryMb: 8192, port: 25570, createdAt: '2026-10-29T12:00:00.000Z', jobId: null }));
+    fs.writeFileSync(path.join(dir, 'meta.json'), JSON.stringify({ id, profileId: ownId, label: 'Own test · server · launched', memoryMb: 8192, port: 25570, createdAt: '2026-10-29T12:00:00.000Z', jobId: null }));
     fs.writeFileSync(path.join(dir, 'console.log'), ['[10:00:00] [main/INFO] [FML]: start', '[10:00:01] [main/ERROR] [mod_x]: Failed to load mod_x', 'Exception in thread main'].join('\n'));
     fs.writeFileSync(path.join(dir, 'server', 'crash-reports', 'crash-1.txt'), 'Description: exception in loading\nCaused by: missing dependency exemple_core');
     if (finished) {

@@ -91,7 +91,7 @@ function useScanJob(jobId: string | null, onEnd: (job: ScanJob) => void): ScanJo
       } catch (err) {
         // 401: the server restarted or the session expired; 404: the job is gone. Neither will recover by retrying.
         if (err instanceof ApiError && (err.status === 401 || err.status === 404)) {
-          update({ status: 'failed', progress: null, message: err.status === 401 ? 'Session expirée : reconnecte-toi puis relance l’analyse.' : 'Analyse introuvable : relance-la.' });
+          update({ status: 'failed', progress: null, message: t(err.status === 401 ? 'configs.scan.sessionExpired' : 'configs.scan.jobGone') });
         }
         // otherwise transient: the next tick retries
       }
@@ -117,11 +117,8 @@ export function ProfileCard(props: {
   const [failure, setFailure] = useState<string | null>(null);
   const notScanned = inv.error instanceof ApiError && inv.error.status === 409;
   const refresh = () => qc.invalidateQueries({ queryKey: ['configs-inventory', value] });
-
-  useEffect(() => {
-    setJobId(null);
-    setFailure(null);
-  }, [value]);
+  const valueRef = useRef(value);
+  valueRef.current = value;
 
   const job = useScanJob(jobId, (j) => {
     setJobId(null);
@@ -129,11 +126,24 @@ export function ProfileCard(props: {
     else setFailure(j.message ?? j.status);
   });
   const scan = useMutation({
-    mutationFn: (v: { force: boolean; deep?: boolean }) => configsApi.scan(Number(value), v.force, v.deep ?? false),
+    mutationFn: (v: { profile: number; force: boolean; deep?: boolean }) => configsApi.scan(v.profile, v.force, v.deep ?? false),
     onMutate: () => setFailure(null),
-    onSuccess: (r) => (r.jobId ? setJobId(r.jobId) : void refresh()),
-    onError: (e: Error) => setFailure(e.message),
+    // The answer belongs to the profile that was scanned: if the card shows another one by now, only refresh the first one's cache.
+    onSuccess: (r, v) => {
+      if (String(v.profile) !== valueRef.current) return void qc.invalidateQueries({ queryKey: ['configs-inventory', String(v.profile)] });
+      if (r.jobId) setJobId(r.jobId);
+      else void refresh();
+    },
+    onError: (e: Error, v) => {
+      if (String(v.profile) === valueRef.current) setFailure(e.message);
+    },
   });
+  const resetScan = scan.reset;
+  useEffect(() => {
+    setJobId(null);
+    setFailure(null);
+    resetScan();
+  }, [value, resetScan]);
   const busy = !!jobId || scan.isPending;
   const scanned = inv.data;
 
@@ -159,11 +169,11 @@ export function ProfileCard(props: {
             className={`${action} ml-auto`}
             disabled={busy}
             title={scanned ? t('configs.rescanTip') : t('configs.scanTip')}
-            onClick={() => scan.mutate({ force: !!scanned })}
+            onClick={() => scan.mutate({ profile: Number(value), force: !!scanned })}
           >
             {scanned ? t('configs.rescan') : t('configs.scan')}
           </button>
-          <button className={action} disabled={busy} title={t('configs.scanDeepTip')} onClick={() => scan.mutate({ force: true, deep: true })}>
+          <button className={action} disabled={busy} title={t('configs.scanDeepTip')} onClick={() => scan.mutate({ profile: Number(value), force: true, deep: true })}>
             {t('configs.scanDeep')}
           </button>
         </div>
@@ -267,6 +277,16 @@ export function FileDiffView(props: { base: string; other: string; path: string;
   );
 }
 
+/** A failed request: shown as an error with a retry, never as "loading" or an empty list. */
+export function ConfigsError(props: { text: string; onRetry: () => void }) {
+  return (
+    <p role="alert" className="flex flex-wrap items-center gap-3 text-sm text-rose-300">
+      {props.text}
+      <button className={action} onClick={props.onRetry}>{t('configs.error.retry')}</button>
+    </p>
+  );
+}
+
 export function Configs() {
   const qc = useQueryClient();
   const matrix = useQuery({ queryKey: ['matrix'], queryFn: () => api<MatrixRow[]>('/profiles/matrix') });
@@ -280,6 +300,8 @@ export function Configs() {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [lineCounts, setLineCounts] = useState<Record<string, number>>({});
   const [notice, setNotice] = useState<string | null>(null);
+  const pairRef = useRef({ base: baseId, other: otherId });
+  pairRef.current = { base: baseId, other: otherId };
 
   const invQuery = (id: string) => ({ queryKey: ['configs-inventory', id], queryFn: () => configsApi.inventory(id), enabled: !!id, retry: false });
   const baseInv = useQuery(invQuery(baseId));
@@ -302,11 +324,15 @@ export function Configs() {
   }, [baseId, otherId, diff.data]);
 
   const setPlan = useMutation({
-    mutationFn: (v: { paths: string[]; selected: boolean }) => configsApi.setPlan(Number(baseId), Number(otherId), v.paths, v.selected),
+    mutationFn: (v: { base: number; other: number; paths: string[]; selected: boolean }) => configsApi.setPlan(v.base, v.other, v.paths, v.selected),
     onMutate: () => setNotice(null),
-    onSuccess: (r) => qc.setQueryData(['configs-plan', baseId, otherId], { paths: r.paths }),
-    onError: (e: Error) => setNotice(tf('configs.plan.error', { msg: e.message })),
+    // The answer is for the pair that sent the request, whatever is selected by the time it arrives.
+    onSuccess: (r, v) => qc.setQueryData(['configs-plan', String(v.base), String(v.other)], { paths: r.paths }),
+    onError: (e: Error, v) => {
+      if (String(v.base) === pairRef.current.base && String(v.other) === pairRef.current.other) setNotice(tf('configs.plan.error', { msg: e.message }));
+    },
   });
+  const mutatePlan = (paths: string[], selected: boolean) => setPlan.mutate({ base: Number(baseId), other: Number(otherId), paths, selected });
 
   const base = profiles.find((p) => String(p.id) === baseId);
   const other = profiles.find((p) => String(p.id) === otherId);
@@ -368,7 +394,7 @@ export function Configs() {
         aria-pressed={on}
         aria-label={`${on ? t('configs.plan.planned') : tf('configs.plan.take', vars)} ${f.path}`}
         disabled={setPlan.isPending}
-        onClick={() => setPlan.mutate({ paths: [f.path], selected: !on })}
+        onClick={() => mutatePlan([f.path], !on)}
       >
         {on ? t('configs.plan.planned') : tf('configs.plan.take', vars)}
       </button>
@@ -406,6 +432,7 @@ export function Configs() {
     );
   };
 
+  if (matrix.isError) return <ConfigsError text={tf('configs.error.matrix', { msg: matrix.error.message })} onRetry={() => void matrix.refetch()} />;
   if (!matrix.data) return <p className="text-slate-400">{t('common.loading')}</p>;
 
   const bothScannedNeeded = !!baseId && !!otherId && baseId !== otherId && !ready && !baseInv.isLoading && !otherInv.isLoading;
@@ -435,6 +462,7 @@ export function Configs() {
 
       {ready && diff.isLoading && <p className="text-slate-400">{t('configs.loadingDiff')}</p>}
       {ready && diff.error && <p className="text-sm text-rose-300">{diff.error.message}</p>}
+      {ready && plan.isError && <ConfigsError text={tf('configs.error.plan', { msg: plan.error.message })} onRetry={() => void plan.refetch()} />}
       {ready && diff.data && perStatus && (
         <>
           <p className="text-sm text-slate-400">{tf('configs.legend', vars)}</p>
@@ -465,14 +493,14 @@ export function Configs() {
               {t('configs.showIdentical')}
             </label>
             <span className="ml-auto text-sm text-slate-400">{tf('configs.plan.count', { n: String(planned.size) })}</span>
-            <button className={action} title={tf('configs.plan.selectAllTip', vars)} disabled={selectable.length === 0 || setPlan.isPending} onClick={() => setPlan.mutate({ paths: selectable, selected: true })}>
+            <button className={action} title={tf('configs.plan.selectAllTip', vars)} disabled={selectable.length === 0 || setPlan.isPending} onClick={() => mutatePlan(selectable, true)}>
               {t('configs.plan.selectAll')}
             </button>
-            <button className={action} title={t('configs.plan.clearTip')} disabled={planned.size === 0 || setPlan.isPending} onClick={() => setPlan.mutate({ paths: [...planned], selected: false })}>
+            <button className={action} title={t('configs.plan.clearTip')} disabled={planned.size === 0 || setPlan.isPending} onClick={() => mutatePlan([...planned], false)}>
               {t('configs.plan.clear')}
             </button>
           </div>
-          {notice && <p className="text-sm text-rose-300">{notice}</p>}
+          {notice && <p role="alert" className="text-sm text-rose-300">{notice}</p>}
           {diff.data.truncated && <p className="text-sm text-amber-300">{tf('configs.truncatedList', { shown: String(diff.data.files.length), total: String(diff.data.total) })}</p>}
           {differing === 0 && !showIdentical && status === 'all' ? (
             <p className="text-slate-400">{t('configs.noDiff')}</p>

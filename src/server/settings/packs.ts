@@ -1,5 +1,5 @@
 import type { Db } from '../db/open.js';
-import { readPrefsFile, writePrefsFile } from './secrets-store.js';
+import { checkPrefsFile, readPrefsFile, updatePrefsFile } from './secrets-store.js';
 
 /**
  * The two packs Studio works with are roles, not names: the `upstream` pack is the one you follow (default Base),
@@ -40,6 +40,7 @@ export function readPackNames(dataDir: string): PackNames {
  */
 export function writePackNames(db: Db, dataDir: string, next: PackNames): PackNames {
   const names = validatePackNames(next);
+  checkPrefsFile(dataDir); // an unreadable file refuses the whole save, before any row is renamed
   const current = readPackNames(dataDir);
   db.sqlite.transaction(() => {
     const move = (from: string, to: string) => db.sqlite.prepare('UPDATE pack_version SET pack = ? WHERE pack = ?').run(to, from);
@@ -50,7 +51,7 @@ export function writePackNames(db: Db, dataDir: string, next: PackNames): PackNa
       move('\u0000own', names.own);
     }
   })();
-  writePrefsFile(dataDir, { ...readPrefsFile(dataDir), packs: names });
+  updatePrefsFile(dataDir, (all) => ({ ...all, packs: names }));
   return names;
 }
 

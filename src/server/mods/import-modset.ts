@@ -1,12 +1,11 @@
-import crypto from 'node:crypto';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import type { Db } from '../db/open.js';
 import { runInPool } from '../jobs/pool.js';
 import type { JobContext } from '../jobs/runner.js';
-import { openZip } from '../zip/zip-reader.js';
-import { readInstanceSources, storeSources } from './curseforge-sources.js';
+import { READ_ONLY_ZIP_LIMITS, openZip } from '../zip/zip-reader.js';
+import { countSources, readInstanceSourcesChecked, storeSources } from './curseforge-sources.js';
 import { readJarInfo, type JarInfo } from './jar-meta.js';
 
 export type ModSetSource = { kind: 'zip'; path: string } | { kind: 'folder'; path: string };
@@ -18,14 +17,37 @@ export type ImportResult = {
 
 type Scanned = { fileName: string; sha256: string; size: number; info: JarInfo };
 
-async function scanBuffer(fileName: string, buf: Buffer): Promise<Scanned> {
+/** How many jars are read, hashed and parsed at the same time during an import (each one is held in memory while scanned). */
+export const IMPORT_SCAN_CONCURRENCY = 4;
+
+async function parseJar(fileName: string, buf: Buffer): Promise<JarInfo> {
   // Jars are only read, never extracted: tolerate case-colliding class names and large asset counts.
-  const zip = await openZip(buf, { caseCollision: 'allow', maxEntries: 200000 });
+  const zip = await openZip(buf, READ_ONLY_ZIP_LIMITS);
   try {
-    return { fileName, sha256: crypto.createHash('sha256').update(buf).digest('hex'), size: buf.length, info: await readJarInfo(zip, fileName) };
+    return await readJarInfo(zip, fileName);
   } finally {
     await zip.close();
   }
+}
+
+/** Hashes (once, in a worker thread) and parses the very same bytes, so the stored hash always matches the parsed content. */
+async function scanBuffer(fileName: string, buf: Buffer): Promise<Scanned> {
+  const [hash, info] = await Promise.all([runInPool<{ sha256: string; size: number }>('sha256-buffer', { buffer: buf }), parseJar(fileName, buf)]);
+  return { fileName, sha256: hash.sha256, size: hash.size, info };
+}
+
+/** Runs fn over items with at most `limit` in flight; results keep the order of items. */
+async function mapLimited<T, R>(items: T[], limit: number, fn: (item: T, index: number) => Promise<R>): Promise<R[]> {
+  const out = new Array<R>(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await fn(items[i]!, i);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return out;
 }
 
 async function listFolderJars(dir: string): Promise<string[]> {
@@ -39,44 +61,54 @@ export async function importModSet(db: Db, source: ModSetSource, profileId: numb
   const scanned: Scanned[] = [];
   const skipped: ImportResult['skipped'] = [];
 
+  let done = 0;
+  const scanAll = async (items: { name: string; load: () => Promise<Buffer> }[]) => {
+    const results = await mapLimited(items, IMPORT_SCAN_CONCURRENCY, async (item) => {
+      if (ctx.signal.aborted) throw new Error('aborted');
+      let result: Scanned | { file: string; reason: string };
+      try {
+        result = await scanBuffer(item.name, await item.load());
+      } catch (err) {
+        result = { file: item.name, reason: err instanceof Error ? err.message : String(err) };
+      }
+      ctx.progress(Math.round((++done / items.length) * 100), item.name);
+      return result;
+    });
+    for (const r of results) {
+      if ('reason' in r) skipped.push(r);
+      // metadata present but unreadable: an import issue, not a silent library
+      else if (r.info.unparsed) skipped.push({ file: r.fileName, reason: r.info.unparsed });
+      else scanned.push(r);
+    }
+  };
+
   if (source.kind === 'zip') {
-    const zip = await openZip(source.path);
+    const zip = await openZip(source.path, READ_ONLY_ZIP_LIMITS);
     try {
       const jars = zip.entries().filter((e) => /(^|\/)mods\/[^/]+\.jar$/i.test(e.name));
       if (jars.length === 0) skipped.push({ file: source.path, reason: 'no mods/*.jar found in the zip' });
-      for (const [i, e] of jars.entries()) {
-        if (ctx.signal.aborted) throw new Error('aborted');
-        const name = e.name.split('/').pop()!;
-        try {
-          scanned.push(await scanBuffer(name, await zip.read(e.name)));
-        } catch (err) {
-          skipped.push({ file: name, reason: err instanceof Error ? err.message : String(err) });
-        }
-        ctx.progress(Math.round(((i + 1) / jars.length) * 100), name);
-      }
+      await scanAll(jars.map((e) => ({ name: e.name.split('/').pop()!, load: () => zip.read(e.name) })));
     } finally {
       await zip.close();
     }
   } else {
     const files = await listFolderJars(source.path);
     if (files.length === 0) skipped.push({ file: source.path, reason: 'no mods folder or no .jar found' });
-    for (const [i, file] of files.entries()) {
-      if (ctx.signal.aborted) throw new Error('aborted');
-      const name = path.basename(file);
-      try {
-        const { sha256, size } = await runInPool<{ sha256: string; size: number }>('sha256-file', { path: file });
-        const buf = await fsp.readFile(file);
-        const s = await scanBuffer(name, buf);
-        scanned.push({ ...s, sha256, size });
-      } catch (err) {
-        skipped.push({ file: name, reason: err instanceof Error ? err.message : String(err) });
-      }
-      ctx.progress(Math.round(((i + 1) / files.length) * 100), name);
-    }
+    await scanAll(files.map((file) => ({ name: path.basename(file), load: () => fsp.readFile(file) })));
   }
 
   // Nothing could be scanned (missing folder, empty mods/, unreadable zip): keep whatever this profile already has.
   if (scanned.length === 0) return { imported: 0, skipped, duplicateIds: [] };
+
+  // CurseForge instances also say which project and file each jar is: keep that for links (no API key needed).
+  // An unreadable file (a launcher rewriting it, a share hiccup) must not wipe the links already stored: keep them and say so.
+  let sources: ReturnType<typeof readInstanceSourcesChecked> = null;
+  if (source.kind === 'folder') {
+    sources = readInstanceSourcesChecked(source.path);
+    if (sources === null && (fs.existsSync(path.join(source.path, 'minecraftinstance.json')) || countSources(db, profileId) > 0)) {
+      skipped.push({ file: 'minecraftinstance.json', reason: 'cannot be read right now: the CurseForge links already stored were kept' });
+    }
+  }
 
   const insertIssue = db.sqlite.prepare('INSERT INTO import_issue (profile_id, file, reason) VALUES (?, ?, ?)');
   const insertJar = db.sqlite.prepare('INSERT INTO jar (sha256, filename, size) VALUES (?, ?, ?) ON CONFLICT(sha256) DO NOTHING');
@@ -106,8 +138,7 @@ export async function importModSet(db: Db, source: ModSetSource, profileId: numb
     }
   })();
 
-  // CurseForge instances also say which project and file each jar is: keep that for links (no API key needed).
-  if (source.kind === 'folder') storeSources(db, profileId, readInstanceSources(source.path));
+  if (sources !== null) storeSources(db, profileId, sources);
 
   const duplicateIds = [...idToFiles.entries()]
     .filter(([, files]) => files.length > 1)

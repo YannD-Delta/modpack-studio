@@ -49,6 +49,45 @@ const call = (method: 'GET' | 'PUT' | 'POST' | 'DELETE', url: string, payload?: 
   app.inject({ method, url: `/api/v1${url}`, headers: { cookie }, payload: payload as object | undefined });
 
 describe('settings api', () => {
+  it('never overwrites an unreadable preferences file: the save is refused and a copy is kept aside', async () => {
+    const file = path.join(dataDir, 'preferences.json');
+    fs.writeFileSync(file, '{ "packs": { "upstream": "Alpha Pack", ');
+    const res = await call('PUT', '/settings/assistant', { model: 'claude-opus-5-5', effort: 'high' });
+    expect(res.statusCode).toBe(500);
+    expect(res.json()).toMatchObject({ code: 'settings_unreadable' });
+    expect(fs.readFileSync(file, 'utf8')).toBe('{ "packs": { "upstream": "Alpha Pack", ');
+    expect(fs.readdirSync(dataDir).some((f) => f.startsWith('preferences.json.corrupt-'))).toBe(true);
+    expect((await call('GET', '/settings')).statusCode).toBe(200); // reading still works, on defaults
+  });
+
+  it('refuses to rename the packs when the preferences file is unreadable, and leaves the rows alone', async () => {
+    fs.writeFileSync(path.join(dataDir, 'preferences.json'), 'oops');
+    const res = await call('PUT', '/settings/packs', { upstream: 'Alpha Pack', own: 'Beta Pack' });
+    expect(res.statusCode).toBe(500);
+    expect(res.json().code).toBe('settings_unreadable');
+  });
+
+  it('reads a preferences file saved with a UTF-8 BOM and keeps the other sections on save', async () => {
+    fs.writeFileSync(path.join(dataDir, 'preferences.json'), '﻿' + JSON.stringify({ packs: { upstream: 'Alpha Pack', own: 'Beta Pack' } }));
+    expect((await call('GET', '/settings')).json().packs).toEqual({ upstream: 'Alpha Pack', own: 'Beta Pack' });
+    expect((await call('PUT', '/settings/assistant', { model: 'claude-opus-5-5', effort: 'high' })).statusCode).toBe(200);
+    expect(JSON.parse(fs.readFileSync(path.join(dataDir, 'preferences.json'), 'utf8')).packs.upstream).toBe('Alpha Pack');
+  });
+
+  it('refuses to save a key over an unreadable secrets file', async () => {
+    const file = path.join(dataDir, 'secrets.json');
+    fs.writeFileSync(file, '{ not json');
+    const res = await call('PUT', '/settings/keys', { provider: 'curseforge', key: CF_KEY });
+    expect(res.statusCode).toBe(500);
+    expect(res.body).not.toContain(CF_KEY);
+    expect(fs.readFileSync(file, 'utf8')).toBe('{ not json');
+  });
+
+  it('leaves no temporary file behind after a save', async () => {
+    await call('PUT', '/settings/assistant', { model: 'claude-opus-5-5', effort: 'high' });
+    expect(fs.readdirSync(dataDir).filter((f) => f.endsWith('.part'))).toEqual([]);
+  });
+
   it('requires a session', async () => {
     expect((await app.inject({ method: 'GET', url: '/api/v1/settings' })).statusCode).toBe(401);
   });
@@ -161,10 +200,10 @@ describe('settings api', () => {
     const mk = (pack: string, state: string) => db.sqlite.prepare('INSERT INTO pack_version (pack, version) VALUES (?, ?)').run(pack, state);
     mk('Base', '8.3');
     mk('Own', '1.0');
-    const res = await call('PUT', '/settings/packs', { upstream: 'All the Mods', own: 'MonPack' });
+    const res = await call('PUT', '/settings/packs', { upstream: 'Alpha Pack', own: 'Beta Pack' });
     expect(res.statusCode).toBe(200);
-    expect((await call('GET', '/settings')).json().packs).toEqual({ upstream: 'All the Mods', own: 'MonPack' });
-    expect((db.sqlite.prepare('SELECT pack FROM pack_version ORDER BY id').all() as { pack: string }[]).map((r) => r.pack)).toEqual(['All the Mods', 'MonPack']);
+    expect((await call('GET', '/settings')).json().packs).toEqual({ upstream: 'Alpha Pack', own: 'Beta Pack' });
+    expect((db.sqlite.prepare('SELECT pack FROM pack_version ORDER BY id').all() as { pack: string }[]).map((r) => r.pack)).toEqual(['Alpha Pack', 'Beta Pack']);
     expect(JSON.stringify(db.sqlite.prepare('SELECT action, detail FROM audit_log').all())).toContain('settings.packs');
   });
 
@@ -186,12 +225,16 @@ describe('settings api', () => {
   });
 
   it('only accepts profiles of one of the two configured packs, and follows a rename', async () => {
-    const mkProfile = (pack: string) => call('POST', '/profiles', { pack, version: '1', side: 'client', state: 'clean', locationKind: 'zip', location: '/x/a.zip' });
+    const zipA = path.join(dataDir, 'a.zip');
+    const zipB = path.join(dataDir, 'b.zip');
+    fs.writeFileSync(zipA, 'x');
+    fs.writeFileSync(zipB, 'x');
+    const mkProfile = (pack: string) => call('POST', '/profiles', { pack, version: '1', side: 'client', state: 'clean', locationKind: 'zip', location: zipA });
     expect((await mkProfile('Other')).statusCode).toBe(400);
     expect((await mkProfile('Base')).statusCode).toBe(201);
     await call('PUT', '/settings/packs', { upstream: 'Followed', own: 'Mine' });
     expect((await mkProfile('Base')).statusCode).toBe(400);
-    expect((await call('POST', '/profiles', { pack: 'Mine', version: '2', side: 'client', state: 'clean', locationKind: 'zip', location: '/x/b.zip' })).statusCode).toBe(201);
+    expect((await call('POST', '/profiles', { pack: 'Mine', version: '2', side: 'client', state: 'clean', locationKind: 'zip', location: zipB })).statusCode).toBe(201);
     const matrix = (await call('GET', '/profiles/matrix')).json() as { pack: string }[];
     expect(matrix.map((m) => m.pack)).toEqual(['Followed', 'Mine']);
   });

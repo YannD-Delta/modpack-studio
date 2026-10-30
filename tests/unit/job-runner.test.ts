@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { openDb, type Db } from '../../src/server/db/open.js';
 import { JobRunner, type JobEvent } from '../../src/server/jobs/runner.js';
 
@@ -47,12 +47,14 @@ describe('JobRunner', () => {
     expect(statusOf(id)).toBe('cancelled');
   });
 
-  it('marks a job left running in the database as interrupted when a new runner starts', async () => {
+  it('does not touch live jobs when a runner is built; recoverInterrupted marks the ones left by a dead process', async () => {
     runner.register('hang', () => new Promise(() => undefined));
     const id = runner.enqueue('hang', null);
     await tick();
     expect(statusOf(id)).toBe('running');
-    new JobRunner(db); // simulated restart on the same database
+    const second = new JobRunner(db); // a second Studio process on the same database must not disturb the first one
+    expect(statusOf(id)).toBe('running');
+    expect(second.recoverInterrupted()).toBe(1); // simulated restart, run once the port is bound
     expect(statusOf(id)).toBe('interrupted');
   });
 
@@ -73,5 +75,59 @@ describe('JobRunner', () => {
     await tick();
     const row = db.sqlite.prepare('SELECT status, message FROM job WHERE id = ?').get(id) as { status: string; message: string };
     expect(row).toEqual({ status: 'failed', message: 'nope' });
+  });
+
+  it('survives a failed status write: no unhandled rejection, lock and slot released, the next job runs', async () => {
+    const events: string[] = [];
+    runner.on((e) => events.push(e.status));
+    runner.register('work', async () => undefined);
+    const realPrepare = db.sqlite.prepare.bind(db.sqlite);
+    const spy = vi.spyOn(db.sqlite, 'prepare').mockImplementation(((sql: string) => {
+      if (/^UPDATE job SET status/.test(sql)) throw new Error('SQLITE_BUSY: database is locked');
+      return realPrepare(sql);
+    }) as typeof db.sqlite.prepare);
+    const quiet = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    runner.enqueue('work', null, { lockKey: 'k' });
+    await tick(50);
+    expect(events).toEqual(['queued', 'running', 'done']);
+    expect((runner as unknown as { running: Map<string, unknown> }).running.size).toBe(0);
+    expect((runner as unknown as { locks: Set<string> }).locks.size).toBe(0);
+    spy.mockRestore();
+    quiet.mockRestore();
+    const next = runner.enqueue('work', null, { lockKey: 'k' });
+    await tick(50);
+    expect(statusOf(next)).toBe('done');
+  });
+
+  it('releases the lock and the slot when a job type has no handler', async () => {
+    const id = runner.enqueue('nobody', null, { lockKey: 'k' });
+    await tick();
+    expect(statusOf(id)).toBe('failed');
+    expect((runner as unknown as { locks: Set<string> }).locks.size).toBe(0);
+    expect((runner as unknown as { running: Map<string, unknown> }).running.size).toBe(0);
+  });
+
+  it('cancelling a queued job cleans its metadata', async () => {
+    const gate = deferred();
+    runner.register('slow', () => gate.promise);
+    runner.enqueue('slow', null, { lockKey: 'k' });
+    const queued = runner.enqueue('slow', null, { lockKey: 'k' });
+    await tick();
+    runner.cancel(queued);
+    expect(statusOf(queued)).toBe('cancelled');
+    gate.resolve();
+    await tick();
+    expect((runner as unknown as { meta: Map<string, unknown> }).meta.size).toBe(0);
+  });
+
+  it('records finished work as done even when cancel arrived too late to stop it', async () => {
+    const gate = deferred();
+    runner.register('stubborn', () => gate.promise); // ignores the signal and completes
+    const id = runner.enqueue('stubborn', null);
+    await tick();
+    runner.cancel(id);
+    gate.resolve();
+    await tick();
+    expect(statusOf(id)).toBe('done');
   });
 });

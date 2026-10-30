@@ -47,7 +47,7 @@ export function diffModSets(base: ModSet, other: ModSet, opts: { pins?: Set<stri
   return diff;
 }
 
-/** ATM's own choices: what its client has and its server pack lacks is client-only, and the reverse is server-only. */
+/** the base pack's own choices: what its client has and its server pack lacks is client-only, and the reverse is server-only. */
 export function deriveAtmSides(
   atmS: ModSet,
   atmC: ModSet,
@@ -60,7 +60,7 @@ export function deriveAtmSides(
   return { clientOnly, serverOnly, both };
 }
 
-/** the user's layer on top of ATM, client against client. */
+/** the user's layer on top of base, client against client. */
 export function ownLayer(lmpC: ModSet, atmC: ModSet): ModDiff {
   return diffModSets(atmC, lmpC);
 }
@@ -78,4 +78,19 @@ export function buildBlockers(input: { anomalies: ModEntry[]; duplicateIds: { mo
     ...input.duplicateIds.map((d) => ({ code: 'DUPLICATE_ID' as const, modId: d.modId })),
     ...(input.skippedJars ?? []).map((file) => ({ code: 'SKIPPED_JAR' as const, modId: file })),
   ];
+}
+
+export type PairProblem = { code: 'sides_differ' | 'profile_not_imported'; message: string };
+
+/**
+ * Why two profiles cannot be compared mod by mod, or null when they can. A client against a server pack would show every client-only
+ * mod as missing, and a profile that was never imported would show every mod of the other one as added or removed.
+ */
+export function comparePairProblem(base: { id: number; side: string }, other: { id: number; side: string }, baseSet: ModSet, otherSet: ModSet): PairProblem | null {
+  if (base.side !== other.side) {
+    return { code: 'sides_differ', message: `profiles ${base.id} (${base.side}) and ${other.id} (${other.side}) are not on the same side: compare a client with a client, or a server with a server` };
+  }
+  const empty = [...new Set([...(baseSet.size === 0 ? [base.id] : []), ...(otherSet.size === 0 ? [other.id] : [])])];
+  if (empty.length > 0) return { code: 'profile_not_imported', message: `profile ${empty.join(' and ')} has no imported mods yet: import it first` };
+  return null;
 }

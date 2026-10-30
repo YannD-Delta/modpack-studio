@@ -1,13 +1,16 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openDb, type Db } from '../../src/server/db/open.js';
 import { closePool } from '../../src/server/jobs/pool.js';
+import { getSources } from '../../src/server/mods/curseforge-sources.js';
 import { importModSet } from '../../src/server/mods/import-modset.js';
 import { createProfile } from '../../src/server/profiles/profile-service.js';
 import { makeJar, makeZip, type JarSpec } from '../fixtures-gen/jar.js';
 import { writeAtmPack } from '../fixtures-gen/packs.js';
+import { buildZip } from '../fixtures-gen/zip.js';
 
 let db: Db;
 let tmp: string;
@@ -125,5 +128,54 @@ describe('importModSet', () => {
     await importModSet(db, { kind: 'folder', path: clientDir }, p.id, ctx);
     const row = db.sqlite.prepare('SELECT library_key FROM jar_mod WHERE profile_id = ?').get(p.id) as { library_key: string };
     expect(row.library_key).toMatch(/^guava:/);
+  });
+});
+
+describe('importModSet: unreadable metadata, read-only zips, kept links', () => {
+  const issues = (profileId: number) => db.sqlite.prepare('SELECT file, reason FROM import_issue WHERE profile_id = ?').all(profileId) as { file: string; reason: string }[];
+
+  it('reports a jar with unusable metadata as an import issue and imports the others', async () => {
+    const { clientDir } = await writeAtmPack(tmp, { atm: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: [], clientMods: five });
+    fs.writeFileSync(path.join(clientDir, 'mods', 'odd.jar'), await makeZip({ 'fabric.mod.json': '{"id":{"x":1}}' }));
+    fs.writeFileSync(path.join(clientDir, 'mods', 'bad-toml.jar'), await makeZip({ 'META-INF/mods.toml': 'nothing here' }));
+    const p = profile();
+    const r = await importModSet(db, { kind: 'folder', path: clientDir }, p.id, ctx);
+    expect(r.imported).toBe(5);
+    expect(r.skipped.map((s) => s.file).sort()).toEqual(['bad-toml.jar', 'odd.jar']);
+    expect(issues(p.id).map((i) => i.file).sort()).toEqual(['bad-toml.jar', 'odd.jar']);
+    expect(modRows(p.id)).toBe(5); // not stored as libraries either
+  });
+
+  it('imports a server zip whose entries collide by case', async () => {
+    const zipPath = path.join(tmp, 'srv.zip');
+    fs.writeFileSync(zipPath, buildZip([
+      { name: 'mods/a-1.0.jar', data: await makeJar(spec('a')) },
+      { name: 'Config/X.toml', data: Buffer.from('1') },
+      { name: 'config/x.toml', data: Buffer.from('2') },
+    ]));
+    expect((await importModSet(db, { kind: 'zip', path: zipPath }, profile().id, ctx)).imported).toBe(1);
+  });
+
+  it('stores the hash of the parsed bytes (once, from the pool)', async () => {
+    const { clientDir } = await writeAtmPack(tmp, { atm: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: [], clientMods: [spec('a')] });
+    const p = profile();
+    await importModSet(db, { kind: 'folder', path: clientDir }, p.id, ctx);
+    const row = db.sqlite.prepare('SELECT jar_sha256 FROM jar_mod WHERE profile_id = ?').get(p.id) as { jar_sha256: string };
+    const expected = crypto.createHash('sha256').update(fs.readFileSync(path.join(clientDir, 'mods', 'a-1.0.jar'))).digest('hex');
+    expect(row.jar_sha256).toBe(expected);
+  });
+
+  it('keeps the stored CurseForge links when minecraftinstance.json cannot be read, and reports it', async () => {
+    const { clientDir } = await writeAtmPack(tmp, { atm: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: [], clientMods: five });
+    const file = path.join(clientDir, 'minecraftinstance.json');
+    const doc = { installedAddons: [{ addonID: 1, name: 'A', fileNameOnDisk: 'a-1.0.jar', installedFile: { id: 2 } }] };
+    fs.writeFileSync(file, JSON.stringify(doc));
+    const p = profile();
+    await importModSet(db, { kind: 'folder', path: clientDir }, p.id, ctx);
+    expect(getSources(db, p.id).size).toBe(1);
+    fs.writeFileSync(file, '{ half written');
+    await importModSet(db, { kind: 'folder', path: clientDir }, p.id, ctx);
+    expect(getSources(db, p.id).size).toBe(1);
+    expect(issues(p.id).map((i) => i.file)).toContain('minecraftinstance.json');
   });
 });

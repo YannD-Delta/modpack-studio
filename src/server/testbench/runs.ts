@@ -38,7 +38,40 @@ export function readRun(dataDir: string, id: string): RunDetail | null {
   return { meta, status: result?.status ?? live?.status ?? 'queued', message: result?.message ?? live?.message ?? null, result };
 }
 
-/** Newest first. A run whose job was cut short (server restart) keeps its last live status. */
+const EMPTY_SUMMARY = { bootSeconds: null, errorLines: 0, warnLines: 0, firstErrors: [] };
+
+/**
+ * Gives a run whose job ended without a result a terminal `interrupted` result (cancelled while queued, Studio restarted, job crashed).
+ * Returns false when the run already has a result or is unknown: a finished run is never rewritten.
+ */
+export function markRunInterrupted(dataDir: string, id: string, message: string): boolean {
+  if (!validRunId(id)) return false;
+  const dir = runDir(dataDir, id);
+  const meta = readJson<RunMeta>(path.join(dir, 'meta.json'));
+  if (!meta || fs.existsSync(path.join(dir, 'result.json'))) return false;
+  const at = new Date().toISOString();
+  const result: ServerTestResult = { status: 'interrupted', bootSeconds: null, exitCode: null, startedAt: meta.createdAt, endedAt: at, summary: EMPTY_SUMMARY, crashReports: [], modJars: 0, disabledMods: [], message };
+  fs.writeFileSync(path.join(dir, 'result.json'), JSON.stringify(result, null, 2), { flag: 'wx' });
+  fs.writeFileSync(path.join(dir, 'status.json'), JSON.stringify({ status: 'interrupted', message, at }));
+  return true;
+}
+
+/** At startup, once the previous process's jobs are marked interrupted: every run without a result is over. Returns how many were closed. */
+export function markOrphanRuns(dataDir: string, message = 'Studio was restarted before this test finished'): number {
+  const root = testsDir(dataDir);
+  if (!fs.existsSync(root)) return 0;
+  let n = 0;
+  for (const name of fs.readdirSync(root)) {
+    try {
+      if (markRunInterrupted(dataDir, name, message)) n++;
+    } catch {
+      // a run folder that cannot be written (read-only, racing) is left as it is
+    }
+  }
+  return n;
+}
+
+/** Newest first. */
 export function listRuns(dataDir: string, limit = 50): RunSummary[] {
   const root = testsDir(dataDir);
   if (!fs.existsSync(root)) return [];
@@ -82,8 +115,9 @@ export function readLogTail(dataDir: string, id: string, tail: number): { lines:
 /** First lines of the newest crash report of a run, or null. */
 export function readCrashHead(dataDir: string, id: string, maxLines = 120): string | null {
   if (!validRunId(id)) return null;
-  const dir = path.join(runDir(dataDir, id), 'server', 'crash-reports');
-  if (!fs.existsSync(dir)) return null;
+  // Reports are kept in the run folder; runs from before that (or with keepCopy) still have them in the server copy.
+  const dir = [path.join(runDir(dataDir, id), 'crash-reports'), path.join(runDir(dataDir, id), 'server', 'crash-reports')].find((d) => fs.existsSync(d));
+  if (!dir) return null;
   const files = fs.readdirSync(dir).filter((f) => f.endsWith('.txt')).sort();
   const last = files.at(-1);
   if (!last) return null;

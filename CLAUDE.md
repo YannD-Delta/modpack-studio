@@ -14,14 +14,14 @@ npm run build:web                         # web bundle into dist/web
 Start.cmd                                 # menu: setup, start, demo, tests, package (studio.ps1 -Action ...)
 ```
 
-Server: `127.0.0.1:8480`, data in `./data` (git-ignored: `studio.db`, `settings.json`, `secrets.json`, `cache/`, `exports/`).
+Server: `127.0.0.1:8480`, data in `./data` (git-ignored: `studio.db`, `settings.json`, `preferences.json`, `secrets.json`, `cache/`, `exports/`, `backups/`, `tests/`). Set `STUDIO_DATA` to use another folder.
 
 ## Layout
 
 - `src/server`: Fastify 5 routes under `/api/v1` (`api/routes-*.ts`), SQLite + Drizzle (`db/`, migrations in `drizzle/`), persisted jobs with SSE (`jobs/`), mod analysis (`mods/`), config scan and diff (`configs/`), update plan (`plan/`).
 - `src/web`: React 19 + Tailwind 4. UI strings are French, in `src/web/i18n/fr*.json` (one file per work stream, merged in `i18n/index.ts`).
 - `src/shared`: zod schemas and version ordering (Maven style; a lone trailing letter such as `2.5.4b` is a patch letter, `a`/`b`/`m` only mean alpha/beta/milestone when glued to a number).
-- `tests`: Vitest. Never touch real instances or a network drive; generate synthetic jars and trees with `tests/fixtures-gen`.
+- `tests`: Vitest. Never touch real instances or a network drive; generate synthetic jars and trees with `tests/fixtures-gen`. `vitest.config.ts` points `STUDIO_DATA` at a per-run temp folder, so tests never read `./data`.
 
 ## Rules
 

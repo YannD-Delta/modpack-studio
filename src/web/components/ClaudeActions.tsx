@@ -1,5 +1,6 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { ApiError } from '../api.js';
 import { assistantApi, type ActionId, type RunResult } from '../api-assistant.js';
 import { settingsApi } from '../api-settings.js';
 import { t, tf, type MessageKey } from '../i18n/index.js';
@@ -8,7 +9,10 @@ const action = 'rounded-md border border-slate-700 bg-slate-800 px-3 py-1.5 text
 const primary = 'rounded-md border border-violet-600 bg-violet-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-violet-500 disabled:opacity-50';
 
 type Note = { kind: 'ok' | 'err'; text: string };
-type Result = RunResult & { id: ActionId; label: string };
+type Result = RunResult & { id: ActionId; label: string; cut?: boolean };
+
+/** Codes the assistant routes send next to `error`; each has a French text. Any other code, or none, shows the server message. */
+const KNOWN_CODES = ['not_configured', 'rejected', 'rate_limited', 'unreachable', 'refused', 'unexpected'] as const;
 
 async function copyText(text: string): Promise<boolean> {
   try {
@@ -33,15 +37,33 @@ export function ClaudeActions(props: { base: number | null; other: number | null
   const [result, setResult] = useState<Result | null>(null);
   const setNote = (id: ActionId, note: Note | null) => setNotes((n) => ({ ...n, [id]: note ?? undefined }));
 
+  // An answer belongs to the selection that asked for it: drop it when the pair (or run) changes, and ignore late replies.
+  const selection = `${base ?? ''}|${other ?? ''}|${runId ?? ''}`;
+  const selectionRef = useRef(selection);
+  selectionRef.current = selection;
+  useEffect(() => {
+    setResult(null);
+    setManual(null);
+    setNotes({});
+  }, [selection]);
+
   const run = useMutation({
     mutationFn: (id: ActionId) => (runId ? assistantApi.runRun(runId) : assistantApi.run(id, base!, other!)),
     onMutate: (id) => {
       setBusy(id);
       setNote(id, null);
       setResult(null);
+      return { selection: selectionRef.current };
     },
-    onSuccess: (r, id) => setResult({ ...r, id, label: catalogue.data?.find((a) => a.id === id)?.label ?? id }),
-    onError: (e: Error, id) => setNote(id, { kind: 'err', text: t(`assistant.error.${errorCode(e)}` as MessageKey) }),
+    onSuccess: (r, id, ctx) => {
+      if (ctx?.selection !== selectionRef.current) return;
+      // An answer cut at the token limit comes back as a normal 200 flagged `truncated`: show the partial text with a warning.
+      setResult({ ...r, id, label: catalogue.data?.find((a) => a.id === id)?.label ?? id, cut: r.truncated === true });
+    },
+    onError: (e: Error, id, ctx) => {
+      if (ctx?.selection !== selectionRef.current) return;
+      setNote(id, { kind: 'err', text: errorText(e) });
+    },
     onSettled: () => setBusy(null),
   });
 
@@ -57,7 +79,7 @@ export function ClaudeActions(props: { base: number | null; other: number | null
         setNote(id, { kind: 'err', text: t('assistant.copyFailed') });
       }
     },
-    onError: (e: Error, id) => setNote(id, { kind: 'err', text: e.message }),
+    onError: (e: Error, id) => setNote(id, { kind: 'err', text: errorText(e) }),
   });
 
   if (!Array.isArray(catalogue.data)) return null; // not loaded yet, or an unexpected answer: the page works without the buttons
@@ -103,6 +125,7 @@ export function ClaudeActions(props: { base: number | null; other: number | null
               <button className={action} onClick={() => setResult(null)}>{t('assistant.close')}</button>
             </span>
           </div>
+          {result.cut && <p role="status" className="rounded border border-amber-700/60 bg-amber-950/40 px-2 py-1 text-xs text-amber-300">{t('assistant.cutMarker')}</p>}
           <p className="text-xs text-slate-500">
             {tf('assistant.meta', { model: result.model, effort: result.effort, inTokens: String(result.inputTokens), outTokens: String(result.outputTokens) })}
             {result.shown < result.rows && ` · ${tf('assistant.truncated', { shown: String(result.shown), rows: String(result.rows) })}`}
@@ -114,13 +137,9 @@ export function ClaudeActions(props: { base: number | null; other: number | null
   );
 }
 
-/** The API puts a stable `code` in its error answers; the generic `api()` helper keeps only the text, so read it back from the message. */
-function errorCode(e: Error): 'not_configured' | 'rejected' | 'rate_limited' | 'unreachable' | 'refused' | 'unexpected' {
-  const m = e.message.toLowerCase();
-  if (m.includes('declined')) return 'refused';
-  if (m.includes('no claude api key')) return 'not_configured';
-  if (m.includes('refused the key')) return 'rejected';
-  if (m.includes('rate limited')) return 'rate_limited';
-  if (m.includes('unreachable')) return 'unreachable';
-  return 'unexpected';
+/** Maps a failed call to a French text by its `code` (never by message text). Studio's own errors (no code) show their message. */
+function errorText(e: Error): string {
+  if (!(e instanceof ApiError)) return t('assistant.error.network'); // the request itself failed: Studio is down or unreachable
+  if (e.code && (KNOWN_CODES as readonly string[]).includes(e.code)) return t(`assistant.error.${e.code}` as MessageKey);
+  return e.message;
 }
