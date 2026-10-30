@@ -54,6 +54,8 @@ Every module registers its own limits with a neutral default (the value that use
 | `backup.keep` | 5 | 1 to 50 | Database backups kept |
 | `backup.minIntervalMinutes` | 60 | 0 to 1440 | Minimum time between two backups |
 | `import.scanConcurrency` | 4 | 1 to 32 | Jars read at the same time during an import |
+| `curseforge.gameId` | 432 | 1 to 1000000 | CurseForge game id of Minecraft (usual value, not confirmed by the official page) |
+| `curseforge.concurrency` | 4 | 1 to 16 | Parallel requests when looking up newer files |
 | `configs.maxTextMb` | 5 | 1 to 256 | Largest config file read as text (hash only above) |
 | `configs.normalizeMaxKb` | 1024 | 64 to 65536 | Largest file compared as normalised text |
 | `configs.maxViewKb` | 1024 | 64 to 65536 | Largest file shown in the viewer |

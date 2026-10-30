@@ -93,5 +93,21 @@
   "profiles.loaderUnknown": "loader non détecté",
   "profiles.loaderField.loader": "loader",
   "profiles.loaderField.loaderVersion": "version du loader",
-  "profiles.loaderField.mcVersion": "version de Minecraft"
+  "profiles.loaderField.mcVersion": "version de Minecraft",
+  "curseforge.title": "Mises à jour sur CurseForge",
+  "curseforge.help": "Cherche, pour les mods du profil « Comparé à » qui viennent d'une instance CurseForge, une version plus récente pour le même Minecraft et le même loader. Il faut ta clé CurseForge dans Réglages.",
+  "curseforge.check": "Chercher les mises à jour",
+  "curseforge.checking": "Recherche en cours…",
+  "curseforge.preRelease": "Inclure les bêtas et alphas",
+  "curseforge.preReleaseTag": "pré-version",
+  "curseforge.summary": "{checked} mods vérifiés : {updates} ont une version plus récente, {upToDate} sont à jour{failed}.",
+  "curseforge.failedPart": ", {n} non vérifiés",
+  "curseforge.none": "Aucun mod de ce profil n'a de lien CurseForge : seul un profil importé depuis une instance CurseForge en a.",
+  "curseforge.noKey": "Ajoute ta clé CurseForge dans Réglages.",
+  "curseforge.error.rejected": "CurseForge a refusé la clé.",
+  "curseforge.error.rate_limited": "Trop de demandes envoyées à CurseForge : réessaie dans un moment.",
+  "curseforge.error.unreachable": "CurseForge est injoignable.",
+  "curseforge.col.mod": "Mod",
+  "curseforge.col.installed": "Installé",
+  "curseforge.col.latest": "Dernière version"
 }

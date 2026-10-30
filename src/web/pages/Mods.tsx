@@ -18,6 +18,7 @@ import {
   type PlanState,
 } from '../api-plan.js';
 import { ClaudeActions } from '../components/ClaudeActions.js';
+import { CurseForgeUpdates } from '../components/CurseForgeUpdates.js';
 import { ErrorNotice, QueryGate } from '../components/ErrorNotice.js';
 import { getPackNames, t, tf, type MessageKey } from '../i18n/index.js';
 
@@ -315,6 +316,7 @@ export function Mods() {
         <>
           <p className="text-sm text-slate-400">{tf('mods.legend', { a, b })}</p>
           <ClaudeActions key={`${baseId}:${otherId}`} base={Number(baseId) || null} other={Number(otherId) || null} actions={['review-updates', 'review-added', 'review-missing']} />
+          <CurseForgeUpdates key={otherId} profileId={Number(otherId) || null} />
           <div className="flex flex-wrap items-center gap-2">
             <button onClick={() => setFilter('all')} aria-pressed={filter === 'all'} className={`rounded-full border px-3 py-1 text-xs ${filter === 'all' ? 'border-violet-500 bg-violet-950/60 text-violet-200' : 'border-slate-700 text-slate-300 hover:bg-slate-800'}`}>{t('mods.filter.all')} · {all.length}</button>
             {STATUSES.filter((st) => counts[st] > 0).map((st) => (

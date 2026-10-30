@@ -73,5 +73,8 @@
   "settings.limits.testbench.defaultMemoryMb": "Mémoire par défaut du serveur de test (Mo)",
   "settings.limits.testbench.defaultPort": "Port par défaut du serveur de test",
   "settings.limits.testbench.defaultTimeoutMinutes": "Délai par défaut avant « Done » (minutes)",
-  "settings.limits.testbench.disabledJarPattern": "Mods coupés dans la copie de test (motif sur le nom du jar)"
+  "settings.limits.testbench.disabledJarPattern": "Mods coupés dans la copie de test (motif sur le nom du jar)",
+  "settings.limits.group.curseforge": "CurseForge",
+  "settings.limits.curseforge.gameId": "Identifiant de Minecraft chez CurseForge",
+  "settings.limits.curseforge.concurrency": "Demandes CurseForge en parallèle"
 }
