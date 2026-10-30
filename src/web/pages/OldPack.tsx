@@ -12,13 +12,13 @@ const action = 'rounded-md border border-slate-700 bg-slate-800 px-3 py-1.5 text
 export function OldPack() {
   const matrix = useQuery({ queryKey: ['matrix'], queryFn: () => api<MatrixRow[]>('/profiles/matrix') });
   const profiles = useMemo(() => flattenProfiles(matrix.data ?? []), [matrix.data]);
-  const [atmId, setAtmId] = useState('');
+  const [upstreamId, setUpstreamId] = useState('');
   const [oldId, setOldId] = useState('');
   const [note, setNote] = useState<string | null>(null);
 
   const refresh = useMutation({
     mutationFn: async () => {
-      const counts = await Promise.all([atmId, oldId].map((id) => api<{ count: number }>(`/profiles/${id}/sources`, { method: 'POST' })));
+      const counts = await Promise.all([upstreamId, oldId].map((id) => api<{ count: number }>(`/profiles/${id}/sources`, { method: 'POST' })));
       return counts.reduce((n, c) => n + c.count, 0);
     },
     onSuccess: (n) => setNote(tf('oldpack.refreshed', { n: String(n) })),
@@ -40,13 +40,13 @@ export function OldPack() {
       <h2 className="text-lg font-semibold text-slate-100">{t('oldpack.title')}</h2>
       <p className="max-w-3xl text-sm text-slate-400">{t('oldpack.intro')}</p>
       <div className="flex flex-wrap items-end gap-4">
-        {select(atmId, (v) => { setAtmId(v); setNote(null); }, t('oldpack.reference'), (p) => p.pack === getPackNames().upstream)}
+        {select(upstreamId, (v) => { setUpstreamId(v); setNote(null); }, t('oldpack.reference'), (p) => p.pack === getPackNames().upstream)}
         {select(oldId, (v) => { setOldId(v); setNote(null); }, t('oldpack.old'), (p) => p.pack === getPackNames().own)}
-        <button className={action} disabled={!atmId || !oldId || refresh.isPending} title={t('oldpack.refreshTip')} onClick={() => refresh.mutate()}>{t('oldpack.refresh')}</button>
+        <button className={action} disabled={!upstreamId || !oldId || refresh.isPending} title={t('oldpack.refreshTip')} onClick={() => refresh.mutate()}>{t('oldpack.refresh')}</button>
         {note && <span role="status" className="pb-1.5 text-xs text-slate-400">{note}</span>}
       </div>
       <p className="text-xs text-slate-500">{t('oldpack.hint')}</p>
-      <ClaudeActions key={`${atmId}:${oldId}`} base={Number(atmId) || null} other={Number(oldId) || null} actions={['migrate-old-pack']} />
+      <ClaudeActions key={`${upstreamId}:${oldId}`} base={Number(upstreamId) || null} other={Number(oldId) || null} actions={['migrate-old-pack']} />
     </section>
   );
 }

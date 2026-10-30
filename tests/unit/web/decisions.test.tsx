@@ -15,7 +15,7 @@ const memory = {
     { modId: 'hud', kind: 'side', side: 'client', reason: '', createdAt: '2026-03-02T10:00:00.000Z' },
   ],
   blacklist: [{ modId: 'mine', origin: 'user', reason: 'crash', createdAt: null }],
-  atmDerivedCount: 7,
+  upstreamDerivedCount: 7,
 };
 const info = {
   studioVersion: '0.1.0',
@@ -24,7 +24,7 @@ const info = {
   uptimeSeconds: 3725,
   dataDir: 'C:\\synthetic\\data',
   db: { file: 'C:\\synthetic\\data\\studio.db', sizeBytes: 2048, migrations: 1 },
-  counts: { profiles: 3, jars: 10, modRows: 12, decisions: { pin: 1, ignore: 0, side: 1 }, blacklist: { user: 1, atmDerived: 7 }, jobs: { queued: 0, running: 0, done: 1, failed: 1, cancelled: 0, interrupted: 0 }, auditEntries: 4 },
+  counts: { profiles: 3, jars: 10, modRows: 12, decisions: { pin: 1, ignore: 0, side: 1 }, blacklist: { user: 1, upstreamDerived: 7 }, jobs: { queued: 0, running: 0, done: 1, failed: 1, cancelled: 0, interrupted: 0 }, auditEntries: 4 },
 };
 const auditPage1 = {
   entries: [
@@ -122,7 +122,7 @@ describe('Decisions memory', () => {
   });
 
   it('shows French empty states for an empty memory', async () => {
-    mockApi((url) => (url.endsWith('/decisions') ? { body: { decisions: [], blacklist: [], atmDerivedCount: 0 } } : undefined));
+    mockApi((url) => (url.endsWith('/decisions') ? { body: { decisions: [], blacklist: [], upstreamDerivedCount: 0 } } : undefined));
     wrap(<Decisions />);
     expect(await screen.findByText('Aucune version épinglée.')).toBeTruthy();
     expect(screen.getByText('Aucun côté forcé.')).toBeTruthy();

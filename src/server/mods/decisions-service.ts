@@ -12,7 +12,7 @@ export const JOB_STATUSES = ['queued', 'running', 'done', 'failed', 'cancelled',
 
 export type DecisionRow = { modId: string; kind: DecisionKind; side: Side | null; reason: string; createdAt: string };
 export type UserBlacklistRow = { modId: string; origin: 'user'; reason: string; createdAt: string | null };
-export type Memory = { decisions: DecisionRow[]; blacklist: UserBlacklistRow[]; atmDerivedCount: number };
+export type Memory = { decisions: DecisionRow[]; blacklist: UserBlacklistRow[]; upstreamDerivedCount: number };
 
 /** Everything Studio remembers on the user's behalf. base-derived blacklist rows are computed, so they are only counted. */
 export function listMemory(db: Db): Memory {
@@ -37,8 +37,8 @@ export function listMemory(db: Db): Memory {
       .all() as { mod_id: string; reason: string; created_at: string | null }[]
   ).map((r) => ({ modId: r.mod_id, origin: 'user' as const, reason: r.reason, createdAt: r.created_at }));
 
-  const { n } = db.sqlite.prepare("SELECT count(*) AS n FROM blacklist WHERE origin = 'atm_derived'").get() as { n: number };
-  return { decisions, blacklist, atmDerivedCount: n };
+  const { n } = db.sqlite.prepare("SELECT count(*) AS n FROM blacklist WHERE origin = 'upstream_derived'").get() as { n: number };
+  return { decisions, blacklist, upstreamDerivedCount: n };
 }
 
 type RawDecision = { side: Side | null; reason: string; created_at: string };
@@ -163,7 +163,7 @@ export type DebugInfo = {
     jars: number;
     modRows: number;
     decisions: Record<DecisionKind, number>;
-    blacklist: { user: number; atmDerived: number };
+    blacklist: { user: number; upstreamDerived: number };
     jobs: Record<JobStatus, number>;
     auditEntries: number;
   };
@@ -216,7 +216,7 @@ export function debugInfo(db: Db, opts: { dataDir: string }): DebugInfo {
       decisions,
       blacklist: {
         user: count("SELECT count(*) AS n FROM blacklist WHERE origin = 'user'"),
-        atmDerived: count("SELECT count(*) AS n FROM blacklist WHERE origin = 'atm_derived'"),
+        upstreamDerived: count("SELECT count(*) AS n FROM blacklist WHERE origin = 'upstream_derived'"),
       },
       jobs,
       auditEntries: count('SELECT count(*) AS n FROM audit_log'),

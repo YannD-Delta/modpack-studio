@@ -2,9 +2,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { makeJar, makeZip, type JarSpec } from './jar.js';
 
-export async function writeAtmPack(
+export async function writeBasePack(
   dir: string,
-  v: { atm: string; neoforge: string; mc: string; serverMods: JarSpec[]; clientMods: JarSpec[]; wrapperDir?: string },
+  v: { upstream: string; neoforge: string; mc: string; serverMods: JarSpec[]; clientMods: JarSpec[]; wrapperDir?: string },
 ): Promise<{ serverZip: string; clientDir: string }> {
   fs.mkdirSync(dir, { recursive: true });
 
@@ -12,13 +12,13 @@ export async function writeAtmPack(
     'startserver.bat': `@echo off\r\nset NEOFORGE_VERSION=${v.neoforge}\r\nset MINECRAFT_VERSION=${v.mc}\r\n`,
     [`neoforge-${v.neoforge}-installer.jar`]: Buffer.from('installer'),
     'user_jvm_args.txt': '-Xms4G -Xmx8G\n',
-    'config/atm.toml': 'welcome = true\n',
+    'config/upstream.toml': 'welcome = true\n',
   };
   for (const spec of v.serverMods) entries[`mods/${spec.fileName}`] = await makeJar(spec);
-  const serverZip = path.join(dir, `Base-${v.atm}-server.zip`);
+  const serverZip = path.join(dir, `Base-${v.upstream}-server.zip`);
   fs.writeFileSync(serverZip, await makeZip(entries, { wrapperDir: v.wrapperDir }));
 
-  const clientDir = path.join(dir, `client-${v.atm}`);
+  const clientDir = path.join(dir, `client-${v.upstream}`);
   fs.mkdirSync(path.join(clientDir, 'mods'), { recursive: true });
   for (const spec of v.clientMods) fs.writeFileSync(path.join(clientDir, 'mods', spec.fileName), await makeJar(spec));
   fs.writeFileSync(

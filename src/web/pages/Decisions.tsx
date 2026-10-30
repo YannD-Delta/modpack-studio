@@ -178,7 +178,7 @@ function Memory() {
   const memory = useQuery({ queryKey: ['decisions'], queryFn: getMemory });
   if (memory.isError) return <p className="text-sm text-rose-300">{errorText(memory.error)}</p>;
   if (!memory.data) return <p className="text-slate-400">{t('common.loading')}</p>;
-  const { decisions, blacklist, atmDerivedCount } = memory.data;
+  const { decisions, blacklist, upstreamDerivedCount } = memory.data;
 
   return (
     <div className="grid gap-4 lg:grid-cols-2">
@@ -190,9 +190,9 @@ function Memory() {
               kind={kind}
               count={blacklist.length}
               footer={
-                atmDerivedCount > 0 && (
-                  <p data-badge className="cursor-help border-t border-slate-800 px-4 py-2 text-xs text-slate-500" title={t('decisions.atmDerivedTip')}>
-                    {tf('decisions.atmDerived', { n: String(atmDerivedCount) })}
+                upstreamDerivedCount > 0 && (
+                  <p data-badge className="cursor-help border-t border-slate-800 px-4 py-2 text-xs text-slate-500" title={t('decisions.upstreamDerivedTip')}>
+                    {tf('decisions.upstreamDerived', { n: String(upstreamDerivedCount) })}
                   </p>
                 )
               }
@@ -259,7 +259,7 @@ function InfoPanel() {
     ['debug.info.jars', String(c.jars)],
     ['debug.info.modRows', String(c.modRows)],
     ['debug.info.decisions', tf('debug.info.decisionsValue', { pin: String(c.decisions.pin), ignore: String(c.decisions.ignore), side: String(c.decisions.side) })],
-    ['debug.info.blacklist', tf('debug.info.blacklistValue', { user: String(c.blacklist.user), atm: String(c.blacklist.atmDerived) })],
+    ['debug.info.blacklist', tf('debug.info.blacklistValue', { user: String(c.blacklist.user), derived: String(c.blacklist.upstreamDerived) })],
     ['debug.info.jobs', JOB_STATUSES.filter((s) => c.jobs[s] > 0).map((s) => `${c.jobs[s]} ${t(`debug.job.status.${s}` as MessageKey)}`).join(' · ') || '0'],
     ['debug.info.auditEntries', String(c.auditEntries)],
   ];

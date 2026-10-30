@@ -49,7 +49,7 @@ export function registerDecisionsRoutes(api: FastifyInstance, deps: AppDeps): vo
     if (!p.success) return sendBadRequest(reply, p.error);
     const result = removeFromBlacklist(db, p.data.modId);
     if (result === 'absent') return reply.code(404).send({ error: `${p.data.modId} is not on your blacklist` });
-    if (result === 'atm_derived') return reply.code(409).send({ error: `${p.data.modId} comes from the followed pack (client-only), it is recomputed and cannot be removed here` });
+    if (result === 'upstream_derived') return reply.code(409).send({ error: `${p.data.modId} comes from the followed pack (client-only), it is recomputed and cannot be removed here` });
     return { ok: true };
   });
 
@@ -60,7 +60,7 @@ export function registerDecisionsRoutes(api: FastifyInstance, deps: AppDeps): vo
     if (!body.success) return sendBadRequest(reply, body.error);
     const result = setBlacklistReason(db, p.data.modId, body.data.reason);
     if (result === 'absent') return reply.code(404).send({ error: `${p.data.modId} is not on your blacklist` });
-    if (result === 'atm_derived') return reply.code(409).send({ error: `${p.data.modId} comes from the followed pack (client-only), its reason is computed` });
+    if (result === 'upstream_derived') return reply.code(409).send({ error: `${p.data.modId} comes from the followed pack (client-only), its reason is computed` });
     return { ok: true };
   });
 

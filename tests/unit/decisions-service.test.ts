@@ -4,7 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { audit } from '../../src/server/db/audit.js';
 import { openDb, type Db } from '../../src/server/db/open.js';
-import { addToBlacklist, effectiveBlacklist, getPins, recomputeAtmDerived, removeFromBlacklist, setBlacklistReason, setDecision } from '../../src/server/mods/blacklist-service.js';
+import { addToBlacklist, effectiveBlacklist, getPins, recomputeUpstreamDerived, removeFromBlacklist, setBlacklistReason, setDecision } from '../../src/server/mods/blacklist-service.js';
 import { debugInfo, listAudit, listJobs, listMemory, setDecisionReason, unsetDecision } from '../../src/server/mods/decisions-service.js';
 
 let db: Db;
@@ -21,7 +21,7 @@ describe('listMemory', () => {
     setDecision(db, { modId: 'gone', kind: 'ignore', reason: 'dropped' });
     setDecision(db, { modId: 'hud', kind: 'side', side: 'client', reason: 'client only' });
     addToBlacklist(db, 'mine', 'crashes the server');
-    recomputeAtmDerived(db, '8.3', ['cli1', 'cli2']);
+    recomputeUpstreamDerived(db, '8.3', ['cli1', 'cli2']);
 
     const m = listMemory(db);
     expect(m.decisions.map((d) => [d.modId, d.kind, d.side])).toEqual([
@@ -32,7 +32,7 @@ describe('listMemory', () => {
     expect(m.decisions[0]!.reason).toBe('dropped');
     expect(m.decisions[0]!.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     expect(m.blacklist).toEqual([{ modId: 'mine', origin: 'user', reason: 'crashes the server', createdAt: expect.stringMatching(/^\d{4}-/) }]);
-    expect(m.atmDerivedCount).toBe(2);
+    expect(m.upstreamDerivedCount).toBe(2);
   });
 
   it('gives a null createdAt to a blacklist row that has no audit trace', () => {
@@ -86,18 +86,18 @@ describe('setDecisionReason', () => {
 
 describe('removeFromBlacklist', () => {
   it('removes a user row, keeps an base-derived row of the same id, and audits', () => {
-    recomputeAtmDerived(db, '8.3', ['both']);
+    recomputeUpstreamDerived(db, '8.3', ['both']);
     addToBlacklist(db, 'both', 'mine too');
     addToBlacklist(db, 'mine', '');
     expect(removeFromBlacklist(db, 'mine')).toBe('removed');
     expect(removeFromBlacklist(db, 'both')).toBe('removed');
-    expect(effectiveBlacklist(db, '8.3')).toEqual([{ modId: 'both', origin: 'atm_derived', stale: false }]);
+    expect(effectiveBlacklist(db, '8.3')).toEqual([{ modId: 'both', origin: 'upstream_derived', stale: false }]);
     expect(auditRows().filter((r) => r.action === 'blacklist.remove').map((r) => r.target)).toEqual(['mine', 'both']);
   });
 
   it('refuses an base-derived row and reports an absent one', () => {
-    recomputeAtmDerived(db, '8.3', ['cli']);
-    expect(removeFromBlacklist(db, 'cli')).toBe('atm_derived');
+    recomputeUpstreamDerived(db, '8.3', ['cli']);
+    expect(removeFromBlacklist(db, 'cli')).toBe('upstream_derived');
     expect(removeFromBlacklist(db, 'nope')).toBe('absent');
     expect(effectiveBlacklist(db, '8.3').map((e) => e.modId)).toEqual(['cli']);
     expect(auditRows().filter((r) => r.action === 'blacklist.remove')).toEqual([]);
@@ -106,12 +106,12 @@ describe('removeFromBlacklist', () => {
 
 describe('setBlacklistReason', () => {
   it("edits only the user's row, keeps its date and audits", () => {
-    recomputeAtmDerived(db, '8.3', ['cli']);
+    recomputeUpstreamDerived(db, '8.3', ['cli']);
     addToBlacklist(db, 'mine', 'before');
     const createdAt = listMemory(db).blacklist[0]!.createdAt;
     expect(setBlacklistReason(db, 'mine', 'after')).toBe('updated');
     expect(listMemory(db).blacklist).toEqual([{ modId: 'mine', origin: 'user', reason: 'after', createdAt }]);
-    expect(setBlacklistReason(db, 'cli', 'x')).toBe('atm_derived');
+    expect(setBlacklistReason(db, 'cli', 'x')).toBe('upstream_derived');
     expect(setBlacklistReason(db, 'nope', 'x')).toBe('absent');
     const rows = auditRows().filter((r) => r.action === 'blacklist.reason');
     expect(rows.map((r) => [r.target, JSON.parse(r.detail)])).toEqual([['mine', { from: 'before', to: 'after' }]]);
@@ -179,7 +179,7 @@ describe('debugInfo', () => {
     setDecision(db, { modId: 'old', kind: 'pin', reason: '' });
     setDecision(db, { modId: 'hud', kind: 'side', side: 'client', reason: '' });
     addToBlacklist(db, 'mine', '');
-    recomputeAtmDerived(db, '8.3', ['cli']);
+    recomputeUpstreamDerived(db, '8.3', ['cli']);
     db.sqlite.prepare("INSERT INTO job (id, type, params, status, created_at, updated_at) VALUES ('j1', 'import', 'null', 'failed', 't', 't'), ('j2', 'import', 'null', 'done', 't', 't'), ('j3', 'import', 'null', 'done', 't', 't')").run();
 
     const info = debugInfo(db, { dataDir: 'some-data' });
@@ -191,7 +191,7 @@ describe('debugInfo', () => {
     expect(info.db.sizeBytes).toBeNull();
     expect(info.db.migrations).toBeGreaterThanOrEqual(1);
     expect(info.counts.decisions).toEqual({ pin: 1, ignore: 0, side: 1 });
-    expect(info.counts.blacklist).toEqual({ user: 1, atmDerived: 1 });
+    expect(info.counts.blacklist).toEqual({ user: 1, upstreamDerived: 1 });
     expect(info.counts.jobs).toEqual({ queued: 0, running: 0, done: 2, failed: 1, cancelled: 0, interrupted: 0 });
     expect(info.counts.profiles).toBe(0);
     expect(info.counts.jars).toBe(0);

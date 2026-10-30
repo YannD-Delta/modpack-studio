@@ -193,7 +193,7 @@ erDiagram
   }
 ```
 
-Tables without links are `mod_decision` (pin, ignore, side, keyed by mod id), `blacklist` (origin `atm_derived` or `user`), `job`, `setting`, `audit_log`, `event` and `blob`.
+Tables without links are `mod_decision` (pin, ignore, side, keyed by mod id), `blacklist` (origin `upstream_derived` or `user`), `job`, `setting`, `audit_log`, `event` and `blob`.
 
 ## Running it
 

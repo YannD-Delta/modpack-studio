@@ -5,11 +5,11 @@ const sig = (origin: SideSignal['origin'], side: SideSignal['side']): SideSignal
 
 describe('classifySide', () => {
   it("lets the user's decision beat a base signal, without marking it uncertain", () => {
-    expect(classifySide([sig('atm', 'client'), sig('decision', 'both')])).toEqual({ side: 'both', origin: 'decision', uncertain: false });
+    expect(classifySide([sig('upstream', 'client'), sig('decision', 'both')])).toEqual({ side: 'both', origin: 'decision', uncertain: false });
   });
 
   it('lets a base signal beat Modrinth', () => {
-    expect(classifySide([sig('modrinth', 'both'), sig('atm', 'client')])).toMatchObject({ side: 'client', origin: 'atm' });
+    expect(classifySide([sig('modrinth', 'both'), sig('upstream', 'client')])).toMatchObject({ side: 'client', origin: 'upstream' });
   });
 
   it('marks a Modrinth client_only against a declared both as uncertain', () => {

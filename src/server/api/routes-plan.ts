@@ -220,8 +220,8 @@ async function modDebug(db: Db, modId: string, base: Profile, other: Profile, up
     const r = decisionRows.find((d) => d.kind === kind);
     return r ? { side: r.side, reason: r.reason, createdAt: r.created_at } : null;
   };
-  const atmVersion = base.pack === upstream ? base.version : other.pack === upstream ? other.version : base.version;
-  const bl = effectiveBlacklist(db, atmVersion).find((e) => e.modId === modId) ?? null;
+  const upstreamVersion = base.pack === upstream ? base.version : other.pack === upstream ? other.version : base.version;
+  const bl = effectiveBlacklist(db, upstreamVersion).find((e) => e.modId === modId) ?? null;
 
   const actionable = actionableMods(diffModSets(baseSet, otherSet, { pins: getPins(db) }));
   const planned = getPlanItems(db, base.id, other.id, 'mod').some((i) => i.key === modId);
@@ -256,7 +256,7 @@ async function modDebug(db: Db, modId: string, base: Profile, other: Profile, up
     base: { profile: profileInfo(base), entry: ref },
     other: { profile: profileInfo(other), entry: cur },
     comparison: ref && cur ? { comparedAs: 'other version (a) relative to the reference version (b)', ...explainCompare(cur.version, ref.version) } : null,
-    decisions: { pin: decision('pin'), ignore: decision('ignore'), side: decision('side'), blacklisted: bl ? { origin: bl.origin, stale: bl.stale, atmVersion } : null },
+    decisions: { pin: decision('pin'), ignore: decision('ignore'), side: decision('side'), blacklisted: bl ? { origin: bl.origin, stale: bl.stale, upstreamVersion } : null },
     plan: { planned, actionable: actionable.has(modId), action: actionable.get(modId) ?? null },
     duplicates: { base: dup(base.id), other: dup(other.id) },
     sourceJar,

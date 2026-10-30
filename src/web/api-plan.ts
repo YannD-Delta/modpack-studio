@@ -38,7 +38,7 @@ export type ModDebug = {
     deciding: { index: number; tokenA: string | null; tokenB: string | null } | null;
     note: string;
   } | null;
-  decisions: { pin: DecisionInfo; ignore: DecisionInfo; side: DecisionInfo; blacklisted: { origin: string; stale: boolean; atmVersion: string } | null };
+  decisions: { pin: DecisionInfo; ignore: DecisionInfo; side: DecisionInfo; blacklisted: { origin: string; stale: boolean; upstreamVersion: string } | null };
   plan: { planned: boolean; actionable: boolean; action: 'update' | 'restore' | null };
   duplicates: { base: string[] | null; other: string[] | null };
   sourceJar: { side: 'base'; locationKind: string; path: string | null; exists: boolean; size: number | null; sha256Recorded: string; sha256Actual: string | null; matches: boolean; error: string | null } | null;

@@ -4,7 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { LoaderConflictError, checkLoaderAgreement, detectLoader, detectLoaderForProfile } from '../../src/server/loader/detect-loader.js';
 import { makeZip } from '../fixtures-gen/jar.js';
-import { writeAtmPack } from '../fixtures-gen/packs.js';
+import { writeBasePack } from '../fixtures-gen/packs.js';
 
 let tmp: string;
 beforeEach(() => {
@@ -20,7 +20,7 @@ const zipWith = async (entries: Record<string, string>, wrapperDir?: string) => 
 
 describe('detectLoader from a server pack', () => {
   it('reads the NeoForge and Minecraft versions from the installer name and startserver script', async () => {
-    const { serverZip } = await writeAtmPack(tmp, { atm: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: [], clientMods: [] });
+    const { serverZip } = await writeBasePack(tmp, { upstream: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: [], clientMods: [] });
     expect(await detectLoader({ kind: 'serverZip', path: serverZip })).toEqual({ loader: 'neoforge', loaderVersion: '21.1.259', mcVersion: '1.21.1' });
   });
 
@@ -57,10 +57,10 @@ describe('checkLoaderAgreement', () => {
   const info = (loaderVersion: string) => ({ loader: 'neoforge' as const, loaderVersion, mcVersion: '1.21.1' });
 
   it('flags a NeoForge version mismatch', () => {
-    const r = checkLoaderAgreement({ server: info('21.1.259'), client: info('21.1.251'), lmp: info('21.1.259') });
+    const r = checkLoaderAgreement({ server: info('21.1.259'), client: info('21.1.251'), own: info('21.1.259') });
     expect(r.ok).toBe(false);
     expect(r.mismatches).toContainEqual({ a: 'server', b: 'client', field: 'loaderVersion' });
-    expect(r.mismatches).toContainEqual({ a: 'client', b: 'lmp', field: 'loaderVersion' });
+    expect(r.mismatches).toContainEqual({ a: 'client', b: 'own', field: 'loaderVersion' });
   });
 
   it('is ok when every side agrees', () => {

@@ -6,7 +6,7 @@ import type { Config } from '../../src/server/config.js';
 import { openDb, type Db } from '../../src/server/db/open.js';
 import { closePool } from '../../src/server/jobs/pool.js';
 import { JobRunner } from '../../src/server/jobs/runner.js';
-import { addToBlacklist, recomputeAtmDerived, setDecision } from '../../src/server/mods/blacklist-service.js';
+import { addToBlacklist, recomputeUpstreamDerived, setDecision } from '../../src/server/mods/blacklist-service.js';
 
 let db: Db;
 let app: FastifyInstance;
@@ -58,7 +58,7 @@ describe('decisions api', () => {
     setDecision(db, { modId: 'old', kind: 'pin', reason: 'keep 1.0' });
     setDecision(db, { modId: 'hud', kind: 'side', side: 'client', reason: '' });
     addToBlacklist(db, 'mine', 'crash');
-    recomputeAtmDerived(db, '8.3', ['cli']);
+    recomputeUpstreamDerived(db, '8.3', ['cli']);
     const res = await call('GET', '/decisions');
     expect(res.statusCode).toBe(200);
     const body = res.json();
@@ -67,7 +67,7 @@ describe('decisions api', () => {
       ['old', 'pin', null],
     ]);
     expect(body.blacklist.map((b: { modId: string; origin: string }) => [b.modId, b.origin])).toEqual([['mine', 'user']]);
-    expect(body.atmDerivedCount).toBe(1);
+    expect(body.upstreamDerivedCount).toBe(1);
   });
 
   it('undoing a pin takes effect on the next diff', async () => {
@@ -86,7 +86,7 @@ describe('decisions api', () => {
 
   it('undoing a client side decision takes the mod off the blacklist at once', async () => {
     setDecision(db, { modId: 'hud', kind: 'side', side: 'client', reason: '' });
-    const list = async () => (await call('GET', '/blacklist?atmVersion=8.3')).json().map((e: { modId: string }) => e.modId);
+    const list = async () => (await call('GET', '/blacklist?upstreamVersion=8.3')).json().map((e: { modId: string }) => e.modId);
     expect(await list()).toEqual(['hud']);
     expect((await call('DELETE', '/decisions/hud/side')).statusCode).toBe(200);
     expect(await list()).toEqual([]);
@@ -116,7 +116,7 @@ describe('decisions api', () => {
 
   it('edits the reason of a user blacklist entry only', async () => {
     addToBlacklist(db, 'mine', 'before');
-    recomputeAtmDerived(db, '8.3', ['cli']);
+    recomputeUpstreamDerived(db, '8.3', ['cli']);
     expect((await call('PUT', '/blacklist/entry/mine/reason', { reason: 'after' })).statusCode).toBe(200);
     expect((await call('GET', '/decisions')).json().blacklist[0].reason).toBe('after');
     expect((await call('PUT', '/blacklist/entry/cli/reason', { reason: 'x' })).statusCode).toBe(409);
@@ -126,11 +126,11 @@ describe('decisions api', () => {
 
   it('removes only user blacklist entries', async () => {
     addToBlacklist(db, 'mine', '');
-    recomputeAtmDerived(db, '8.3', ['cli']);
+    recomputeUpstreamDerived(db, '8.3', ['cli']);
     expect((await call('DELETE', '/blacklist/entry/mine')).statusCode).toBe(200);
     expect((await call('DELETE', '/blacklist/entry/mine')).statusCode).toBe(404);
     expect((await call('DELETE', '/blacklist/entry/cli')).statusCode).toBe(409);
-    expect((await call('GET', '/blacklist?atmVersion=8.3')).json().map((e: { modId: string }) => e.modId)).toEqual(['cli']);
+    expect((await call('GET', '/blacklist?upstreamVersion=8.3')).json().map((e: { modId: string }) => e.modId)).toEqual(['cli']);
     expect(db.sqlite.prepare("SELECT target FROM audit_log WHERE action = 'blacklist.remove'").all()).toEqual([{ target: 'mine' }]);
   });
 });

@@ -6,10 +6,10 @@ export type ModSet = Map<string, ModEntry>;
 export type ModUpdate = { modId: string; from: ModEntry; to: ModEntry; direction: 'newer' | 'older' | 'different' };
 export type ModDiff = { added: ModEntry[]; removed: ModEntry[]; updated: ModUpdate[]; rebuilt: ModEntry[]; unchanged: number };
 
-export class AtmVersionMismatchError extends Error {
+export class UpstreamVersionMismatchError extends Error {
   constructor(server: string, client: string) {
     super(`the followed pack's server pack is ${server} but its client is ${client}: sides cannot be derived`);
-    this.name = 'AtmVersionMismatchError';
+    this.name = 'UpstreamVersionMismatchError';
   }
 }
 
@@ -48,26 +48,26 @@ export function diffModSets(base: ModSet, other: ModSet, opts: { pins?: Set<stri
 }
 
 /** the base pack's own choices: what its client has and its server pack lacks is client-only, and the reverse is server-only. */
-export function deriveAtmSides(
-  atmS: ModSet,
-  atmC: ModSet,
+export function deriveUpstreamSides(
+  upstreamS: ModSet,
+  upstreamC: ModSet,
   versions: { server: string; client: string },
 ): { clientOnly: string[]; serverOnly: string[]; both: string[] } {
-  if (versions.server !== versions.client) throw new AtmVersionMismatchError(versions.server, versions.client);
-  const clientOnly = [...atmC.keys()].filter((id) => !atmS.has(id)).sort();
-  const serverOnly = [...atmS.keys()].filter((id) => !atmC.has(id)).sort();
-  const both = [...atmS.keys()].filter((id) => atmC.has(id)).sort();
+  if (versions.server !== versions.client) throw new UpstreamVersionMismatchError(versions.server, versions.client);
+  const clientOnly = [...upstreamC.keys()].filter((id) => !upstreamS.has(id)).sort();
+  const serverOnly = [...upstreamS.keys()].filter((id) => !upstreamC.has(id)).sort();
+  const both = [...upstreamS.keys()].filter((id) => upstreamC.has(id)).sort();
   return { clientOnly, serverOnly, both };
 }
 
 /** the user's layer on top of base, client against client. */
-export function ownLayer(lmpC: ModSet, atmC: ModSet): ModDiff {
-  return diffModSets(atmC, lmpC);
+export function ownLayer(ownC: ModSet, upstreamC: ModSet): ModDiff {
+  return diffModSets(upstreamC, ownC);
 }
 
 /** Mods the followed pack's client has that the player's pack lacks (the player does not remove mods), minus the ones already resolved. */
-export function anomalies(atmC: ModSet, lmpC: ModSet, resolved: Set<string> = new Set()): ModEntry[] {
-  return [...atmC.values()].filter((e) => !lmpC.has(e.modId) && !resolved.has(e.modId)).sort(byId);
+export function anomalies(upstreamC: ModSet, ownC: ModSet, resolved: Set<string> = new Set()): ModEntry[] {
+  return [...upstreamC.values()].filter((e) => !ownC.has(e.modId) && !resolved.has(e.modId)).sort(byId);
 }
 
 export type Blocker = { code: 'ANOMALY' | 'DUPLICATE_ID' | 'SKIPPED_JAR'; modId: string };

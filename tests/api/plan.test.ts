@@ -10,7 +10,7 @@ import { openDb, type Db } from '../../src/server/db/open.js';
 import { closePool } from '../../src/server/jobs/pool.js';
 import { JobRunner } from '../../src/server/jobs/runner.js';
 import type { JarSpec } from '../fixtures-gen/jar.js';
-import { writeAtmPack } from '../fixtures-gen/packs.js';
+import { writeBasePack } from '../fixtures-gen/packs.js';
 
 let db: Db;
 let app: FastifyInstance;
@@ -57,10 +57,10 @@ async function importAndWait(profileId: number, source: unknown) {
 
 /** Base client (reference) vs Own: a older in Own, b missing from Own, n newer in Own, mine added. */
 async function scenario() {
-  const basePack = await writeAtmPack(path.join(tmp, 'base'), { atm: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: [], clientMods: [jar('a', '1.1'), jar('b'), jar('n', '1.0')] });
+  const basePack = await writeBasePack(path.join(tmp, 'base'), { upstream: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: [], clientMods: [jar('a', '1.1'), jar('b'), jar('n', '1.0')] });
   fs.mkdirSync(path.join(basePack.clientDir, 'config'));
   fs.writeFileSync(path.join(basePack.clientDir, 'config', 'x.toml'), 'ref = 1\n');
-  const ownPack = await writeAtmPack(path.join(tmp, 'own'), { atm: '1.0', neoforge: '21.1.259', mc: '1.21.1', serverMods: [], clientMods: [jar('a', '1.0'), jar('n', '2.0'), jar('mine')] });
+  const ownPack = await writeBasePack(path.join(tmp, 'own'), { upstream: '1.0', neoforge: '21.1.259', mc: '1.21.1', serverMods: [], clientMods: [jar('a', '1.0'), jar('n', '2.0'), jar('mine')] });
   const mk = async (body: object) => ((await call('POST', '/profiles', body)).json() as { id: number }).id;
   const c = await mk({ pack: 'Base', version: '8.3', side: 'client', state: 'clean', locationKind: 'folder', location: basePack.clientDir });
   const l = await mk({ pack: 'Own', version: '1.0', side: 'client', state: 'clean', locationKind: 'folder', location: ownPack.clientDir });

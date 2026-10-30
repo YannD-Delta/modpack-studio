@@ -36,20 +36,20 @@ const exportResult = {
   base: { id: 2, label: 'Base 8.3 (client, clean)' },
   other: { id: 3, label: 'Own 1.0 (client, clean)' },
   counts: { modsUpdated: 1, modsRestored: 0, jarsToRemove: 1, files: 0, failures: 1 },
-  failures: [{ kind: 'mod', key: 'b', reason: 'reference jar b-1.0.jar: not found: D:/atm/mods/b-1.0.jar' }],
+  failures: [{ kind: 'mod', key: 'b', reason: 'reference jar b-1.0.jar: not found: D:/upstream/mods/b-1.0.jar' }],
   warnings: [],
 };
 const debugDoc = {
   modId: 'a',
   generatedAt: '2026-10-29T13:00:00.000Z',
   status: 'older',
-  base: { profile: { id: 2, label: 'Base 8.3 (client, clean)', pack: 'Base', version: '8.3', side: 'client', state: 'clean', locationKind: 'folder', location: 'D:/atm' }, entry: e('a', '1.1', 'a-1.1.jar', 'f'.repeat(64)) },
-  other: { profile: { id: 3, label: 'Own 1.0 (client, clean)', pack: 'Own', version: '1.0', side: 'client', state: 'clean', locationKind: 'folder', location: 'D:/lmp' }, entry: e('a', '1.0', 'a-1.0.jar', 'e'.repeat(64)) },
+  base: { profile: { id: 2, label: 'Base 8.3 (client, clean)', pack: 'Base', version: '8.3', side: 'client', state: 'clean', locationKind: 'folder', location: 'D:/upstream' }, entry: e('a', '1.1', 'a-1.1.jar', 'f'.repeat(64)) },
+  other: { profile: { id: 3, label: 'Own 1.0 (client, clean)', pack: 'Own', version: '1.0', side: 'client', state: 'clean', locationKind: 'folder', location: 'D:/own' }, entry: e('a', '1.0', 'a-1.0.jar', 'e'.repeat(64)) },
   comparison: { comparedAs: 'x', a: { raw: '1.0', tokens: ['1', '0'], hashLike: false, unparsable: false }, b: { raw: '1.1', tokens: ['1', '1'], hashLike: false, unparsable: false }, result: 'older', deciding: { index: 1, tokenA: '0', tokenB: '1' }, note: 'Token 1 decides' },
   decisions: { pin: null, ignore: null, side: null, blacklisted: null },
   plan: { planned: false, actionable: true, action: 'update' },
   duplicates: { base: null, other: null },
-  sourceJar: { side: 'base', locationKind: 'folder', path: 'D:/atm/mods/a-1.1.jar', exists: true, size: 2048, sha256Recorded: 'f'.repeat(64), sha256Actual: 'f'.repeat(64), matches: true, error: null },
+  sourceJar: { side: 'base', locationKind: 'folder', path: 'D:/upstream/mods/a-1.1.jar', exists: true, size: 2048, sha256Recorded: 'f'.repeat(64), sha256Actual: 'f'.repeat(64), matches: true, error: null },
 };
 
 const items = () => [...[...planned].sort().map((key) => ({ kind: 'mod', key, action: 'take_ref' })), ...files.map((key) => ({ kind: 'file', key, action: 'take_ref' }))];
@@ -160,7 +160,7 @@ describe('Mods page: update plan', () => {
     expect(await screen.findByText('Pack de mise à jour prêt')).toBeTruthy();
     expect(calls.find((c) => c.url === '/api/v1/plan/export')!.body).toEqual({ base: 2, other: 3 });
     expect(screen.getByText(exportResult.folder)).toBeTruthy();
-    expect(screen.getByText(/not found: D:\/atm\/mods\/b-1.0.jar/)).toBeTruthy();
+    expect(screen.getByText(/not found: D:\/upstream\/mods\/b-1.0.jar/)).toBeTruthy();
     const link = screen.getByRole('link', { name: 'Télécharger le zip' });
     expect(link.getAttribute('href')).toBe(`/api/v1/plan/exports/${exportResult.name}/download`);
     expect(screen.getAllByText(/apply\.ps1 -InstanceDir/).length).toBeGreaterThan(0);
@@ -178,7 +178,7 @@ describe('Mods page: update plan', () => {
     expect(await screen.findByText('✓ trouvé, identique à l’import')).toBeTruthy();
     expect(screen.getByText(/la version comparée est plus ancienne/)).toBeTruthy();
     expect(screen.getByText(/élément n°1 décisif : « 0 » contre « 1 »/)).toBeTruthy();
-    expect(screen.getByText('D:/atm/mods/a-1.1.jar')).toBeTruthy();
+    expect(screen.getByText('D:/upstream/mods/a-1.1.jar')).toBeTruthy();
     await userEvent.click(screen.getByRole('button', { name: 'Copier le debug (JSON)' }));
     expect(await screen.findByText('Copié ✓')).toBeTruthy();
     expect(JSON.parse(writeText.mock.calls[0]![0]).modId).toBe('a');

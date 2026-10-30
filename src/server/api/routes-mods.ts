@@ -3,7 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import { API_PREFIX } from '../../shared/constants.js';
 import {
   AnomaliesQuerySchema,
-  AtmSidesQuerySchema,
+  UpstreamSidesQuerySchema,
   BlacklistPutSchema,
   BlacklistQuerySchema,
   DecisionBodySchema,
@@ -13,8 +13,8 @@ import {
 } from '../../shared/schemas/mods.js';
 import type { Db } from '../db/open.js';
 import { checkLoaderAgreement, detectLoaderForProfile, type LoaderInfo } from '../loader/detect-loader.js';
-import { addToBlacklist, effectiveBlacklist, getPins, recomputeAtmDerived, setDecision } from '../mods/blacklist-service.js';
-import { AtmVersionMismatchError, anomalies, buildBlockers, comparePairProblem, deriveAtmSides, diffModSets } from '../mods/diff.js';
+import { addToBlacklist, effectiveBlacklist, getPins, recomputeUpstreamDerived, setDecision } from '../mods/blacklist-service.js';
+import { UpstreamVersionMismatchError, anomalies, buildBlockers, comparePairProblem, deriveUpstreamSides, diffModSets } from '../mods/diff.js';
 import { findDuplicateIds, loadModSet, resolvedAnomalies } from '../mods/modset-store.js';
 import { getProfile, type Profile } from '../profiles/profile-service.js';
 import { readPackNames } from '../settings/packs.js';
@@ -52,7 +52,7 @@ function skippedJarsOf(db: Db, profileId: number): string[] {
 }
 
 /** The followed pack's sides can only be derived from its server pack and its client, both fully imported and on the same loader. */
-async function loadAtmPair(db: Db, serverId: number, clientId: number, upstream: string) {
+async function loadUpstreamPair(db: Db, serverId: number, clientId: number, upstream: string) {
   const server = profileOr404(db, serverId);
   const client = profileOr404(db, clientId);
   if (server.pack !== upstream || server.side !== 'server' || client.pack !== upstream || client.side !== 'client') {
@@ -103,14 +103,14 @@ export function registerModRoutes(api: FastifyInstance, deps: AppDeps): void {
     return diffModSets(baseSet, otherSet, { pins: getPins(db) });
   });
 
-  api.get(`${API_PREFIX}/mods/atm-sides`, async (req, reply) => {
-    const q = AtmSidesQuerySchema.safeParse(req.query);
+  api.get(`${API_PREFIX}/mods/upstream-sides`, async (req, reply) => {
+    const q = UpstreamSidesQuerySchema.safeParse(req.query);
     if (!q.success) return sendBadRequest(reply, q.error);
-    const { server, client, serverSet, clientSet } = await loadAtmPair(db, q.data.server, q.data.client, readPackNames(deps.dataDir ?? path.resolve('data')).upstream);
+    const { server, client, serverSet, clientSet } = await loadUpstreamPair(db, q.data.server, q.data.client, readPackNames(deps.dataDir ?? path.resolve('data')).upstream);
     try {
-      return deriveAtmSides(serverSet, clientSet, { server: server.version, client: client.version });
+      return deriveUpstreamSides(serverSet, clientSet, { server: server.version, client: client.version });
     } catch (err) {
-      if (err instanceof AtmVersionMismatchError) throw new HttpError(409, err.message, 'atm_version_mismatch');
+      if (err instanceof UpstreamVersionMismatchError) throw new HttpError(409, err.message, 'upstream_version_mismatch');
       throw err;
     }
   });
@@ -118,9 +118,9 @@ export function registerModRoutes(api: FastifyInstance, deps: AppDeps): void {
   api.get(`${API_PREFIX}/mods/anomalies`, async (req, reply) => {
     const q = AnomaliesQuerySchema.safeParse(req.query);
     if (!q.success) return sendBadRequest(reply, q.error);
-    profileOr404(db, q.data.atmClient);
-    profileOr404(db, q.data.lmp);
-    return anomalies(loadModSet(db, q.data.atmClient), loadModSet(db, q.data.lmp), resolvedAnomalies(db));
+    profileOr404(db, q.data.upstreamClient);
+    profileOr404(db, q.data.own);
+    return anomalies(loadModSet(db, q.data.upstreamClient), loadModSet(db, q.data.own), resolvedAnomalies(db));
   });
 
   api.get(`${API_PREFIX}/loader/check`, async (req, reply) => {
@@ -142,21 +142,21 @@ export function registerModRoutes(api: FastifyInstance, deps: AppDeps): void {
   api.get(`${API_PREFIX}/build/blockers`, async (req, reply) => {
     const q = AnomaliesQuerySchema.safeParse(req.query);
     if (!q.success) return sendBadRequest(reply, q.error);
-    profileOr404(db, q.data.atmClient);
-    profileOr404(db, q.data.lmp);
+    profileOr404(db, q.data.upstreamClient);
+    profileOr404(db, q.data.own);
     // A duplicate id that the followed pack's client already ships (seen on Base 8.3: two cc-tweaked jars) is inherited, not the player's mistake.
-    const inherited = new Set(findDuplicateIds(db, q.data.atmClient).map((d) => d.modId));
+    const inherited = new Set(findDuplicateIds(db, q.data.upstreamClient).map((d) => d.modId));
     return buildBlockers({
-      anomalies: anomalies(loadModSet(db, q.data.atmClient), loadModSet(db, q.data.lmp), resolvedAnomalies(db)),
-      duplicateIds: findDuplicateIds(db, q.data.lmp).filter((d) => !inherited.has(d.modId)),
-      skippedJars: [...skippedJarsOf(db, q.data.atmClient), ...skippedJarsOf(db, q.data.lmp)],
+      anomalies: anomalies(loadModSet(db, q.data.upstreamClient), loadModSet(db, q.data.own), resolvedAnomalies(db)),
+      duplicateIds: findDuplicateIds(db, q.data.own).filter((d) => !inherited.has(d.modId)),
+      skippedJars: [...skippedJarsOf(db, q.data.upstreamClient), ...skippedJarsOf(db, q.data.own)],
     });
   });
 
   api.get(`${API_PREFIX}/blacklist`, async (req, reply) => {
     const q = BlacklistQuerySchema.safeParse(req.query);
     if (!q.success) return sendBadRequest(reply, q.error);
-    return effectiveBlacklist(db, q.data.atmVersion);
+    return effectiveBlacklist(db, q.data.upstreamVersion);
   });
 
   api.put(`${API_PREFIX}/blacklist`, async (req, reply) => {
@@ -166,13 +166,13 @@ export function registerModRoutes(api: FastifyInstance, deps: AppDeps): void {
       addToBlacklist(db, body.data.modId, body.data.reason);
       return { ok: true };
     }
-    const { server, client, serverSet, clientSet } = await loadAtmPair(db, body.data.server, body.data.client, readPackNames(deps.dataDir ?? path.resolve('data')).upstream);
+    const { server, client, serverSet, clientSet } = await loadUpstreamPair(db, body.data.server, body.data.client, readPackNames(deps.dataDir ?? path.resolve('data')).upstream);
     try {
-      const sides = deriveAtmSides(serverSet, clientSet, { server: server.version, client: client.version });
-      recomputeAtmDerived(db, server.version, sides.clientOnly);
+      const sides = deriveUpstreamSides(serverSet, clientSet, { server: server.version, client: client.version });
+      recomputeUpstreamDerived(db, server.version, sides.clientOnly);
       return { ok: true, added: sides.clientOnly.length };
     } catch (err) {
-      if (err instanceof AtmVersionMismatchError) throw new HttpError(409, err.message, 'atm_version_mismatch');
+      if (err instanceof UpstreamVersionMismatchError) throw new HttpError(409, err.message, 'upstream_version_mismatch');
       throw err;
     }
   });

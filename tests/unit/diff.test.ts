@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AtmVersionMismatchError, anomalies, buildBlockers, deriveAtmSides, diffModSets, ownLayer, type ModSet } from '../../src/server/mods/diff.js';
+import { UpstreamVersionMismatchError, anomalies, buildBlockers, deriveUpstreamSides, diffModSets, ownLayer, type ModSet } from '../../src/server/mods/diff.js';
 
 const set = (rows: [id: string, version: string, sha: string, file?: string][]): ModSet =>
   new Map(rows.map(([modId, version, sha256, file]) => [modId, { modId, version, sha256, file: file ?? `${modId}-${version}.jar` }]));
@@ -55,36 +55,36 @@ describe('diffModSets', () => {
   });
 });
 
-describe('deriveAtmSides', () => {
-  const atmS = set([['both1', '1', 's1'], ['srv', '1', 's2']]);
-  const atmC = set([['both1', '1', 's1'], ['cli', '1', 's3']]);
+describe('deriveUpstreamSides', () => {
+  const upstreamS = set([['both1', '1', 's1'], ['srv', '1', 's2']]);
+  const upstreamC = set([['both1', '1', 's1'], ['cli', '1', 's3']]);
 
   it('derives client-only, server-only and both from base own client and server sets', () => {
-    expect(deriveAtmSides(atmS, atmC, { server: '8.3', client: '8.3' })).toEqual({ clientOnly: ['cli'], serverOnly: ['srv'], both: ['both1'] });
+    expect(deriveUpstreamSides(upstreamS, upstreamC, { server: '8.3', client: '8.3' })).toEqual({ clientOnly: ['cli'], serverOnly: ['srv'], both: ['both1'] });
   });
 
   it('refuses when the base client and server versions differ', () => {
-    expect(() => deriveAtmSides(atmS, atmC, { server: '8.2', client: '8.3' })).toThrow(AtmVersionMismatchError);
+    expect(() => deriveUpstreamSides(upstreamS, upstreamC, { server: '8.2', client: '8.3' })).toThrow(UpstreamVersionMismatchError);
   });
 });
 
 describe('ownLayer, anomalies and blockers', () => {
-  const atmC = set([['a', '1', 'x'], ['b', '1', 'y'], ['c', '1', 'z']]);
-  const lmpC = set([['a', '2', 'x2'], ['c', '1', 'z'], ['mine', '1', 'm']]);
+  const upstreamC = set([['a', '1', 'x'], ['b', '1', 'y'], ['c', '1', 'z']]);
+  const ownC = set([['a', '2', 'x2'], ['c', '1', 'z'], ['mine', '1', 'm']]);
 
   it("computes the user's layer client against client", () => {
-    const layer = ownLayer(lmpC, atmC);
+    const layer = ownLayer(ownC, upstreamC);
     expect(layer.updated.map((u) => u.modId)).toEqual(['a']);
     expect(layer.added.map((e) => e.modId)).toEqual(['mine']);
   });
 
   it('lists base client mods missing from Own as anomalies, minus resolved ones', () => {
-    expect(anomalies(atmC, lmpC).map((e) => e.modId)).toEqual(['b']);
-    expect(anomalies(atmC, lmpC, new Set(['b']))).toEqual([]);
+    expect(anomalies(upstreamC, ownC).map((e) => e.modId)).toEqual(['b']);
+    expect(anomalies(upstreamC, ownC, new Set(['b']))).toEqual([]);
   });
 
   it('returns one blocker per unresolved anomaly and per duplicate id', () => {
-    const blockers = buildBlockers({ anomalies: anomalies(atmC, lmpC), duplicateIds: [{ modId: 'dup', files: ['d1.jar', 'd2.jar'] }] });
+    const blockers = buildBlockers({ anomalies: anomalies(upstreamC, ownC), duplicateIds: [{ modId: 'dup', files: ['d1.jar', 'd2.jar'] }] });
     expect(blockers).toEqual([{ code: 'ANOMALY', modId: 'b' }, { code: 'DUPLICATE_ID', modId: 'dup' }]);
   });
 });

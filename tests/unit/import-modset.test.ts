@@ -9,7 +9,7 @@ import { getSources } from '../../src/server/mods/curseforge-sources.js';
 import { importModSet } from '../../src/server/mods/import-modset.js';
 import { createProfile } from '../../src/server/profiles/profile-service.js';
 import { makeJar, makeZip, type JarSpec } from '../fixtures-gen/jar.js';
-import { writeAtmPack } from '../fixtures-gen/packs.js';
+import { writeBasePack } from '../fixtures-gen/packs.js';
 import { buildZip } from '../fixtures-gen/zip.js';
 
 let db: Db;
@@ -32,7 +32,7 @@ const modRows = (profileId: number) => (db.sqlite.prepare('SELECT count(*) AS n 
 
 describe('importModSet', () => {
   it('imports the mods of a server pack zip', async () => {
-    const { serverZip } = await writeAtmPack(tmp, { atm: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: five, clientMods: [] });
+    const { serverZip } = await writeBasePack(tmp, { upstream: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: five, clientMods: [] });
     const p = profile();
     const r = await importModSet(db, { kind: 'zip', path: serverZip }, p.id, ctx);
     expect(r.imported).toBe(5);
@@ -40,18 +40,18 @@ describe('importModSet', () => {
   });
 
   it('finds mods/ inside a wrapper folder too', async () => {
-    const { serverZip } = await writeAtmPack(tmp, { atm: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: five, clientMods: [], wrapperDir: 'Base-Server-8.3' });
+    const { serverZip } = await writeBasePack(tmp, { upstream: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: five, clientMods: [], wrapperDir: 'Base-Server-8.3' });
     expect((await importModSet(db, { kind: 'zip', path: serverZip }, profile().id, ctx)).imported).toBe(5);
   });
 
   it('imports a folder whose path has spaces and accents', async () => {
     const dir = path.join(tmp, 'pack é spécial');
-    const { clientDir } = await writeAtmPack(dir, { atm: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: [], clientMods: five });
+    const { clientDir } = await writeBasePack(dir, { upstream: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: [], clientMods: five });
     expect((await importModSet(db, { kind: 'folder', path: clientDir }, profile().id, ctx)).imported).toBe(5);
   });
 
   it('skips a corrupt jar and imports the rest', async () => {
-    const { clientDir } = await writeAtmPack(tmp, { atm: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: [], clientMods: five });
+    const { clientDir } = await writeBasePack(tmp, { upstream: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: [], clientMods: five });
     fs.writeFileSync(path.join(clientDir, 'mods', 'broken.jar'), 'not a zip');
     const r = await importModSet(db, { kind: 'folder', path: clientDir }, profile().id, ctx);
     expect(r.imported).toBe(5);
@@ -59,15 +59,15 @@ describe('importModSet', () => {
   });
 
   it('reports two jars that declare the same top-level mod id', async () => {
-    const { clientDir } = await writeAtmPack(tmp, { atm: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: [], clientMods: [spec('dup', '1.0'), spec('dup', '2.0'), spec('solo')] });
+    const { clientDir } = await writeBasePack(tmp, { upstream: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: [], clientMods: [spec('dup', '1.0'), spec('dup', '2.0'), spec('solo')] });
     const r = await importModSet(db, { kind: 'folder', path: clientDir }, profile().id, ctx);
     expect(r.duplicateIds).toEqual([{ modId: 'dup', files: ['dup-1.0.jar', 'dup-2.0.jar'] }]);
   });
 
   it('does not count jar-in-jar entries as top-level mods or duplicates', async () => {
     const inner = spec('shared');
-    const { clientDir } = await writeAtmPack(tmp, {
-      atm: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: [],
+    const { clientDir } = await writeBasePack(tmp, {
+      upstream: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: [],
       clientMods: [{ ...spec('outer1'), nested: [inner] }, { ...spec('outer2'), nested: [inner] }],
     });
     const p = profile();
@@ -78,7 +78,7 @@ describe('importModSet', () => {
   });
 
   it('writes no duplicate rows when the same set is imported again', async () => {
-    const { clientDir } = await writeAtmPack(tmp, { atm: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: [], clientMods: five });
+    const { clientDir } = await writeBasePack(tmp, { upstream: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: [], clientMods: five });
     const p = profile();
     await importModSet(db, { kind: 'folder', path: clientDir }, p.id, ctx);
     await importModSet(db, { kind: 'folder', path: clientDir }, p.id, ctx);
@@ -96,7 +96,7 @@ describe('importModSet', () => {
   });
 
   it('imports a jar whose entries differ only by case (obfuscated class files)', async () => {
-    const { clientDir } = await writeAtmPack(tmp, { atm: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: [], clientMods: [] });
+    const { clientDir } = await writeBasePack(tmp, { upstream: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: [], clientMods: [] });
     const toml = '[[mods]]\nmodId = "obf"\nversion = "1.0"\n';
     fs.writeFileSync(path.join(clientDir, 'mods', 'obf-1.0.jar'), await makeZip({ 'META-INF/neoforge.mods.toml': toml, 'a.class': 'x', 'A.class': 'y' }));
     const r = await importModSet(db, { kind: 'folder', path: clientDir }, profile().id, ctx);
@@ -105,7 +105,7 @@ describe('importModSet', () => {
   });
 
   it('keeps the previous import when the folder turns out to be missing or empty (nothing scanned, nothing deleted)', async () => {
-    const { clientDir } = await writeAtmPack(tmp, { atm: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: [], clientMods: five });
+    const { clientDir } = await writeBasePack(tmp, { upstream: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: [], clientMods: five });
     const p = profile();
     await importModSet(db, { kind: 'folder', path: clientDir }, p.id, ctx);
     await importModSet(db, { kind: 'folder', path: path.join(tmp, 'does-not-exist') }, p.id, ctx);
@@ -113,7 +113,7 @@ describe('importModSet', () => {
   });
 
   it('records skipped jars in import_issue so they can block a build', async () => {
-    const { clientDir } = await writeAtmPack(tmp, { atm: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: [], clientMods: five });
+    const { clientDir } = await writeBasePack(tmp, { upstream: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: [], clientMods: five });
     fs.writeFileSync(path.join(clientDir, 'mods', 'broken.jar'), 'not a zip');
     const p = profile();
     await importModSet(db, { kind: 'folder', path: clientDir }, p.id, ctx);
@@ -122,7 +122,7 @@ describe('importModSet', () => {
   });
 
   it('records the library jar without a mod id as a library row', async () => {
-    const { clientDir } = await writeAtmPack(tmp, { atm: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: [], clientMods: [] });
+    const { clientDir } = await writeBasePack(tmp, { upstream: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: [], clientMods: [] });
     fs.writeFileSync(path.join(clientDir, 'mods', 'guava-33.jar'), await makeJar({ fileName: 'guava-33.jar', loader: 'neoforge', mods: [], library: true }));
     const p = profile();
     await importModSet(db, { kind: 'folder', path: clientDir }, p.id, ctx);
@@ -135,7 +135,7 @@ describe('importModSet: unreadable metadata, read-only zips, kept links', () => 
   const issues = (profileId: number) => db.sqlite.prepare('SELECT file, reason FROM import_issue WHERE profile_id = ?').all(profileId) as { file: string; reason: string }[];
 
   it('reports a jar with unusable metadata as an import issue and imports the others', async () => {
-    const { clientDir } = await writeAtmPack(tmp, { atm: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: [], clientMods: five });
+    const { clientDir } = await writeBasePack(tmp, { upstream: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: [], clientMods: five });
     fs.writeFileSync(path.join(clientDir, 'mods', 'odd.jar'), await makeZip({ 'fabric.mod.json': '{"id":{"x":1}}' }));
     fs.writeFileSync(path.join(clientDir, 'mods', 'bad-toml.jar'), await makeZip({ 'META-INF/mods.toml': 'nothing here' }));
     const p = profile();
@@ -157,7 +157,7 @@ describe('importModSet: unreadable metadata, read-only zips, kept links', () => 
   });
 
   it('stores the hash of the parsed bytes (once, from the pool)', async () => {
-    const { clientDir } = await writeAtmPack(tmp, { atm: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: [], clientMods: [spec('a')] });
+    const { clientDir } = await writeBasePack(tmp, { upstream: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: [], clientMods: [spec('a')] });
     const p = profile();
     await importModSet(db, { kind: 'folder', path: clientDir }, p.id, ctx);
     const row = db.sqlite.prepare('SELECT jar_sha256 FROM jar_mod WHERE profile_id = ?').get(p.id) as { jar_sha256: string };
@@ -166,7 +166,7 @@ describe('importModSet: unreadable metadata, read-only zips, kept links', () => 
   });
 
   it('keeps the stored CurseForge links when minecraftinstance.json cannot be read, and reports it', async () => {
-    const { clientDir } = await writeAtmPack(tmp, { atm: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: [], clientMods: five });
+    const { clientDir } = await writeBasePack(tmp, { upstream: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: [], clientMods: five });
     const file = path.join(clientDir, 'minecraftinstance.json');
     const doc = { installedAddons: [{ addonID: 1, name: 'A', fileNameOnDisk: 'a-1.0.jar', installedFile: { id: 2 } }] };
     fs.writeFileSync(file, JSON.stringify(doc));

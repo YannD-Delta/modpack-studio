@@ -10,19 +10,19 @@ export function Blacklist() {
   const qc = useQueryClient();
   const matrix = useQuery({ queryKey: ['matrix'], queryFn: () => api<MatrixRow[]>('/profiles/matrix') });
   // Only clean copies: the server refuses to derive the blacklist from a played one (400 profile_not_clean).
-  const atm = useMemo(() => flattenProfiles(matrix.data ?? []).filter((p) => p.pack === getPackNames().upstream && p.state === 'clean'), [matrix.data]);
+  const upstream = useMemo(() => flattenProfiles(matrix.data ?? []).filter((p) => p.pack === getPackNames().upstream && p.state === 'clean'), [matrix.data]);
   const [serverId, setServerId] = useState('');
   const [clientId, setClientId] = useState('');
-  const server = atm.find((p) => String(p.id) === serverId);
+  const server = upstream.find((p) => String(p.id) === serverId);
 
   const list = useQuery({
     queryKey: ['blacklist', server?.version],
-    queryFn: () => api<BlacklistEntry[]>(`/blacklist?atmVersion=${encodeURIComponent(server!.version)}`),
+    queryFn: () => api<BlacklistEntry[]>(`/blacklist?upstreamVersion=${encodeURIComponent(server!.version)}`),
     enabled: !!server,
   });
 
   const adopt = useMutation({
-    mutationFn: () => api('/blacklist', { method: 'PUT', body: { action: 'adopt-atm', server: Number(serverId), client: Number(clientId) } }),
+    mutationFn: () => api('/blacklist', { method: 'PUT', body: { action: 'adopt-upstream', server: Number(serverId), client: Number(clientId) } }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['blacklist'] }),
   });
 
@@ -35,13 +35,13 @@ export function Blacklist() {
         <label className="text-sm text-slate-300">{t('blacklist.server')}
           <select value={serverId} onChange={(e) => setServerId(e.target.value)} className={`${field} mt-1 block min-w-56`}>
             <option value="">{t('mods.choose')}</option>
-            {atm.filter((p) => p.side === 'server').map((p) => <option key={p.id} value={p.id}>{p.pack} {p.version} ({p.state})</option>)}
+            {upstream.filter((p) => p.side === 'server').map((p) => <option key={p.id} value={p.id}>{p.pack} {p.version} ({p.state})</option>)}
           </select>
         </label>
         <label className="text-sm text-slate-300">{t('blacklist.client')}
           <select value={clientId} onChange={(e) => setClientId(e.target.value)} className={`${field} mt-1 block min-w-56`}>
             <option value="">{t('mods.choose')}</option>
-            {atm.filter((p) => p.side === 'client').map((p) => <option key={p.id} value={p.id}>{p.pack} {p.version} ({p.state})</option>)}
+            {upstream.filter((p) => p.side === 'client').map((p) => <option key={p.id} value={p.id}>{p.pack} {p.version} ({p.state})</option>)}
           </select>
         </label>
         <button disabled={!serverId || !clientId || adopt.isPending} onClick={() => adopt.mutate()} className="rounded-lg bg-violet-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-violet-500 disabled:opacity-40">
@@ -58,7 +58,7 @@ export function Blacklist() {
             <li key={e.modId} className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm hover:bg-slate-900/60">
               <span className="font-mono text-slate-100">{e.modId}</span>
               <span className="flex items-center gap-2">
-                <span className="rounded-full border border-slate-700 px-2 py-0.5 text-xs text-slate-300">{e.origin === 'atm_derived' ? t('blacklist.originUpstream') : t('blacklist.originUser')}</span>
+                <span className="rounded-full border border-slate-700 px-2 py-0.5 text-xs text-slate-300">{e.origin === 'upstream_derived' ? t('blacklist.originUpstream') : t('blacklist.originUser')}</span>
                 {e.stale && <span className="rounded-full border border-amber-700/60 bg-amber-950/50 px-2 py-0.5 text-xs text-amber-300">{t('blacklist.stale')}</span>}
               </span>
             </li>

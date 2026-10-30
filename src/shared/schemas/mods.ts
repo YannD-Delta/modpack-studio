@@ -14,10 +14,10 @@ export const NewModIdSchema = ModIdSchema.refine((s) => s === s.trim() && s.leng
 export const ReasonSchema = z.string().max(REASON_MAX);
 
 export const DiffQuerySchema = z.object({ base: id, other: id });
-export const AtmSidesQuerySchema = z.object({ server: id, client: id });
-export const AnomaliesQuerySchema = z.object({ atmClient: id, lmp: id });
+export const UpstreamSidesQuerySchema = z.object({ server: id, client: id });
+export const AnomaliesQuerySchema = z.object({ upstreamClient: id, own: id });
 export const LoaderCheckQuerySchema = z.object({ profiles: z.string().regex(/^\d+(,\d+)*$/) });
-export const BlacklistQuerySchema = z.object({ atmVersion: z.string().min(1) });
+export const BlacklistQuerySchema = z.object({ upstreamVersion: z.string().min(1) });
 
 export const DecisionBodySchema = z
   .object({
@@ -29,6 +29,6 @@ export const DecisionBodySchema = z
   .refine((d) => d.kind === 'side' || d.side === undefined, { message: 'side is only allowed when kind is "side"', path: ['side'] });
 
 export const BlacklistPutSchema = z.discriminatedUnion('action', [
-  z.object({ action: z.literal('adopt-atm'), server: id, client: id }),
+  z.object({ action: z.literal('adopt-upstream'), server: id, client: id }),
   z.object({ action: z.literal('add'), modId: NewModIdSchema, reason: ReasonSchema.default('') }),
 ]);

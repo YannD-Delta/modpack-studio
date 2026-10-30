@@ -11,7 +11,7 @@ import { DEFAULT_DEMO_DIR, DEMO_MARKER, assertDemoDir } from './seed-demo-guard.
 import { importModSet } from '../src/server/mods/import-modset.js';
 import { createProfile, validateLocation, type LocationKind } from '../src/server/profiles/profile-service.js';
 import type { JarSpec } from '../tests/fixtures-gen/jar.js';
-import { writeAtmPack } from '../tests/fixtures-gen/packs.js';
+import { writeBasePack } from '../tests/fixtures-gen/packs.js';
 
 const dataDir = assertDemoDir(process.argv[2] ?? DEFAULT_DEMO_DIR, { repoRoot: path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..') });
 const port = Number(process.argv[3] ?? 8481);
@@ -25,13 +25,13 @@ const shared = ['jei', 'mekanism', 'create', 'ae2', 'botania', 'thermal', 'farme
 const clientOnly = ['embeddium', 'xaerominimap', 'sodiumextras', 'journeymap'];
 const serverOnly = ['spark', 'chunky'];
 
-const base = await writeAtmPack(path.join(dataDir, 'packs', 'base'), {
-  atm: '8.3', neoforge: '21.1.259', mc: '1.21.1',
+const base = await writeBasePack(path.join(dataDir, 'packs', 'base'), {
+  upstream: '8.3', neoforge: '21.1.259', mc: '1.21.1',
   serverMods: [...shared, ...serverOnly].map((m) => jar(m)),
   clientMods: [...shared, ...clientOnly].map((m) => jar(m)),
 });
 const ownMods = [...shared.filter((m) => m !== 'waystones').map((m) => jar(m, m === 'mekanism' || m === 'create' ? '1.1' : '1.0')), ...clientOnly.map((m) => jar(m)), jar('own_core'), jar('own_decor'), jar('own_tweaks')];
-const own = await writeAtmPack(path.join(dataDir, 'packs', 'own'), { atm: '1.0', neoforge: '21.1.259', mc: '1.21.1', serverMods: [], clientMods: ownMods });
+const own = await writeBasePack(path.join(dataDir, 'packs', 'own'), { upstream: '1.0', neoforge: '21.1.259', mc: '1.21.1', serverMods: [], clientMods: ownMods });
 
 const db = openDb(path.join(dataDir, 'studio.db'));
 const ctx = { params: null, signal: new AbortController().signal, progress: () => undefined };
@@ -40,7 +40,7 @@ const mk = (pack: 'Base' | 'Own', version: string, side: 'client' | 'server', st
   validateLocation(kind, location);
   return createProfile(db, { pack, version, side, state, locationKind: kind, location });
 };
-const oldBase = await writeAtmPack(path.join(dataDir, 'packs', 'base-old'), { atm: '8.2', neoforge: '21.1.200', mc: '1.21.1', serverMods: shared.map((m) => jar(m)), clientMods: [] });
+const oldBase = await writeBasePack(path.join(dataDir, 'packs', 'base-old'), { upstream: '8.2', neoforge: '21.1.200', mc: '1.21.1', serverMods: shared.map((m) => jar(m)), clientMods: [] });
 const ownServerDir = path.join(dataDir, 'packs', 'own-server');
 fs.mkdirSync(ownServerDir, { recursive: true });
 const s = mk('Base', '8.3', 'server', 'clean', 'zip', base.serverZip);

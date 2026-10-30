@@ -67,7 +67,7 @@ describe('Mods', () => {
     });
   });
 
-  it('labels each row in French and marks a removed ATM mod as an anomaly', async () => {
+  it('labels each row in French and marks a removed upstream mod as an anomaly', async () => {
     wrap(<Mods />);
     await userEvent.selectOptions(await screen.findByLabelText('Référence'), '2');
     await userEvent.selectOptions(screen.getByLabelText('Comparé à'), '3');
@@ -102,10 +102,10 @@ describe('Mods', () => {
 });
 
 describe('Blacklist', () => {
-  it('adopts the ATM blacklist with a single PUT', async () => {
+  it('adopts the upstream blacklist with a single PUT', async () => {
     mockApi((url, init) => {
       if (url.includes('/profiles/matrix')) return { body: matrix };
-      if (url.includes('/blacklist') && (!init?.method || init.method === 'GET')) return { body: [{ modId: 'cli', origin: 'atm_derived', stale: false }, { modId: 'old', origin: 'atm_derived', stale: true }] };
+      if (url.includes('/blacklist') && (!init?.method || init.method === 'GET')) return { body: [{ modId: 'cli', origin: 'upstream_derived', stale: false }, { modId: 'old', origin: 'upstream_derived', stale: true }] };
       return { body: { ok: true } };
     });
     wrap(<Blacklist />);
@@ -114,7 +114,7 @@ describe('Blacklist', () => {
     expect(await screen.findByText('périmé')).toBeTruthy();
     await userEvent.click(screen.getByRole('button', { name: 'Ajouter tout (Base)' }));
     await waitFor(() => expect(calls.filter((c) => c.method === 'PUT').length).toBe(1));
-    expect(JSON.parse(calls.find((c) => c.method === 'PUT')!.body!)).toEqual({ action: 'adopt-atm', server: 1, client: 2 });
+    expect(JSON.parse(calls.find((c) => c.method === 'PUT')!.body!)).toEqual({ action: 'adopt-upstream', server: 1, client: 2 });
   });
 
   it('offers only clean profiles in the adopt selects (the server refuses played copies)', async () => {
@@ -191,7 +191,7 @@ describe('Errors and stale state', () => {
 
   it('prints the configured followed-pack name on derived blacklist rows', async () => {
     setPackNames({ upstream: 'Alpha Pack', own: 'Own' });
-    mockApi((url) => ({ body: url.includes('/profiles/matrix') ? [{ pack: 'Alpha Pack', version: '1', cells: { 'server-clean': profile(1, 'Alpha Pack', '1', 'server', 'clean') } }] : [{ modId: 'cli', origin: 'atm_derived', stale: false }] }));
+    mockApi((url) => ({ body: url.includes('/profiles/matrix') ? [{ pack: 'Alpha Pack', version: '1', cells: { 'server-clean': profile(1, 'Alpha Pack', '1', 'server', 'clean') } }] : [{ modId: 'cli', origin: 'upstream_derived', stale: false }] }));
     wrap(<Blacklist />);
     await userEvent.selectOptions(await screen.findByLabelText('Pack serveur Alpha Pack'), '1');
     expect(await screen.findByText('Alpha Pack', { selector: 'span.rounded-full' })).toBeTruthy();

@@ -65,16 +65,16 @@ const mk = async (body: object) => {
 };
 
 async function scenario() {
-  const atmDir = tree(path.join(tmp, 'atm'), {
+  const upstreamDir = tree(path.join(tmp, 'upstream'), {
     'config/same.toml': 'a = 1\n',
     'config/changed.toml': '[general]\nspeed = 1\nname = "x"\n',
     'config/format.json': '{"b":2,"a":1}',
-    'config/only-atm.toml': 'x = 1\n',
+    'config/only-upstream.toml': 'x = 1\n',
     'config/icon.png': Buffer.from([0x89, 0x50, 0, 0, 1]),
     'kubejs/server_scripts/main.js': 'ServerEvents.recipes(e => {\n  e.remove({ id: "a" })\n})\n',
     'mods/a.jar': 'jar',
   });
-  const lmpDir = tree(path.join(tmp, 'lmp'), {
+  const ownDir = tree(path.join(tmp, 'own'), {
     'config/same.toml': 'a = 1\n',
     'config/changed.toml': '[general]\nspeed = 3\nname = "x"\n',
     'config/changed.toml.bak': 'backup',
@@ -84,9 +84,9 @@ async function scenario() {
     'kubejs/server_scripts/mine.js': '// mine\n',
     'logs/latest.log': 'x',
   });
-  const atm = await mk({ pack: 'Base', version: '8.3', side: 'client', state: 'clean', locationKind: 'folder', location: atmDir });
-  const lmp = await mk({ pack: 'Own', version: '1.0', side: 'client', state: 'launched', locationKind: 'folder', location: lmpDir });
-  return { atm, lmp, atmDir, lmpDir };
+  const upstream = await mk({ pack: 'Base', version: '8.3', side: 'client', state: 'clean', locationKind: 'folder', location: upstreamDir });
+  const own = await mk({ pack: 'Own', version: '1.0', side: 'client', state: 'launched', locationKind: 'folder', location: ownDir });
+  return { upstream, own, upstreamDir, ownDir };
 }
 
 describe('configs api', () => {
@@ -99,31 +99,31 @@ describe('configs api', () => {
   });
 
   it('answers 409 until a profile is scanned, then reports its inventory', async () => {
-    const { atm, lmp } = await scenario();
-    const before = await call('GET', `/configs/inventory?profile=${lmp}`);
+    const { upstream, own } = await scenario();
+    const before = await call('GET', `/configs/inventory?profile=${own}`);
     expect(before.statusCode).toBe(409);
     expect(before.json().error).toMatch(/scan/);
-    expect((await call('GET', `/configs/diff?base=${atm}&other=${lmp}`)).statusCode).toBe(409);
+    expect((await call('GET', `/configs/diff?base=${upstream}&other=${own}`)).statusCode).toBe(409);
 
-    expect((await scan(lmp)).status).toBe('done');
-    const inv = (await call('GET', `/configs/inventory?profile=${lmp}`)).json();
+    expect((await scan(own)).status).toBe('done');
+    const inv = (await call('GET', `/configs/inventory?profile=${own}`)).json();
     expect(inv.total).toBe(6); // the .bak and logs/ are not tracked
     expect(inv.perRoot.config.files).toBe(4);
     expect(inv.perRoot.kubejs.files).toBe(2);
     expect(inv.perRoot.defaultconfigs.files).toBe(0);
     expect(inv.profile.state).toBe('launched');
     expect(inv.files).toBeUndefined();
-    const full = (await call('GET', `/configs/inventory?profile=${lmp}&full=1`)).json();
+    const full = (await call('GET', `/configs/inventory?profile=${own}&full=1`)).json();
     expect(Object.keys(full.files)).toContain('config/changed.toml');
   });
 
   it('reuses the scan of an immutable profile unless forced', async () => {
-    const { atm } = await scenario();
-    await scan(atm);
-    const again = await call('POST', '/configs/scan', { profile: atm });
+    const { upstream } = await scenario();
+    await scan(upstream);
+    const again = await call('POST', '/configs/scan', { profile: upstream });
     expect(again.statusCode).toBe(200);
     expect(again.json()).toMatchObject({ jobId: null, cached: true });
-    expect((await scan(atm, true)).status).toBe('done');
+    expect((await scan(upstream, true)).status).toBe('done');
   });
 
   it('always rescans a run profile', async () => {
@@ -156,36 +156,36 @@ describe('configs api', () => {
   });
 
   it('compares known binaries by size unless the scan is deep', async () => {
-    const { atm, lmp } = await scenario();
-    await scan(atm);
-    await scan(lmp);
-    const quick = (await call('GET', `/configs/diff?base=${atm}&other=${lmp}`)).json().files.find((f: { path: string }) => f.path === 'config/icon.png');
+    const { upstream, own } = await scenario();
+    await scan(upstream);
+    await scan(own);
+    const quick = (await call('GET', `/configs/diff?base=${upstream}&other=${own}`)).json().files.find((f: { path: string }) => f.path === 'config/icon.png');
     expect(quick.status).toBe('identical'); // same size, content not read
-    expect((await call('GET', `/configs/diff?base=${atm}&other=${lmp}`)).json().sizeOnlyIdentical).toBe(1);
-    expect((await call('GET', `/configs/inventory?profile=${atm}`)).json().sizeOnlyFiles).toBe(1);
+    expect((await call('GET', `/configs/diff?base=${upstream}&other=${own}`)).json().sizeOnlyIdentical).toBe(1);
+    expect((await call('GET', `/configs/inventory?profile=${upstream}`)).json().sizeOnlyFiles).toBe(1);
     // one side deep, the other quick: the sizes decide, a pseudo-hash is never compared with a sha256
-    await scan(atm, false, true);
-    const mixed = (await call('GET', `/configs/diff?base=${atm}&other=${lmp}`)).json();
+    await scan(upstream, false, true);
+    const mixed = (await call('GET', `/configs/diff?base=${upstream}&other=${own}`)).json();
     expect(mixed.files.find((f: { path: string }) => f.path === 'config/icon.png')).toMatchObject({ status: 'identical', sizeOnly: true });
     expect(mixed.sizeOnlyIdentical).toBeGreaterThan(0);
-    expect((await call('GET', `/configs/inventory?profile=${atm}`)).json().sizeOnlyFiles).toBe(0);
-    await scan(lmp, false, true);
-    const deep = (await call('GET', `/configs/diff?base=${atm}&other=${lmp}`)).json().files.find((f: { path: string }) => f.path === 'config/icon.png');
+    expect((await call('GET', `/configs/inventory?profile=${upstream}`)).json().sizeOnlyFiles).toBe(0);
+    await scan(own, false, true);
+    const deep = (await call('GET', `/configs/diff?base=${upstream}&other=${own}`)).json().files.find((f: { path: string }) => f.path === 'config/icon.png');
     expect(deep.status).toBe('binaryDiffers');
   });
 
   it('diffs two scanned profiles with statuses, roots and states', async () => {
-    const { atm, lmp } = await scenario();
-    await scan(atm, false, true);
-    await scan(lmp, false, true);
-    const res = await call('GET', `/configs/diff?base=${atm}&other=${lmp}`);
+    const { upstream, own } = await scenario();
+    await scan(upstream, false, true);
+    await scan(own, false, true);
+    const res = await call('GET', `/configs/diff?base=${upstream}&other=${own}`);
     expect(res.statusCode).toBe(200);
     const d = res.json();
-    expect(d.base).toMatchObject({ id: atm, state: 'clean' });
-    expect(d.other).toMatchObject({ id: lmp, state: 'launched' });
+    expect(d.base).toMatchObject({ id: upstream, state: 'clean' });
+    expect(d.other).toMatchObject({ id: own, state: 'launched' });
     const st = Object.fromEntries(d.files.map((f: { path: string; status: string }) => [f.path, f.status]));
     expect(st).toEqual({
-      'config/only-atm.toml': 'onlyInBase',
+      'config/only-upstream.toml': 'onlyInBase',
       'config/changed.toml': 'modified',
       'config/icon.png': 'binaryDiffers',
       'kubejs/server_scripts/mine.js': 'onlyInOther',
@@ -199,37 +199,37 @@ describe('configs api', () => {
   });
 
   it('serves a text file and refuses unsafe or unknown paths', async () => {
-    const { lmp } = await scenario();
-    await scan(lmp);
-    const ok = await call('GET', `/configs/file?profile=${lmp}&path=${encodeURIComponent('config/changed.toml')}`);
+    const { own } = await scenario();
+    await scan(own);
+    const ok = await call('GET', `/configs/file?profile=${own}&path=${encodeURIComponent('config/changed.toml')}`);
     expect(ok.statusCode).toBe(200);
     expect(ok.json()).toMatchObject({ path: 'config/changed.toml', kind: 'text', truncated: false, stale: false, content: '[general]\nspeed = 3\nname = "x"\n' });
-    expect((await call('GET', `/configs/file?profile=${lmp}&path=${encodeURIComponent('CONFIG/Changed.toml')}`)).json().path).toBe('config/changed.toml');
+    expect((await call('GET', `/configs/file?profile=${own}&path=${encodeURIComponent('CONFIG/Changed.toml')}`)).json().path).toBe('config/changed.toml');
 
-    const bad = ['../atm/config/same.toml', 'config/../../atm/config/same.toml', '/etc/passwd', 'C:\\Windows\\win.ini', 'C:/Windows/win.ini', '\\\\server\\share\\x.toml', '//server/share/x.toml', 'config\\changed.toml', 'config/./changed.toml', 'config/changed.toml:secret', 'mods/a.jar', 'config'];
+    const bad = ['../upstream/config/same.toml', 'config/../../upstream/config/same.toml', '/etc/passwd', 'C:\\Windows\\win.ini', 'C:/Windows/win.ini', '\\\\server\\share\\x.toml', '//server/share/x.toml', 'config\\changed.toml', 'config/./changed.toml', 'config/changed.toml:secret', 'mods/a.jar', 'config'];
     for (const p of bad) {
-      const res = await call('GET', `/configs/file?profile=${lmp}&path=${encodeURIComponent(p)}`);
+      const res = await call('GET', `/configs/file?profile=${own}&path=${encodeURIComponent(p)}`);
       expect(res.statusCode, p).toBe(400);
     }
-    expect((await call('GET', `/configs/file?profile=${lmp}&path=%2e%2e%2fatm%2fconfig%2fsame.toml`)).statusCode).toBe(400);
-    expect((await call('GET', `/configs/file?profile=${lmp}&path=${encodeURIComponent('config/changed.toml.bak')}`)).statusCode).toBe(404);
-    expect((await call('GET', `/configs/file?profile=${lmp}&path=${encodeURIComponent('config/icon.png')}`)).statusCode).toBe(415);
+    expect((await call('GET', `/configs/file?profile=${own}&path=%2e%2e%2fatm%2fconfig%2fsame.toml`)).statusCode).toBe(400);
+    expect((await call('GET', `/configs/file?profile=${own}&path=${encodeURIComponent('config/changed.toml.bak')}`)).statusCode).toBe(404);
+    expect((await call('GET', `/configs/file?profile=${own}&path=${encodeURIComponent('config/icon.png')}`)).statusCode).toBe(415);
   });
 
   it('flags a file changed since the scan as stale', async () => {
-    const { lmp, lmpDir } = await scenario();
-    await scan(lmp);
-    fs.writeFileSync(path.join(lmpDir, 'config', 'changed.toml'), 'edited = true\n');
-    const res = (await call('GET', `/configs/file?profile=${lmp}&path=config/changed.toml`)).json();
+    const { own, ownDir } = await scenario();
+    await scan(own);
+    fs.writeFileSync(path.join(ownDir, 'config', 'changed.toml'), 'edited = true\n');
+    const res = (await call('GET', `/configs/file?profile=${own}&path=config/changed.toml`)).json();
     expect(res.stale).toBe(true);
     expect(res.content).toBe('edited = true\n');
   });
 
   it('returns a structured line diff', async () => {
-    const { atm, lmp } = await scenario();
-    await scan(atm, false, true);
-    await scan(lmp, false, true);
-    const d = (await call('GET', `/configs/filediff?base=${atm}&other=${lmp}&path=config/changed.toml`)).json();
+    const { upstream, own } = await scenario();
+    await scan(upstream, false, true);
+    await scan(own, false, true);
+    const d = (await call('GET', `/configs/filediff?base=${upstream}&other=${own}&path=config/changed.toml`)).json();
     expect(d).toMatchObject({ status: 'modified', kind: 'text', binary: false, added: 1, removed: 1, truncated: false });
     expect(d.lines).toEqual([
       { type: 'equal', text: '[general]', oldNo: 1, newNo: 1 },
@@ -239,27 +239,27 @@ describe('configs api', () => {
     ]);
     expect(d.hunks).toHaveLength(1);
 
-    const onlyBase = (await call('GET', `/configs/filediff?base=${atm}&other=${lmp}&path=config/only-atm.toml`)).json();
+    const onlyBase = (await call('GET', `/configs/filediff?base=${upstream}&other=${own}&path=config/only-upstream.toml`)).json();
     expect(onlyBase).toMatchObject({ status: 'onlyInBase', removed: 1, added: 0, otherSize: null });
-    const onlyOther = (await call('GET', `/configs/filediff?base=${atm}&other=${lmp}&path=kubejs/server_scripts/mine.js`)).json();
+    const onlyOther = (await call('GET', `/configs/filediff?base=${upstream}&other=${own}&path=kubejs/server_scripts/mine.js`)).json();
     expect(onlyOther).toMatchObject({ status: 'onlyInOther', added: 1, removed: 0 });
-    const bin = (await call('GET', `/configs/filediff?base=${atm}&other=${lmp}&path=config/icon.png`)).json();
+    const bin = (await call('GET', `/configs/filediff?base=${upstream}&other=${own}&path=config/icon.png`)).json();
     expect(bin).toMatchObject({ status: 'binaryDiffers', binary: true, lines: [] });
-    expect((await call('GET', `/configs/filediff?base=${atm}&other=${lmp}&path=config/nope.toml`)).statusCode).toBe(404);
-    expect((await call('GET', `/configs/filediff?base=${atm}&other=${lmp}&path=..%2Fx`)).statusCode).toBe(400);
+    expect((await call('GET', `/configs/filediff?base=${upstream}&other=${own}&path=config/nope.toml`)).statusCode).toBe(404);
+    expect((await call('GET', `/configs/filediff?base=${upstream}&other=${own}&path=..%2Fx`)).statusCode).toBe(400);
   });
 
   it('plans only modified files and files missing from the compared profile', async () => {
-    const { atm, lmp } = await scenario();
-    await scan(atm);
-    await scan(lmp);
-    expect((await call('GET', `/configs/plan?base=${atm}&other=${lmp}`)).json()).toEqual({ paths: [] });
+    const { upstream, own } = await scenario();
+    await scan(upstream);
+    await scan(own);
+    expect((await call('GET', `/configs/plan?base=${upstream}&other=${own}`)).json()).toEqual({ paths: [] });
 
-    const ok = await call('PUT', '/configs/plan', { base: atm, other: lmp, paths: ['config/changed.toml', 'config/only-atm.toml'], selected: true });
+    const ok = await call('PUT', '/configs/plan', { base: upstream, other: own, paths: ['config/changed.toml', 'config/only-upstream.toml'], selected: true });
     expect(ok.statusCode).toBe(200);
-    expect(ok.json().paths).toEqual(['config/changed.toml', 'config/only-atm.toml']);
+    expect(ok.json().paths).toEqual(['config/changed.toml', 'config/only-upstream.toml']);
 
-    const bad = await call('PUT', '/configs/plan', { base: atm, other: lmp, paths: ['config/format.json', 'kubejs/server_scripts/mine.js', 'config/same.toml', 'config/ghost.toml', 'config/changed.toml'], selected: true });
+    const bad = await call('PUT', '/configs/plan', { base: upstream, other: own, paths: ['config/format.json', 'kubejs/server_scripts/mine.js', 'config/same.toml', 'config/ghost.toml', 'config/changed.toml'], selected: true });
     expect(bad.statusCode).toBe(400);
     expect(bad.json().rejected).toEqual([
       { path: 'config/format.json', status: 'cosmetic' },
@@ -268,10 +268,10 @@ describe('configs api', () => {
       { path: 'config/ghost.toml', status: 'unknown' },
     ]);
 
-    await call('PUT', '/configs/plan', { base: atm, other: lmp, paths: ['config/changed.toml'], selected: false });
-    expect((await call('GET', `/configs/plan?base=${atm}&other=${lmp}`)).json()).toEqual({ paths: ['config/only-atm.toml'] });
+    await call('PUT', '/configs/plan', { base: upstream, other: own, paths: ['config/changed.toml'], selected: false });
+    expect((await call('GET', `/configs/plan?base=${upstream}&other=${own}`)).json()).toEqual({ paths: ['config/only-upstream.toml'] });
     const rows = db.sqlite.prepare('SELECT kind, key FROM update_plan_item').all();
-    expect(rows).toEqual([{ kind: 'file', key: 'config/only-atm.toml' }]);
+    expect(rows).toEqual([{ kind: 'file', key: 'config/only-upstream.toml' }]);
   });
 
   it('scans and diffs a server pack zip with a wrapper folder', async () => {

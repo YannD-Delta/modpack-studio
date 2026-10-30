@@ -23,7 +23,7 @@ describe('pack names in the interface', () => {
     setPackNames({ upstream: 'Alpha Pack', own: 'MonPack' });
     expect(t('oldpack.title')).toBe('Ancien pack contre Alpha Pack');
     expect(t('oldpack.intro')).toContain('ton ancien MonPack avec Alpha Pack');
-    expect(tf('decisions.atmDerived', { n: '7' })).toBe('7 mods exclus automatiquement depuis Alpha Pack (gérés sur la page Liste noire)');
+    expect(tf('decisions.upstreamDerived', { n: '7' })).toBe('7 mods exclus automatiquement depuis Alpha Pack (gérés sur la page Liste noire)');
   });
 
   it('scans all French message files', () => {

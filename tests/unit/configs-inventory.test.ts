@@ -31,8 +31,8 @@ describe('isExcludedPath', () => {
 
 describe('scanInstanceTree (folder)', () => {
   it('hashes tracked roots only, skips exclusions and untracked folders', async () => {
-    put(tmp, 'config/atm.toml', 'welcome = true\n');
-    put(tmp, 'config/atm.toml.bak', 'old\n');
+    put(tmp, 'config/upstream.toml', 'welcome = true\n');
+    put(tmp, 'config/upstream.toml.bak', 'old\n');
     put(tmp, 'config/sub/deep/x.json', '{"a":1}');
     put(tmp, 'config/logs/l.txt', 'nope');
     put(tmp, 'kubejs/server_scripts/a.js', '// hi\n');
@@ -44,8 +44,8 @@ describe('scanInstanceTree (folder)', () => {
 
     const progress: number[] = [];
     const inv = await scanInstanceTree({ kind: 'folder', path: tmp }, { onProgress: (p) => progress.push(p) });
-    expect([...inv.files.keys()].sort()).toEqual(['config/atm.toml', 'config/icon.png', 'config/sub/deep/x.json', 'defaultconfigs/d.toml', 'kubejs/server_scripts/a.js']);
-    expect(inv.files.get('config/atm.toml')).toEqual({ size: 15, sha256: sha('welcome = true\n'), kind: 'text' });
+    expect([...inv.files.keys()].sort()).toEqual(['config/icon.png', 'config/sub/deep/x.json', 'config/upstream.toml', 'defaultconfigs/d.toml', 'kubejs/server_scripts/a.js']);
+    expect(inv.files.get('config/upstream.toml')).toEqual({ size: 15, sha256: sha('welcome = true\n'), kind: 'text' });
     expect(inv.files.get('config/icon.png')!.kind).toBe('binary');
     expect(progress.at(-1)).toBe(100);
     expect(inv.issues).toEqual([]);
@@ -141,14 +141,14 @@ describe('scanInstanceTree (zip)', () => {
   it('reads a server pack zip with a single top-level folder', async () => {
     const zipPath = path.join(tmp, 'server.zip');
     fs.writeFileSync(zipPath, buildZip([
-      { name: 'Server-Files-8.3/config/atm.toml', data: Buffer.from('welcome = true\n') },
-      { name: 'Server-Files-8.3/config/atm.toml.bak', data: Buffer.from('x') },
+      { name: 'Server-Files-8.3/config/upstream.toml', data: Buffer.from('welcome = true\n') },
+      { name: 'Server-Files-8.3/config/upstream.toml.bak', data: Buffer.from('x') },
       { name: 'Server-Files-8.3/kubejs/startup_scripts/s.js', data: Buffer.from('//s\n'), method: 'deflate' },
       { name: 'Server-Files-8.3/mods/a.jar', data: Buffer.from('jar') },
       { name: 'Server-Files-8.3/startserver.bat', data: Buffer.from('@echo off') },
     ]));
     const inv = await scanInstanceTree({ kind: 'zip', path: zipPath });
-    expect([...inv.files.keys()].sort()).toEqual(['config/atm.toml', 'kubejs/startup_scripts/s.js']);
+    expect([...inv.files.keys()].sort()).toEqual(['config/upstream.toml', 'kubejs/startup_scripts/s.js']);
     expect(inv.files.get('kubejs/startup_scripts/s.js')!.sha256).toBe(sha('//s\n'));
   });
 

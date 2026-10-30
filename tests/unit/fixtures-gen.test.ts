@@ -4,7 +4,7 @@ import path from 'node:path';
 import yauzl from 'yauzl';
 import { describe, expect, it } from 'vitest';
 import { makeJar, makeZip } from '../fixtures-gen/jar.js';
-import { writeAtmPack } from '../fixtures-gen/packs.js';
+import { writeBasePack } from '../fixtures-gen/packs.js';
 
 function readZip(buf: Buffer): Promise<Map<string, Buffer>> {
   return new Promise((resolve, reject) => {
@@ -53,10 +53,10 @@ describe('fixture generator', () => {
     expect(zip.includes(Buffer.from('..\\evil.txt'))).toBe(true);
   });
 
-  it('writeAtmPack writes a server zip and a client folder with loader info', async () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'atm-'));
+  it('writeBasePack writes a server zip and a client folder with loader info', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'upstream-'));
     const spec = { fileName: 'a-1.0.jar', loader: 'neoforge' as const, mods: [{ modId: 'a', version: '1.0' }] };
-    const { serverZip, clientDir } = await writeAtmPack(dir, { atm: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: [spec], clientMods: [spec] });
+    const { serverZip, clientDir } = await writeBasePack(dir, { upstream: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: [spec], clientMods: [spec] });
     const entries = await readZip(fs.readFileSync(serverZip));
     expect(entries.has('mods/a-1.0.jar')).toBe(true);
     expect(entries.get('startserver.bat')?.toString()).toContain('NEOFORGE_VERSION=21.1.259');

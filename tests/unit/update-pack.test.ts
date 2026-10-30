@@ -13,7 +13,7 @@ import { setPlanItems } from '../../src/server/plan/plan-store.js';
 import { openZip } from '../../src/server/zip/zip-reader.js';
 import { createProfile, type Profile } from '../../src/server/profiles/profile-service.js';
 import { makeJar, type JarSpec } from '../fixtures-gen/jar.js';
-import { writeAtmPack } from '../fixtures-gen/packs.js';
+import { writeBasePack } from '../fixtures-gen/packs.js';
 
 let db: Db;
 let tmp: string;
@@ -46,22 +46,22 @@ function listFiles(dir: string): string[] {
 
 /** Base client (reference) against an Own client: a older, b missing, c different, d rebuilt, mine added. */
 async function scenario() {
-  const atm = await writeAtmPack(path.join(tmp, 'atm'), {
-    atm: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: [jar('a', '1.1'), jar('b')],
+  const upstream = await writeBasePack(path.join(tmp, 'upstream'), {
+    upstream: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: [jar('a', '1.1'), jar('b')],
     clientMods: [jar('a', '1.1'), jar('b'), jar('c', '1.0-foo'), jar('d')],
     wrapperDir: 'Base-Server-8.3',
   });
-  fs.mkdirSync(path.join(atm.clientDir, 'config'), { recursive: true });
-  fs.writeFileSync(path.join(atm.clientDir, 'config', 'x.toml'), 'ref = true\n');
-  const lmp = await writeAtmPack(path.join(tmp, 'lmp'), {
-    atm: '1.0', neoforge: '21.1.259', mc: '1.21.1', serverMods: [],
+  fs.mkdirSync(path.join(upstream.clientDir, 'config'), { recursive: true });
+  fs.writeFileSync(path.join(upstream.clientDir, 'config', 'x.toml'), 'ref = true\n');
+  const own = await writeBasePack(path.join(tmp, 'own'), {
+    upstream: '1.0', neoforge: '21.1.259', mc: '1.21.1', serverMods: [],
     clientMods: [jar('a', '1.0'), jar('c', '1.0-bar'), jar('d', '1.0', { manifestVersion: 'rebuilt' }), jar('mine')],
   });
-  const base = createProfile(db, { pack: 'Base', version: '8.3', side: 'client', state: 'clean', locationKind: 'folder', location: atm.clientDir });
-  const other = createProfile(db, { pack: 'Own', version: '1.0', side: 'client', state: 'clean', locationKind: 'folder', location: lmp.clientDir });
-  await importModSet(db, { kind: 'folder', path: atm.clientDir }, base.id, ctx);
-  await importModSet(db, { kind: 'folder', path: lmp.clientDir }, other.id, ctx);
-  return { atm, lmp, base, other, exportsDir: path.join(tmp, 'data', 'exports') };
+  const base = createProfile(db, { pack: 'Base', version: '8.3', side: 'client', state: 'clean', locationKind: 'folder', location: upstream.clientDir });
+  const other = createProfile(db, { pack: 'Own', version: '1.0', side: 'client', state: 'clean', locationKind: 'folder', location: own.clientDir });
+  await importModSet(db, { kind: 'folder', path: upstream.clientDir }, base.id, ctx);
+  await importModSet(db, { kind: 'folder', path: own.clientDir }, other.id, ctx);
+  return { upstream, own, base, other, exportsDir: path.join(tmp, 'data', 'exports') };
 }
 
 const build = (base: Profile, other: Profile, exportsDir: string) => buildUpdatePack({ db, base, other, exportsDir, now: new Date(Date.UTC(2026, 9, 29, 13, 5, 9)) });
@@ -85,7 +85,7 @@ describe('exportSafeName', () => {
 
 describe('buildUpdatePack', () => {
   it('copies the reference jars, lists the old jars to move out, and zips next to the folder', async () => {
-    const { base, other, exportsDir, atm } = await scenario();
+    const { base, other, exportsDir, upstream } = await scenario();
     setPlanItems(db, base.id, other.id, 'mod', ['a', 'b', 'c', 'd'], true);
     setPlanItems(db, base.id, other.id, 'file', ['config/x.toml'], true);
 
@@ -100,12 +100,12 @@ describe('buildUpdatePack', () => {
       'mods-add/a-1.1.jar', 'mods-add/b-1.0.jar', 'mods-add/c-1.0-foo.jar', 'mods-add/d-1.0.jar',
       'remove.txt', 'result.json',
     ]);
-    expect(sha(path.join(r.folder, 'mods-add', 'a-1.1.jar'))).toBe(sha(path.join(atm.clientDir, 'mods', 'a-1.1.jar')));
+    expect(sha(path.join(r.folder, 'mods-add', 'a-1.1.jar'))).toBe(sha(path.join(upstream.clientDir, 'mods', 'a-1.1.jar')));
     expect(fs.readFileSync(path.join(r.folder, 'remove.txt'), 'utf8').trim().split(/\r?\n/)).toEqual(['a-1.0.jar', 'c-1.0-bar.jar', 'd-1.0.jar']);
 
     const changes = JSON.parse(fs.readFileSync(path.join(r.folder, 'changes.json'), 'utf8')) as ChangesJson;
     expect(changes.jars.map((j) => j.file)).toEqual(['a-1.1.jar', 'b-1.0.jar', 'c-1.0-foo.jar', 'd-1.0.jar']);
-    expect(changes.files).toEqual([{ path: 'config/x.toml', sha256: sha(path.join(atm.clientDir, 'config', 'x.toml')), size: 11 }]);
+    expect(changes.files).toEqual([{ path: 'config/x.toml', sha256: sha(path.join(upstream.clientDir, 'config', 'x.toml')), size: 11 }]);
     expect(changes.mods.find((m) => m.modId === 'a')).toMatchObject({ action: 'update', file: 'a-1.1.jar', toVersion: '1.1', fromVersion: '1.0', replaces: 'a-1.0.jar' });
     expect(changes.mods.find((m) => m.modId === 'b')).toMatchObject({ action: 'restore', replaces: null });
     expect(changes.base.label).toMatch(/Base 8\.3/);
@@ -126,13 +126,13 @@ describe('buildUpdatePack', () => {
     const result = JSON.parse(fs.readFileSync(path.join(r.folder, 'result.json'), 'utf8'));
     expect(result).toMatchObject({ name: r.name, counts: r.counts, zipBytes: r.zipBytes });
     // the reference instance itself is never written to
-    expect(listFiles(atm.clientDir).filter((f) => !f.startsWith('mods/') && f !== 'minecraftinstance.json')).toEqual(['config/x.toml']);
+    expect(listFiles(upstream.clientDir).filter((f) => !f.startsWith('mods/') && f !== 'minecraftinstance.json')).toEqual(['config/x.toml']);
   });
 
   it('records a sha256 mismatch or a missing jar as a failure and keeps going', async () => {
-    const { base, other, exportsDir, atm } = await scenario();
-    fs.writeFileSync(path.join(atm.clientDir, 'mods', 'a-1.1.jar'), await makeJar(jar('a', '1.1', { manifestVersion: 'tampered' })));
-    fs.rmSync(path.join(atm.clientDir, 'mods', 'b-1.0.jar'));
+    const { base, other, exportsDir, upstream } = await scenario();
+    fs.writeFileSync(path.join(upstream.clientDir, 'mods', 'a-1.1.jar'), await makeJar(jar('a', '1.1', { manifestVersion: 'tampered' })));
+    fs.rmSync(path.join(upstream.clientDir, 'mods', 'b-1.0.jar'));
     setPlanItems(db, base.id, other.id, 'mod', ['a', 'b', 'c'], true);
 
     const r = await build(base, other, exportsDir);
@@ -160,16 +160,16 @@ describe('buildUpdatePack', () => {
   });
 
   it('reads jars and files from a server-pack zip with a wrapper folder', async () => {
-    const { atm, other, exportsDir } = await scenario();
-    const server = createProfile(db, { pack: 'Base', version: '8.3', side: 'server', state: 'clean', locationKind: 'zip', location: atm.serverZip });
-    await importModSet(db, { kind: 'zip', path: atm.serverZip }, server.id, ctx);
+    const { upstream, other, exportsDir } = await scenario();
+    const server = createProfile(db, { pack: 'Base', version: '8.3', side: 'server', state: 'clean', locationKind: 'zip', location: upstream.serverZip });
+    await importModSet(db, { kind: 'zip', path: upstream.serverZip }, server.id, ctx);
     setPlanItems(db, server.id, other.id, 'mod', ['a', 'b'], true);
-    setPlanItems(db, server.id, other.id, 'file', ['config/atm.toml'], true);
+    setPlanItems(db, server.id, other.id, 'file', ['config/upstream.toml'], true);
 
     const r = await build(server, other, exportsDir);
     expect(r.failures).toEqual([]);
-    expect(listFiles(r.folder)).toEqual(expect.arrayContaining(['mods-add/a-1.1.jar', 'mods-add/b-1.0.jar', 'files-add/config/atm.toml']));
-    expect(fs.readFileSync(path.join(r.folder, 'files-add', 'config', 'atm.toml'), 'utf8')).toBe('welcome = true\n');
+    expect(listFiles(r.folder)).toEqual(expect.arrayContaining(['mods-add/a-1.1.jar', 'mods-add/b-1.0.jar', 'files-add/config/upstream.toml']));
+    expect(fs.readFileSync(path.join(r.folder, 'files-add', 'config', 'upstream.toml'), 'utf8')).toBe('welcome = true\n');
   });
 
   it('skips a planned mod that is no longer actionable', async () => {
@@ -180,8 +180,8 @@ describe('buildUpdatePack', () => {
   });
 
   it('fails when nothing could be exported and leaves no half-written export behind', async () => {
-    const { base, other, exportsDir, atm } = await scenario();
-    fs.rmSync(path.join(atm.clientDir, 'mods', 'b-1.0.jar'));
+    const { base, other, exportsDir, upstream } = await scenario();
+    fs.rmSync(path.join(upstream.clientDir, 'mods', 'b-1.0.jar'));
     setPlanItems(db, base.id, other.id, 'mod', ['b'], true);
     await expect(build(base, other, exportsDir)).rejects.toThrow(/nothing could be exported/);
     expect(fs.existsSync(exportsDir) ? fs.readdirSync(exportsDir) : []).toEqual([]);
@@ -198,8 +198,8 @@ describe('buildUpdatePack: real file names, duplicates, leftovers', () => {
   const removeTxt = (folder: string) => fs.readFileSync(path.join(folder, 'remove.txt'), 'utf8').trim().split(/\r?\n/);
 
   it('names the file the target really has when identical bytes sit under another name', async () => {
-    const { base, other, exportsDir, lmp } = await scenario();
-    fs.renameSync(path.join(lmp.clientDir, 'mods', 'a-1.0.jar'), path.join(lmp.clientDir, 'mods', 'a-1.0 (1).jar'));
+    const { base, other, exportsDir, own } = await scenario();
+    fs.renameSync(path.join(own.clientDir, 'mods', 'a-1.0.jar'), path.join(own.clientDir, 'mods', 'a-1.0 (1).jar'));
     setPlanItems(db, base.id, other.id, 'mod', ['a'], true);
     const r = await build(base, other, exportsDir);
     expect(removeTxt(r.folder)).toEqual(['a-1.0 (1).jar']);
@@ -207,19 +207,19 @@ describe('buildUpdatePack: real file names, duplicates, leftovers', () => {
   });
 
   it('warns when the target does not have the jar at all', async () => {
-    const { base, other, exportsDir, lmp } = await scenario();
-    fs.rmSync(path.join(lmp.clientDir, 'mods', 'a-1.0.jar'));
+    const { base, other, exportsDir, own } = await scenario();
+    fs.rmSync(path.join(own.clientDir, 'mods', 'a-1.0.jar'));
     setPlanItems(db, base.id, other.id, 'mod', ['a'], true);
     const r = await build(base, other, exportsDir);
     expect(r.warnings.join('\n')).toMatch(/a-1\.0\.jar was not found in the target/);
   });
 
   it('lists both jars when the target has two for one mod id, and warns', async () => {
-    const atm = await writeAtmPack(path.join(tmp, 'atm'), { atm: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: [], clientMods: [jar('a', '2.0')] });
-    const own = await writeAtmPack(path.join(tmp, 'own'), { atm: '1.0', neoforge: '21.1.259', mc: '1.21.1', serverMods: [], clientMods: [jar('a', '1.0'), jar('a', '0.9')] });
-    const base = createProfile(db, { pack: 'Base', version: '8.3', side: 'client', state: 'clean', locationKind: 'folder', location: atm.clientDir });
+    const upstream = await writeBasePack(path.join(tmp, 'upstream'), { upstream: '8.3', neoforge: '21.1.259', mc: '1.21.1', serverMods: [], clientMods: [jar('a', '2.0')] });
+    const own = await writeBasePack(path.join(tmp, 'own'), { upstream: '1.0', neoforge: '21.1.259', mc: '1.21.1', serverMods: [], clientMods: [jar('a', '1.0'), jar('a', '0.9')] });
+    const base = createProfile(db, { pack: 'Base', version: '8.3', side: 'client', state: 'clean', locationKind: 'folder', location: upstream.clientDir });
     const other = createProfile(db, { pack: 'Own', version: '1.0', side: 'client', state: 'clean', locationKind: 'folder', location: own.clientDir });
-    await importModSet(db, { kind: 'folder', path: atm.clientDir }, base.id, ctx);
+    await importModSet(db, { kind: 'folder', path: upstream.clientDir }, base.id, ctx);
     await importModSet(db, { kind: 'folder', path: own.clientDir }, other.id, ctx);
     setPlanItems(db, base.id, other.id, 'mod', ['a'], true);
     const r = await build(base, other, path.join(tmp, 'data', 'exports'));
@@ -265,14 +265,14 @@ describe.skipIf(!pwsh)('apply.ps1', () => {
   });
 
   it.each([pwsh, winps].filter((s): s is string => !!s))('under %s, dry-runs without touching anything, then applies with a backup and deletes nothing', async (shell) => {
-    const { base, other, exportsDir, lmp } = await scenario();
+    const { base, other, exportsDir, own } = await scenario();
     setPlanItems(db, base.id, other.id, 'mod', ['a', 'b', 'd'], true);
     setPlanItems(db, base.id, other.id, 'file', ['config/x.toml'], true);
     const r = await build(base, other, exportsDir);
 
     // a disposable copy of the Own instance, with a config file that will be overwritten
     const inst = path.join(tmp, 'instance');
-    fs.cpSync(lmp.clientDir, inst, { recursive: true });
+    fs.cpSync(own.clientDir, inst, { recursive: true });
     fs.mkdirSync(path.join(inst, 'config'));
     fs.writeFileSync(path.join(inst, 'config', 'x.toml'), 'mine = true\n');
     const before = listFiles(inst);
@@ -302,12 +302,12 @@ describe.skipIf(!pwsh)('apply.ps1', () => {
   }, 120000);
 
   it('refuses to run when a pack file does not match changes.json, and changes nothing', async () => {
-    const { base, other, exportsDir, lmp } = await scenario();
+    const { base, other, exportsDir, own } = await scenario();
     setPlanItems(db, base.id, other.id, 'mod', ['a'], true);
     const r = await build(base, other, exportsDir);
     fs.appendFileSync(path.join(r.folder, 'mods-add', 'a-1.1.jar'), 'x');
     const inst = path.join(tmp, 'instance');
-    fs.cpSync(lmp.clientDir, inst, { recursive: true });
+    fs.cpSync(own.clientDir, inst, { recursive: true });
     const before = listFiles(inst);
     const run = runApply(pwsh!, path.join(r.folder, 'apply.ps1'), ['-InstanceDir', inst, '-Apply']);
     expect(run.status).not.toBe(0);

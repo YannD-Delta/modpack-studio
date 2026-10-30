@@ -40,7 +40,7 @@ const diff: ConfigDiff = {
     perRoot: { config: counts({ onlyInBase: 1, modified: 1, cosmetic: 1, identical: 1 }), kubejs: counts({ onlyInOther: 1 }) },
   },
   files: [
-    { path: 'config/only-atm.toml', root: 'config', ext: 'toml', kind: 'text', status: 'onlyInBase', baseSize: 10, otherSize: null },
+    { path: 'config/only-upstream.toml', root: 'config', ext: 'toml', kind: 'text', status: 'onlyInBase', baseSize: 10, otherSize: null },
     { path: 'config/sub/changed.toml', root: 'config', ext: 'toml', kind: 'text', status: 'modified', baseSize: 2048, otherSize: 2100 },
     { path: 'kubejs/server_scripts/mine.js', root: 'kubejs', ext: 'js', kind: 'text', status: 'onlyInOther', baseSize: null, otherSize: 8 },
     { path: 'config/format.json', root: 'config', ext: 'json', kind: 'text', status: 'cosmetic', baseSize: 13, otherSize: 20 },
@@ -154,7 +154,7 @@ describe('Configs page', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Tout sélectionner (filtre courant)' }));
     await waitFor(() => expect(screen.getByText('Prévus dans le plan : 2')).toBeTruthy());
-    expect(JSON.parse(calls.filter((c) => c.method === 'PUT')[1]!.body!)).toMatchObject({ paths: ['config/only-atm.toml'], selected: true });
+    expect(JSON.parse(calls.filter((c) => c.method === 'PUT')[1]!.body!)).toMatchObject({ paths: ['config/only-upstream.toml'], selected: true });
     await userEvent.click(screen.getByRole('button', { name: 'Vider' }));
     await waitFor(() => expect(screen.getByText('Prévus dans le plan : 0')).toBeTruthy());
   });
