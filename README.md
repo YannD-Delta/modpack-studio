@@ -194,6 +194,7 @@ Naming used in these docs:
 | [Claude assistant](docs/claude-assistant.md) | Settings, the five ready-made actions, API versus copy-paste prompt |
 | [CurseForge](docs/curseforge.md) | What is used today, what comes next, why players stay on CurseForge |
 | [Performance and parallelism](docs/performance.md) | What runs in parallel, why scans were slow, what fixed it |
+| [Projects](docs/projects.md) | Validated retouches kept per release line, and the preview of replaying them on a new base version |
 | [Release cycle](docs/release-cycle.md) | The full update cycle from a base release to the player announcement |
 | [Settings](docs/settings.md) | Keys, preferences and pack names: where they live and how they are protected |
 | [Security and guarantees](docs/security.md) | The rules that protect your instances and your secrets |

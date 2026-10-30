@@ -33,8 +33,9 @@ No item is in progress at the moment.
 | Server test bench with kept logs and result ([Test bench](test-bench.md)) | done |
 | Claude actions (API and copy-paste), settings (keys, model, pack names, 21 tunable limits, lists and patterns) | done |
 | CurseForge links read from instances | done |
+| Projects: validated retouches kept in the database, three-way preview of a new base version ([Projects](projects.md)) | done |
 | Base-release detection | planned |
-| Candidate build: base clean + your mods + replayed config changes | planned |
+| Apply a project preview: export the safe items, one choice per conflict | planned |
 | Copy clean to launched | planned |
 | Server pack zip builder (mods without the blacklist, configs, start scripts). The player zip is exported with the CurseForge app, not built by Studio | planned |
 | Client test without a paid account (spike: launcher choice and offline accounts) | planned |
@@ -42,7 +43,7 @@ No item is in progress at the moment.
 | Side detection from jar metadata and Modrinth: the code exists but is not wired into the comparison yet | planned |
 | Update the played server and push it to the host panel | planned |
 | Discord message from the changelog, through a webhook set in Settings | planned |
-| Three-way merge for files changed on both sides | planned |
+| Key-by-key comparison and merge for files changed on both sides, then a text editor | planned |
 
 ## Open questions
 

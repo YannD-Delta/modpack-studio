@@ -3,11 +3,12 @@ import frConfigs from './fr.configs.json';
 import frDecisions from './fr.decisions.json';
 import fr from './fr.json';
 import frPlan from './fr.plan.json';
+import frProjects from './fr.projects.json';
 import frTestbench from './fr.testbench.json';
 import frSettings from './fr.settings.json';
 
 // One JSON file per work stream (core, plan, configs, decisions, settings) so parallel work does not collide.
-const messages = { ...fr, ...frPlan, ...frConfigs, ...frDecisions, ...frSettings, ...frAssistant, ...frTestbench };
+const messages = { ...fr, ...frPlan, ...frConfigs, ...frDecisions, ...frSettings, ...frAssistant, ...frTestbench, ...frProjects };
 
 export type MessageKey = keyof typeof messages;
 
@@ -24,6 +25,11 @@ const fill = (text: string) => text.replaceAll('{upstream}', packNames.upstream)
 export function tOr(key: string, fallback: string): string {
   const text = (messages as Record<string, string>)[key];
   return text === undefined ? fallback : fill(text);
+}
+
+/** `tOr` with `{name}` placeholders filled from `vars`. */
+export function tfOr(key: string, vars: Record<string, string>, fallback: string): string {
+  return tOr(key, fallback).replace(/\{(\w+)\}/g, (_m, name: string) => vars[name] ?? `{${name}}`);
 }
 
 export function t(key: MessageKey): string {
