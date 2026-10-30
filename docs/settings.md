@@ -62,6 +62,7 @@ Every module registers its own limits with a neutral default (the value that use
 | `configs.maxDiffLines` | 5000 | 100 to 100000 | Lines compared in one file diff |
 | `configs.maxDiffFiles` | 20000 | 100 to 200000 | Files compared in one analysis |
 | `configs.trackedRoots` | `config`, `defaultconfigs`, `kubejs`, `scripts`, `datapacks`, `global_packs` | up to 30 folders | Folders scanned for configs |
+| `configs.ignoredPaths` | empty | up to 200 patterns | Paths left out of the scan, relative to the instance root. `kubejs/exported` skips that folder and everything below it; `*` stays inside one name, `**` crosses folders (`**/cache`); case and slash style do not matter. Applies from the next scan |
 | `testbench.maxConsoleLogMb` | 64 | 1 to 1024 | Console log kept per test |
 | `testbench.freeSpaceMarginMb` | 512 | 0 to 102400 | Free space that must remain after the copy |
 | `testbench.maxKeptCrashReports` | 20 | 0 to 200 | Crash reports kept per test |

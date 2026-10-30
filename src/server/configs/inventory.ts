@@ -4,6 +4,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { READ_ONLY_ZIP_LIMITS, openZip } from '../zip/zip-reader.js';
 import { defineLimit, getListLimit, getNumberLimit } from '../settings/limits.js';
+import { isIgnoredByUser } from './ignore.js';
 
 /** Folders of an instance or server pack whose files are compared. Everything else (mods, saves, logs, options.txt) is ignored. */
 export const TRACKED_ROOTS = ['config', 'defaultconfigs', 'kubejs', 'scripts', 'datapacks', 'global_packs'] as const;
@@ -153,8 +154,8 @@ async function listFolder(
         if (e.isSymbolicLink()) {
           issues.push({ path: rel, reason: 'symbolic link or junction, not followed' });
         } else if (e.isDirectory()) {
-          if (!EXCLUDED_DIRS.has(e.name.toLowerCase())) next.push({ abs: path.join(absDir, e.name), rel });
-        } else if (e.isFile() && !isExcludedFileName(e.name)) {
+          if (!EXCLUDED_DIRS.has(e.name.toLowerCase()) && !isIgnoredByUser(rel)) next.push({ abs: path.join(absDir, e.name), rel });
+        } else if (e.isFile() && !isExcludedFileName(e.name) && !isIgnoredByUser(rel)) {
           out.push({ rel, abs: path.join(absDir, e.name) });
         }
       }
@@ -268,7 +269,7 @@ export async function scanInstanceTree(source: ScanSource, opts: ScanOptions = {
         sawRoot = true;
         if (isDirectoryEntry(rel0)) continue; // the reader only drops forward-slash directory entries: this is not a zero-byte file
         const rel = `${root}${rel0.slice(root.length)}`;
-        if (rel.split('/').length < 2 || isExcludedPath(rel)) continue;
+        if (rel.split('/').length < 2 || isExcludedPath(rel) || isIgnoredByUser(rel)) continue;
         wanted.push({ rel, name: e.name });
       }
       if (!sawRoot) issues.push({ path: '.', reason: noRootReason('the zip (expected at its root or inside a single top-level folder)') });

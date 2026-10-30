@@ -76,5 +76,6 @@
   "settings.limits.testbench.disabledJarPattern": "Mods coupés dans la copie de test (motif sur le nom du jar)",
   "settings.limits.group.curseforge": "CurseForge",
   "settings.limits.curseforge.gameId": "Identifiant de Minecraft chez CurseForge",
-  "settings.limits.curseforge.concurrency": "Demandes CurseForge en parallèle"
+  "settings.limits.curseforge.concurrency": "Demandes CurseForge en parallèle",
+  "settings.limits.configs.ignoredPaths": "Chemins exclus du scan de configs (un par ligne, ex. kubejs/exported ou **/cache ; pris en compte au prochain scan)"
 }
