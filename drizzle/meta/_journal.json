@@ -50,6 +50,13 @@
       "when": 1793461604154,
       "tag": "0006_jar_file_name",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1793349851115,
+      "tag": "0007_project_changes",
+      "breakpoints": true
     }
   ]
 }

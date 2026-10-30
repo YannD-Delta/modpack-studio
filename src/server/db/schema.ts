@@ -161,3 +161,33 @@ export const jarSource = sqliteTable(
   },
   (t) => [primaryKey({ columns: [t.profileId, t.fileName] })],
 );
+
+/** A release line you maintain (for example "LMP 2026"): the retouches you validated are kept here and replayed on each new base version. */
+export const project = sqliteTable(
+  'project',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    name: text('name').notNull(),
+    /** Version of the followed pack the validated retouches were made on. */
+    baseVersion: text('base_version'),
+    createdAt: text('created_at').notNull(),
+  },
+  (t) => [unique().on(t.name)],
+);
+
+/** One validated retouch: a mod you added, replaced or removed, or a config file you changed or added. */
+export const projectChange = sqliteTable(
+  'project_change',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    projectId: integer('project_id')
+      .notNull()
+      .references(() => project.id),
+    kind: text('kind').notNull(), // 'mod' | 'file'
+    key: text('key').notNull(), // mod id, or config path
+    action: text('action').notNull(), // mods: 'add' | 'update' | 'remove'; files: 'file'
+    payload: text('payload').notNull(), // JSON: what you validated and what the base had at that time
+    validatedAt: text('validated_at').notNull(),
+  },
+  (t) => [unique().on(t.projectId, t.kind, t.key)],
+);

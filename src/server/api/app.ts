@@ -17,6 +17,7 @@ import { registerModRoutes } from './routes-mods.js';
 import { registerPlanRoutes } from './routes-plan.js';
 import { configureLimits } from '../settings/limits.js';
 import { registerCurseForgeRoutes } from './routes-curseforge.js';
+import { registerProjectRoutes } from './routes-projects.js';
 import { registerSettingsRoutes } from './routes-settings.js';
 import { registerTestbenchRoutes } from './routes-testbench.js';
 import { registerProfileRoutes } from './routes-profiles.js';
@@ -129,6 +130,7 @@ export function buildApp(given: AppDeps): FastifyInstance {
     registerDecisionsRoutes(api, deps);
     registerSettingsRoutes(api, deps);
     registerCurseForgeRoutes(api, deps);
+    registerProjectRoutes(api, deps);
     registerAssistantRoutes(api, deps);
     registerTestbenchRoutes(api, deps);
   });

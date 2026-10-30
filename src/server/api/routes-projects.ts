@@ -1,0 +1,127 @@
+import path from 'node:path';
+import type { FastifyInstance, FastifyReply } from 'fastify';
+import { z } from 'zod';
+import { API_PREFIX } from '../../shared/constants.js';
+import { NotScannedError } from '../configs/compare.js';
+import { audit } from '../db/audit.js';
+import { getProfile, type Profile } from '../profiles/profile-service.js';
+import { createProject, deleteChange, getProject, listChanges, listProjects, preview, proposal, ProjectError, saveChanges, type TriadProfiles } from '../projects/service.js';
+import type { AppDeps } from './app.js';
+import { sendBadRequest } from './routes-profiles.js';
+
+const id = z.coerce.number().int().positive();
+const TriadQuery = z.object({ clean: id, launched: id, candidate: id });
+const CreateBody = z.object({ name: z.string().min(1).max(60), baseVersion: z.string().max(40).optional() });
+const SaveBody = z.object({ clean: id, launched: id, candidate: id, files: z.array(z.string().min(1).max(1024)).max(5000).default([]), mods: z.array(z.string().min(1).max(200)).max(5000).default([]) });
+const PreviewQuery = z.object({ newClean: id, oldClean: id.optional() });
+
+function profileOr404(deps: AppDeps, profileId: number): Profile {
+  try {
+    return getProfile(deps.db, profileId);
+  } catch (err) {
+    if (err instanceof Error && /not found$/.test(err.message)) throw new ProjectError(404, `profile ${profileId} not found`, 'profile_not_found');
+    throw err;
+  }
+}
+
+/** The three copies behind a validation: your pack's clean and launched copies and the candidate (your custom test copy, or the instance in use). */
+function triad(deps: AppDeps, q: { clean: number; launched: number; candidate: number }): TriadProfiles {
+  if (new Set([q.clean, q.launched, q.candidate]).size !== 3) throw new ProjectError(400, 'pick three different profiles', 'triad_distinct');
+  const p = { clean: profileOr404(deps, q.clean), launched: profileOr404(deps, q.launched), candidate: profileOr404(deps, q.candidate) };
+  if (p.clean.state !== 'clean') throw new ProjectError(400, `the clean copy must be in state clean, not ${p.clean.state}`, 'triad_state', { role: 'clean' });
+  if (p.launched.state !== 'launched') throw new ProjectError(400, `the launched copy must be in state launched, not ${p.launched.state}`, 'triad_state', { role: 'launched' });
+  if (p.candidate.state !== 'candidate' && p.candidate.state !== 'run') throw new ProjectError(400, `the candidate must be in state candidate or run, not ${p.candidate.state}`, 'triad_state', { role: 'candidate' });
+  if (p.clean.pack !== p.launched.pack || p.clean.version !== p.launched.version || new Set([p.clean.side, p.launched.side, p.candidate.side]).size !== 1) {
+    throw new ProjectError(400, 'the clean and launched copies must be the same pack and version, and all three the same side', 'triad_mismatch');
+  }
+  return p;
+}
+
+function fail(reply: FastifyReply, err: unknown) {
+  if (err instanceof ProjectError) return reply.code(err.status).send({ error: err.message, code: err.code, ...err.extra });
+  if (err instanceof NotScannedError) return reply.code(409).send({ error: err.message, code: 'not_scanned', profileId: err.profileId });
+  throw err;
+}
+
+/** Projects: a release line (for example "LMP 2026") that keeps the retouches you validated and shows what replaying them on a new base version would do. */
+export function registerProjectRoutes(api: FastifyInstance, deps: AppDeps): void {
+  const { db } = deps;
+  const dataDir = deps.dataDir ?? path.resolve('data');
+
+  api.get(`${API_PREFIX}/projects`, async () => ({ projects: listProjects(db) }));
+
+  api.post(`${API_PREFIX}/projects`, async (req, reply) => {
+    const body = CreateBody.safeParse(req.body);
+    if (!body.success) return sendBadRequest(reply, body.error);
+    try {
+      const project = createProject(db, body.data.name, body.data.baseVersion ?? null);
+      audit(db, 'project.create', String(project.id), { name: project.name });
+      return reply.code(201).send(project);
+    } catch (err) {
+      return fail(reply, err);
+    }
+  });
+
+  api.get(`${API_PREFIX}/projects/:id`, async (req, reply) => {
+    const p = z.object({ id }).safeParse(req.params);
+    if (!p.success) return sendBadRequest(reply, p.error);
+    try {
+      return { project: getProject(db, p.data.id), changes: listChanges(db, p.data.id) };
+    } catch (err) {
+      return fail(reply, err);
+    }
+  });
+
+  api.get(`${API_PREFIX}/projects/:id/proposal`, async (req, reply) => {
+    const p = z.object({ id }).safeParse(req.params);
+    const q = TriadQuery.safeParse(req.query);
+    if (!p.success) return sendBadRequest(reply, p.error);
+    if (!q.success) return sendBadRequest(reply, q.error);
+    try {
+      return await proposal(db, dataDir, p.data.id, triad(deps, q.data));
+    } catch (err) {
+      return fail(reply, err);
+    }
+  });
+
+  api.post(`${API_PREFIX}/projects/:id/changes`, async (req, reply) => {
+    const p = z.object({ id }).safeParse(req.params);
+    const body = SaveBody.safeParse(req.body);
+    if (!p.success) return sendBadRequest(reply, p.error);
+    if (!body.success) return sendBadRequest(reply, body.error);
+    try {
+      const saved = await saveChanges(db, dataDir, p.data.id, triad(deps, body.data), { files: body.data.files, mods: body.data.mods });
+      audit(db, 'project.validate', String(p.data.id), saved);
+      return { ok: true, ...saved, changes: listChanges(db, p.data.id) };
+    } catch (err) {
+      return fail(reply, err);
+    }
+  });
+
+  api.delete(`${API_PREFIX}/projects/:id/changes/:changeId`, async (req, reply) => {
+    const p = z.object({ id, changeId: id }).safeParse(req.params);
+    if (!p.success) return sendBadRequest(reply, p.error);
+    try {
+      deleteChange(db, dataDir, p.data.id, p.data.changeId);
+      audit(db, 'project.change_removed', String(p.data.id), { changeId: p.data.changeId });
+      return reply.code(204).send();
+    } catch (err) {
+      return fail(reply, err);
+    }
+  });
+
+  api.get(`${API_PREFIX}/projects/:id/preview`, async (req, reply) => {
+    const p = z.object({ id }).safeParse(req.params);
+    const q = PreviewQuery.safeParse(req.query);
+    if (!p.success) return sendBadRequest(reply, p.error);
+    if (!q.success) return sendBadRequest(reply, q.error);
+    try {
+      const newClean = profileOr404(deps, q.data.newClean);
+      if (newClean.state !== 'clean') throw new ProjectError(400, `the new base must be a clean profile, not ${newClean.state}`, 'triad_state', { role: 'newClean' });
+      const oldClean = q.data.oldClean ? profileOr404(deps, q.data.oldClean) : null;
+      return preview(db, dataDir, p.data.id, newClean, oldClean);
+    } catch (err) {
+      return fail(reply, err);
+    }
+  });
+}
