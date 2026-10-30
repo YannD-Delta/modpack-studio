@@ -105,7 +105,7 @@
   "custom.simple.4": "Un fichier que tu as ajouté, ou supprimé, apparaît aussi.",
   "custom.clean": "Clean (livré, jamais démarré)",
   "custom.launched": "Lancé (clean démarré une fois)",
-  "custom.played": "Joué (celui que tu utilises)",
+  "custom.played": "Joué (celui que tu utilises) ou ton candidat (copie custom de test)",
   "custom.pickAll": "Choisis et analyse les trois profils pour voir tes retouches.",
   "custom.distinct": "Choisis trois profils différents.",
   "custom.loading": "Analyse des retouches…",

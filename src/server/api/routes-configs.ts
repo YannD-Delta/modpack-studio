@@ -76,13 +76,18 @@ function relOr400(rel: string): string {
  */
 function assertTriad(p: { clean: Profile; launched: Profile; played: Profile }): void {
   if (new Set([p.clean.id, p.launched.id, p.played.id]).size !== 3) throw new ConfigsHttpError(400, 'pick three different profiles', { code: CODE.triadDistinct });
-  const roles = [['clean', p.clean, 'clean'], ['launched', p.launched, 'launched'], ['played', p.played, 'run']] as const;
-  for (const [role, profile, state] of roles) {
+  for (const [role, profile, state] of [['clean', p.clean, 'clean'], ['launched', p.launched, 'launched']] as const) {
     if (profile.state !== state) throw new ConfigsHttpError(400, `the ${role} copy must be a profile in state ${state}, not ${profile.state}`, { code: CODE.triadState, role, profileId: profile.id });
   }
-  const same = (f: (x: Profile) => string) => new Set([p.clean, p.launched, p.played].map(f)).size === 1;
-  if (!same((x) => x.pack) || !same((x) => x.version) || !same((x) => x.side)) {
-    throw new ConfigsHttpError(400, 'the clean, launched and played copies must be the same pack, version and side', { code: CODE.triadMismatch });
+  // The played copy is the instance really in use (`run`) or your custom test copy (`candidate`): both change under your feet.
+  if (p.played.state !== 'run' && p.played.state !== 'candidate') {
+    throw new ConfigsHttpError(400, `the played copy must be a profile in state run or candidate, not ${p.played.state}`, { code: CODE.triadState, role: 'played', profileId: p.played.id });
+  }
+  const same = (list: Profile[], f: (x: Profile) => string) => new Set(list.map(f)).size === 1;
+  // A candidate is your own pack built on the base: it has its own pack and version label, so only the side has to agree with it.
+  const sameBase = p.played.state === 'candidate' ? [p.clean, p.launched] : [p.clean, p.launched, p.played];
+  if (!same(sameBase, (x) => x.pack) || !same(sameBase, (x) => x.version) || !same([p.clean, p.launched, p.played], (x) => x.side)) {
+    throw new ConfigsHttpError(400, 'the clean, launched and played copies must be the same pack, version and side (a candidate only has to match the side)', { code: CODE.triadMismatch });
   }
 }
 

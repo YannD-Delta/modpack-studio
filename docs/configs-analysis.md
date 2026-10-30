@@ -44,6 +44,8 @@ Contents are read only for differing text files up to 1 MB. `GET /configs/file` 
 
 ## What did I change? The three-copy logic
 
+The third copy can be the instance really in use (`run`) or your **candidate**, the custom test copy where you add mods and change configs by hand before a release. A candidate is your own pack built on the base, so it only has to be on the same side as the other two (its pack and version label may differ); clean and launched must still be the same pack, version and side. This is how you list the config files to push into your release: clean, launched and candidate in, "My changes" out.
+
 Comparing played against the base alone is noisy: the game and mods rewrite many configs at first launch. With three copies the noise cancels.
 
 <p align="center"><img src="assets/three-copies.svg" alt="Three copies of a pack: clean as shipped, launched after one start, played in real life; comparing launched with played shows only the player's edits" width="900"></p>

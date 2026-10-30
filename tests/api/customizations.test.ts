@@ -203,6 +203,17 @@ describe('customizations', () => {
       expect((await call('GET', q(launched, clean, played))).json()).toMatchObject({ code: 'triad_state' });
     });
 
+    it('accepts your candidate (the custom test copy, another pack and version) as the played copy, on the same side', async () => {
+      const candidateDir = tree('candidate', { 'config/shipped-same.toml': 'a = 1\n', 'config/mine-only.toml': 'custom = true\n' });
+      const candidate = await profile('Own', 'candidate', candidateDir, { version: 'test-1' });
+      expect(await scan(candidate)).toBe('done');
+      const res = await call('GET', q(clean, launched, candidate));
+      expect(res.statusCode, res.body).toBe(200);
+      expect(res.json().files.find((f: { path: string }) => f.path === 'config/mine-only.toml')).toMatchObject({ status: 'added' });
+      const otherSide = await profile('Own', 'candidate', tree('cand-srv', { 'config/x.toml': 'x\n' }), { version: 'test-1', side: 'server' });
+      expect((await call('GET', q(clean, launched, otherSide))).json()).toMatchObject({ code: 'triad_mismatch' });
+    });
+
     it('refuses copies of another side, pack or version', async () => {
       const server = await profile('Own', 'clean', tree('srv', { 'config/x.toml': 'x\n' }), { side: 'server' });
       const other = await profile('Base', 'run', tree('other', { 'config/x.toml': 'x\n' }));
