@@ -6,14 +6,19 @@ import { isIgnoredByUser } from '../configs/ignore.js';
 import { trackedRoots } from '../configs/inventory.js';
 import type { Profile } from '../profiles/profile-service.js';
 import { effectiveBlacklist } from './blacklist-service.js';
+import { effectiveSide, type Side, type SideContext } from './side-classifier.js';
 import { loadModSet } from './modset-store.js';
 import { isInside, utcStamp, writeZip } from './update-pack.js';
 
-export type ServerPackErrorCode = 'not_a_server' | 'not_a_folder' | 'folder_missing' | 'not_imported' | 'inside_source';
+export type ServerPackErrorCode = 'not_a_server' | 'not_a_folder' | 'folder_missing' | 'not_imported' | 'inside_source' | 'sides_undecided';
+/** A mod whose side nothing settles: it needs a decision (server, client or both). */
+export type UndecidedMod = { modId: string; file: string };
 export class ServerPackError extends Error {
   constructor(
     readonly code: ServerPackErrorCode,
     message: string,
+    /** Set with `sides_undecided`. */
+    readonly undecided: UndecidedMod[] = [],
   ) {
     super(message);
     this.name = 'ServerPackError';
@@ -35,6 +40,8 @@ export type ServerPackResult = {
   leftOut: LeftOut[];
   /** Jars of mods/ the imported mod set does not know: copied, but not checked against the blacklist. */
   unlisted: string[];
+  /** Mods whose side is unknown (no decision, not on the blacklist, no usable declared side), in the pack or not according to includeUnknown. */
+  undecided: UndecidedMod[];
 };
 
 export type ServerPackOptions = {
@@ -43,6 +50,11 @@ export type ServerPackOptions = {
   exportsDir: string;
   /** Only the `stale` flag of blacklist entries depends on it; every entry is applied whatever the value. */
   upstreamVersion?: string;
+  /**
+   * What to do with mods whose side is unknown: true copies them, false leaves them out.
+   * Left undefined, a build with such mods is refused (`sides_undecided`) so the choice is never made silently.
+   */
+  includeUnknown?: boolean;
   now?: Date;
   progress?: (pct: number, msg: string) => void;
 };
@@ -70,7 +82,7 @@ const safeSegment = (s: string) => s !== '' && s !== '.' && s !== '..' && !/[\\/
 /** server.properties is a template: the remote console password must not travel with it. */
 const blankSecrets = (text: string) => text.replace(/^(rcon\.password\s*=).*$/gim, '$1');
 
-type Plan = { copy: { src: string; rel: string }[]; leftOut: LeftOut[]; unlisted: string[]; mods: number };
+type Plan = { copy: { src: string; rel: string }[]; leftOut: LeftOut[]; unlisted: string[]; mods: number; undecided: UndecidedMod[] };
 
 async function walkTracked(source: string, root: string, plan: Plan): Promise<void> {
   let ignored = 0;
@@ -94,19 +106,25 @@ async function walkTracked(source: string, root: string, plan: Plan): Promise<vo
   if (ignored) plan.leftOut.push({ kind: 'path', key: root, reason: `${ignored} file(s) ignored by the paths banned in Settings (configs.ignoredPaths)` });
 }
 
-async function planPack(opts: ServerPackOptions, source: string, blacklisted: Set<string>): Promise<Plan> {
+async function planPack(opts: ServerPackOptions, source: string, sides: SideContext): Promise<Plan> {
   const { db, profile } = opts;
-  const plan: Plan = { copy: [], leftOut: [], unlisted: [], mods: 0 };
+  const plan: Plan = { copy: [], leftOut: [], unlisted: [], mods: 0, undecided: [] };
 
   // mods/: jar file name (lower case) -> top-level mod ids the import found in it
   const rows = db.sqlite
     .prepare(
-      `SELECT m.mod_id AS mod_id, COALESCE(m.file_name, j.filename) AS filename
+      `SELECT m.mod_id AS mod_id, m.declared_side AS declared_side, COALESCE(m.file_name, j.filename) AS filename
        FROM jar_mod m JOIN jar j ON j.sha256 = m.jar_sha256
        WHERE m.profile_id = ? AND m.is_jij = 0 AND m.library_key IS NULL`,
     )
-    .all(profile.id) as { mod_id: string; filename: string }[];
+    .all(profile.id) as { mod_id: string; declared_side: string; filename: string }[];
   const idsOf = new Map<string, string[]>();
+  const declared = new Map<string, Side | 'unknown'>();
+  for (const r of rows) {
+    const d = r.declared_side;
+    declared.set(r.mod_id, d === 'client' || d === 'server' || d === 'both' ? d : 'unknown');
+  }
+  const ctxSides: SideContext = { ...sides, declared };
   for (const r of rows) idsOf.set(r.filename.toLowerCase(), [...(idsOf.get(r.filename.toLowerCase()) ?? []), r.mod_id]);
 
   const modsDir = path.join(source, 'mods');
@@ -118,9 +136,17 @@ async function planPack(opts: ServerPackOptions, source: string, blacklisted: Se
       }
       const ids = idsOf.get(e.name.toLowerCase());
       if (!ids) plan.unlisted.push(e.name);
-      const hit = ids?.find((id) => blacklisted.has(id));
-      if (hit) {
-        plan.leftOut.push({ kind: 'mod', key: hit, reason: `on the server blacklist (${e.name})` });
+      const verdicts = (ids ?? []).map((id) => ({ id, ...effectiveSide(id, ctxSides) }));
+      const client = verdicts.find((v) => v.side === 'client');
+      if (client) {
+        const why = client.origin === 'upstream' ? 'on the server blacklist' : client.origin === 'decision' ? 'side decision: client' : 'declared client in the jar';
+        plan.leftOut.push({ kind: 'mod', key: client.id, reason: `${why} (${e.name})` });
+        continue;
+      }
+      const unknown = verdicts.filter((v) => v.side === 'unknown');
+      for (const v of unknown) plan.undecided.push({ modId: v.id, file: e.name });
+      if (unknown.length > 0 && opts.includeUnknown === false) {
+        plan.leftOut.push({ kind: 'mod', key: unknown[0]!.id, reason: `side unknown, left out on request (${e.name})` });
         continue;
       }
       plan.copy.push({ src: path.join(modsDir, e.name), rel: `mods/${e.name}` });
@@ -151,10 +177,14 @@ async function planPack(opts: ServerPackOptions, source: string, blacklisted: Se
 const mdCell = (s: string) => s.replace(/\|/g, '\\|');
 function manifest(name: string, profile: string, createdAt: string, plan: Plan, files: number): string {
   const lines = [`# Server pack ${name}`, '', `- Source: ${profile}`, `- Created: ${createdAt}`, `- Mods: ${plan.mods} jar(s); files in the pack: ${files}`, ''];
-  lines.push('## Included', '', 'mods/ (without the blacklisted jars), the tracked config folders, and the start scripts and server.properties found at the root.', '`rcon.password` is blanked in server.properties.', '');
+  lines.push('## Included', '', 'mods/ (only the jars whose effective side is server or both), the tracked config folders, and the start scripts and server.properties found at the root.', '`rcon.password` is blanked in server.properties.', '');
   lines.push('## Never included', '', 'The world, logs, crash-reports, backups, eula.txt, ops.json, whitelist.json, banned-*.json, usercache.json and anything outside the allow-list.', '');
   const mods = plan.leftOut.filter((l) => l.kind === 'mod');
-  lines.push(`## Blacklisted mods left out (${mods.length})`, '');
+  if (plan.undecided.length) {
+    lines.push(`## Mods that need a side decision (${plan.undecided.length})`, '', 'Nothing says whether these run on a server: set their side in Studio. They were put in or left out as requested for this build.', '');
+    lines.push('| Mod id | Jar |', '| --- | --- |', ...plan.undecided.map((u) => `| ${mdCell(u.modId)} | ${mdCell(u.file)} |`), '');
+  }
+  lines.push(`## Mods left out (${mods.length})`, '');
   if (mods.length) lines.push('| Mod id | Why |', '| --- | --- |', ...mods.map((l) => `| ${mdCell(l.key)} | ${mdCell(l.reason)} |`));
   else lines.push('None.');
   const paths = plan.leftOut.filter((l) => l.kind === 'path');
@@ -181,8 +211,13 @@ export async function buildServerPack(opts: ServerPackOptions): Promise<ServerPa
 
   const now = opts.now ?? new Date();
   const blacklisted = new Set(effectiveBlacklist(db, opts.upstreamVersion ?? '').map((e) => e.modId));
+  const decisions = new Map<string, Side>();
+  for (const d of db.sqlite.prepare("SELECT mod_id, side FROM mod_decision WHERE kind = 'side' AND side IS NOT NULL").all() as { mod_id: string; side: Side }[]) decisions.set(d.mod_id, d.side);
   opts.progress?.(5, 'listing the server folder');
-  const plan = await planPack(opts, source, blacklisted);
+  const plan = await planPack(opts, source, { decisions, blacklisted, declared: new Map() });
+  if (plan.undecided.length > 0 && opts.includeUnknown === undefined) {
+    throw new ServerPackError('sides_undecided', `${plan.undecided.length} mod(s) have no known side: decide each one, or say explicitly whether to include them`, plan.undecided);
+  }
 
   fs.mkdirSync(exportsDir, { recursive: true });
   const base = `server-pack-${profile.pack}-${profile.version}-${utcStamp(now)}`.replace(/[^A-Za-z0-9._-]/g, '_');
@@ -214,7 +249,7 @@ export async function buildServerPack(opts: ServerPackOptions): Promise<ServerPa
     fs.rmSync(zipStaging, { force: true });
     throw err;
   }
-  const result: ServerPackResult = { name, folder, zipPath, zipBytes: fs.statSync(zipPath).size, createdAt, profile: label, mods: plan.mods, files: plan.copy.length + 1, leftOut: plan.leftOut, unlisted: plan.unlisted };
+  const result: ServerPackResult = { name, folder, zipPath, zipBytes: fs.statSync(zipPath).size, createdAt, profile: label, mods: plan.mods, files: plan.copy.length + 1, leftOut: plan.leftOut, unlisted: plan.unlisted, undecided: plan.undecided };
   opts.progress?.(100, `server pack ${name}: ${plan.mods} mod(s), ${plan.leftOut.filter((l) => l.kind === 'mod').length} left out`);
   return result;
 }

@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { api, flattenProfiles, profileLabel, type MatrixRow, type Profile } from '../api.js';
 import { exportDownloadUrl } from '../api-plan.js';
-import { projectsApi, type Choice, type Preview, type PreviewItem, type Proposal, type ProjectExport, type ReplayStatus, type Triad } from '../api-projects.js';
+import { projectsApi, type Choice, type PickSide, type Preview, type PreviewItem, type Proposal, type ProjectExport, type ReplayStatus, type Triad } from '../api-projects.js';
 import { ErrorNotice } from '../components/ErrorNotice.js';
 import { t, tf, tfOr, tOr } from '../i18n/index.js';
 
@@ -145,6 +145,8 @@ function Kept(props: { projectId: number }) {
 
 const CHOICES: Choice[] = ['mine', 'base', 'skip'];
 const needsChoice = (i: PreviewItem) => (i.status === 'conflict' || i.status === 'warning') && (i.choice ?? null) === null;
+/** What is left to decide on one row: the unresolved keys of a key-level conflict, else 1 for a retouch without a choice. */
+const pendingOf = (i: PreviewItem) => (!needsChoice(i) ? 0 : i.keyConflicts ? Math.max(1, i.unresolvedKeys ?? 0) : 1);
 
 function ExportResultCard({ exported, onClose }: { exported: ProjectExport; onClose: () => void }) {
   const r = exported.result;
@@ -190,7 +192,10 @@ function Update(props: { projectId: number; profiles: Profile[] }) {
     },
   });
   const choose = useMutation({
-    mutationFn: (v: { item: PreviewItem; choice: Choice }) => projectsApi.setChoices(props.projectId, Number(newClean), { [`${v.item.kind}:${v.item.key}`]: v.choice }),
+    mutationFn: (v: { item: PreviewItem; choice?: Choice; pick?: { key: string; side: PickSide } }) => {
+      const id = `${v.item.kind}:${v.item.key}`;
+      return projectsApi.setChoices(props.projectId, Number(newClean), v.choice ? { [id]: v.choice } : {}, v.pick ? { [id]: { [v.pick.key]: v.pick.side } } : undefined);
+    },
     // the server answers with the preview as it now stands, so a reload shows the same choices
     onSuccess: (p) => setPv((old) => (old ? { ...p, baseDiff: old.baseDiff } : p)),
   });
@@ -199,7 +204,7 @@ function Update(props: { projectId: number; profiles: Profile[] }) {
     onSuccess: setExported,
   });
   const label = (i: PreviewItem) => (i.kind === 'mod' ? tfOr(`projects.mod.${i.action}`, { from: '', to: i.mine.version ?? '' }, i.action) : t('projects.kind.file'));
-  const pending = pv ? pv.items.filter(needsChoice).length : 0;
+  const pending = pv ? pv.items.reduce((n, i) => n + pendingOf(i), 0) : 0;
   return (
     <section className={card}>
       <h3 className="font-semibold text-slate-100">{t('projects.update.title')}</h3>
@@ -221,12 +226,12 @@ function Update(props: { projectId: number; profiles: Profile[] }) {
           <div className="overflow-x-auto rounded-lg border border-slate-800">
             <table className="w-full text-xs">
               <tbody className="divide-y divide-slate-800">
-                {pv.items.map((i) => (
+                {pv.items.flatMap((i) => [
                   <tr key={i.id} data-testid="preview-row">
                     <td className="px-3 py-1.5"><span className={`rounded border px-1.5 py-0.5 ${BADGE[i.status]}`}>{t(`projects.status.${i.status}` as 'projects.status.safe')}</span></td>
                     <td className="px-3 py-1.5 text-slate-400">{label(i)}</td>
                     <td className="px-3 py-1.5 font-mono">{i.key}</td>
-                    <td className="px-3 py-1.5 text-slate-300">{tfOr(`projects.reason.${i.reason}`, { mine: i.mine.version ?? '', base: i.newBase?.version ?? '' }, i.reason)}</td>
+                    <td className="px-3 py-1.5 text-slate-300">{tfOr(`projects.reason.${i.reason}`, { mine: i.mine.version ?? '', base: i.newBase?.version ?? '', fromMine: String(i.merge?.fromMine ?? 0), fromBase: String(i.merge?.fromBase ?? 0), n: String(i.keyConflicts?.length ?? 0) }, i.reason)}</td>
                     <td className="px-3 py-1.5">
                       {(i.status === 'conflict' || i.status === 'warning') && (
                         <div role="group" aria-label={tf('projects.choice.label', { key: i.key })} className="flex gap-1">
@@ -238,8 +243,31 @@ function Update(props: { projectId: number; profiles: Profile[] }) {
                         </div>
                       )}
                     </td>
-                  </tr>
-                ))}
+                  </tr>,
+                  i.keyConflicts && i.keyConflicts.length > 0 && (
+                    <tr key={`k${i.id}`} data-testid="key-conflicts">
+                      <td colSpan={5} className="bg-slate-950/40 px-3 py-2">
+                        <ul className="space-y-1">
+                          {i.keyConflicts.map((k) => (
+                            <li key={k.key} className="flex flex-wrap items-center gap-2" data-testid="key-conflict">
+                              <code className="font-mono text-slate-200">{k.key}</code>
+                              <span className="text-slate-500">{t('projects.keys.then')} <code className="font-mono">{k.then ?? t('projects.keys.absent')}</code></span>
+                              <span className="text-slate-400">{t('projects.keys.now')} <code className="font-mono">{k.now ?? t('projects.keys.absent')}</code></span>
+                              <span className="text-slate-300">{t('projects.keys.mine')} <code className="font-mono">{k.mine ?? t('projects.keys.absent')}</code></span>
+                              <div role="group" aria-label={tf('projects.keys.label', { key: k.key })} className="flex gap-1">
+                                {(['mine', 'base'] as PickSide[]).map((side) => (
+                                  <button key={side} type="button" aria-pressed={k.pick === side} disabled={choose.isPending} onClick={() => choose.mutate({ item: i, pick: { key: k.key, side } })} className={`rounded border px-2 py-0.5 ${k.pick === side ? 'border-violet-500 bg-violet-600 text-white' : 'border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700'}`}>
+                                    {t(`projects.keys.pick.${side}` as 'projects.keys.pick.mine')}
+                                  </button>
+                                ))}
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                      </td>
+                    </tr>
+                  ),
+                ])}
               </tbody>
             </table>
           </div>

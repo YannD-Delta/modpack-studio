@@ -8,6 +8,8 @@ import { Projects } from '../../../src/web/pages/Projects.js';
 type Call = { url: string; method: string; body?: string };
 let calls: Call[] = [];
 let chosen: string | null = null;
+let keysMode = false;
+let picks: Record<string, string> = {};
 
 const profile = (id: number, pack: string, version: string, state: string) => ({ id, packVersionId: 1, pack, version, side: 'client', state, locationKind: 'folder', location: 'x', immutable: state !== 'candidate' });
 const matrix = [
@@ -19,6 +21,8 @@ const matrix = [
 function mockApi() {
   calls = [];
   chosen = null;
+  keysMode = false;
+  picks = {};
   let validated = false;
   vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
     const method = init?.method ?? 'GET';
@@ -38,7 +42,9 @@ function mockApi() {
     }
     if (url.endsWith('/projects/7') && method === 'GET') return json({ project: { id: 7, name: 'My pack 2026', baseVersion: validated ? '8.4' : null, createdAt: 'x' }, changes: [] });
     if (url.includes('/projects/7/choices') && method === 'PUT') {
-      chosen = (Object.values(JSON.parse(init!.body as string).choices)[0] as string) ?? null;
+      const body = JSON.parse(init!.body as string);
+      chosen = (Object.values(body.choices)[0] as string) ?? null;
+      for (const per of Object.values(body.picks ?? {}) as Record<string, string>[]) Object.assign(picks, per);
       return json(previewBody());
     }
     if (url.endsWith('/projects/7/export') && method === 'POST') {
@@ -50,6 +56,21 @@ function mockApi() {
 }
 
 function previewBody() {
+  if (keysMode) {
+    const unresolved = ['p', 'q'].filter((k) => !picks[k]).length;
+    return {
+      project: { id: 7, name: 'My pack 2026', baseVersion: '8.4', createdAt: 'x' },
+      newClean: { id: 4, label: 'Base 8.5' },
+      missing: { scan: false, import: false },
+      summary: { safe: 1, already: 0, conflict: 1, warning: 0 },
+      baseDiff: null,
+      items: [
+        { id: 1, kind: 'file', key: 'config/m.toml', action: 'file', status: 'safe', reason: 'merged-keys', mine: { size: 5 }, newBase: { size: 5 }, choice: 'mine', merge: { fromMine: 2, fromBase: 3 } },
+        { id: 2, kind: 'file', key: 'config/u.toml', action: 'file', status: 'conflict', reason: 'keys-conflict', mine: { size: 5 }, newBase: { size: 5 }, choice: unresolved === 0 ? 'mine' : null, merge: { fromMine: 1, fromBase: 1 }, unresolvedKeys: unresolved,
+          keyConflicts: [{ key: 'p', then: '1', now: '3', mine: '2', pick: picks.p ?? null }, { key: 'q', then: '1', now: '4', mine: null, pick: picks.q ?? null }] },
+      ],
+    };
+  }
   return {
     project: { id: 7, name: 'My pack 2026', baseVersion: '8.4', createdAt: 'x' },
         newClean: { id: 4, label: 'Base 8.5' },
@@ -70,6 +91,28 @@ afterEach(() => {
 });
 
 describe('Projects page', () => {
+  it('shows the key-level merge and a per-key chooser, counting unresolved keys', async () => {
+    mockApi();
+    keysMode = true;
+    wrap();
+    await userEvent.selectOptions(await screen.findByLabelText('Nouvelle version clean'), '4');
+    await userEvent.click(screen.getByRole('button', { name: "Voir l'aperçu" }));
+    const rows = await screen.findAllByTestId('preview-row');
+    expect(within(rows[0]!).getByText('fusionné clé par clé : 2 clés de ta version, 3 du pack de base')).toBeTruthy();
+    expect(within(rows[1]!).getByText('2 clés modifiées des deux côtés : choisis pour chacune')).toBeTruthy();
+    expect(screen.getByTestId('choice-counter').textContent).toBe('2 retouches sans choix');
+    expect((screen.getByRole('button', { name: 'Exporter le pack' }) as HTMLButtonElement).disabled).toBe(true);
+    const groupP = screen.getByRole('group', { name: 'Choix pour la clé p' });
+    expect(within(groupP).getAllByRole('button').map((b) => b.textContent)).toEqual(['Ma valeur', 'Celle du pack de base']);
+    expect(within(screen.getAllByTestId('key-conflict')[1]!).getByText('(absente)')).toBeTruthy();
+    await userEvent.click(within(groupP).getByRole('button', { name: 'Ma valeur' }));
+    await waitFor(() => expect(screen.getByTestId('choice-counter').textContent).toBe('1 retouches sans choix'));
+    expect(JSON.parse(calls.find((c) => c.method === 'PUT')!.body!)).toEqual({ newClean: 4, choices: {}, picks: { 'file:config/u.toml': { p: 'mine' } } });
+    await userEvent.click(within(screen.getByRole('group', { name: 'Choix pour la clé q' })).getByRole('button', { name: 'Celle du pack de base' }));
+    await waitFor(() => expect(screen.getByTestId('choice-counter').textContent).toBe('Tous les conflits ont un choix.'));
+    await waitFor(() => expect((screen.getByRole('button', { name: 'Exporter le pack' }) as HTMLButtonElement).disabled).toBe(false));
+  });
+
   it('validates the retouches of the candidate: lists them, saves the checked ones with the three copies', async () => {
     mockApi();
     wrap();

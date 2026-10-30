@@ -204,6 +204,7 @@ export const projectChoice = sqliteTable(
     kind: text('kind').notNull(), // 'mod' | 'file'
     key: text('key').notNull(),
     choice: text('choice').notNull(),
+    picks: text('picks'), // JSON {conflictKey: 'mine' | 'base'}: your pick per conflicting key of a file
   },
   (t) => [unique().on(t.projectId, t.newCleanId, t.kind, t.key)],
 );

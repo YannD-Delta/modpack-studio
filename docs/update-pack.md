@@ -112,7 +112,8 @@ The result is `data/exports/server-pack-<profile>-<stamp>/` and `server-pack-<pr
 
 What goes in:
 
-- `mods/`: every `.jar` except the ones that provide a mod id of the server blacklist (base-derived entries, your own entries and side decisions, see [Mod comparison](mods.md)). A jar the import does not know is copied and listed as "not checked".
+- `mods/`: the jars whose **effective side** is `server` or `both`. The side comes, in this order, from your side decision, the server blacklist (base-derived entries and your own rows mean `client`, see [Mod comparison](mods.md)), then the side declared in the jar ([Sides](mods-analysis.md#effective-side-of-a-mod)). `client` jars are left out and listed with the reason. A jar with several mod ids is left out as soon as one of them is `client`. A jar the import does not know is copied and listed as "not checked".
+- **Unknown sides**: a mod with no decision, not blacklisted and with no usable declared side is neither included nor excluded silently. Without `includeUnknown` in the request the build is refused with 409 `sides_undecided` and the list of mods (`undecided: [{ modId, file }]`). With `includeUnknown: true` they are copied, with `false` left out; both ways `SERVER-PACK.md` lists them under "Mods that need a side decision". In the card, each listed mod has the buttons server, client and both (saved as a side decision through `PUT /mods/:modId/decision`, then the pack is rebuilt), plus "include all" and "leave all out".
 - The tracked config folders (`configs.trackedRoots`, by default `config`, `defaultconfigs`, `kubejs`, `scripts`, `datapacks`, `global_packs`), without the paths banned in `configs.ignoredPaths` and without `.bak`, `.tmp` and `.log` files.
 - At the root only: `run.bat`, `run.sh`, `start*.bat`, `user_jvm_args.txt` and `server.properties`. The `rcon.password` value of `server.properties` is blanked in the copy.
 
@@ -120,4 +121,4 @@ What never goes in: the world, `logs`, `crash-reports`, `backups`, `eula.txt`, `
 
 `SERVER-PACK.md` inside the pack lists what was left out and why: blacklisted mods by id, ignored paths, and every root item that is not in the allow-list.
 
-API: `POST /api/v1/build/server-pack` with `{ "profile": <id> }` answers `{ name, folder, zip, zipBytes, mods, files, leftOut, unlisted }`.
+API: `POST /api/v1/build/server-pack` with `{ "profile": <id>, "includeUnknown"?: boolean }` answers `{ name, folder, zip, zipBytes, mods, files, leftOut, unlisted, undecided }`, or 409 `{ code: "sides_undecided", undecided }`.

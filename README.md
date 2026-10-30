@@ -190,6 +190,7 @@ Naming used in these docs:
 | [Mod analysis](docs/mods-analysis.md) | Jar import, comparison by mod id, version ordering, sides, blacklist, loader agreement |
 | [Config analysis](docs/configs-analysis.md) | Inventory, normalisation, the three-copy "what did I change" logic |
 | [Update packs](docs/update-pack.md) | The plan, the export folder, `apply.ps1` |
+| [Deploy engine](docs/deploy.md) | Applying a pack from Studio: dry run, verify, backup, rollback, restore, NeoForge cleanup |
 | [Test bench](docs/test-bench.md) | Throwaway server tests and their safety rules |
 | [Claude assistant](docs/claude-assistant.md) | Settings, the five ready-made actions, API versus copy-paste prompt |
 | [CurseForge](docs/curseforge.md) | What is used today, what comes next, why players stay on CurseForge |

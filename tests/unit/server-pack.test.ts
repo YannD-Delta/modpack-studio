@@ -4,7 +4,7 @@ import path from 'node:path';
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openDb, type Db } from '../../src/server/db/open.js';
 import { closePool } from '../../src/server/jobs/pool.js';
-import { addToBlacklist } from '../../src/server/mods/blacklist-service.js';
+import { addToBlacklist, setDecision } from '../../src/server/mods/blacklist-service.js';
 import { importModSet } from '../../src/server/mods/import-modset.js';
 import { buildServerPack, ServerPackError } from '../../src/server/mods/server-pack.js';
 import { createProfile } from '../../src/server/profiles/profile-service.js';
@@ -25,7 +25,7 @@ afterEach(() => {
 afterAll(() => closePool());
 
 const ctx = { params: null, signal: new AbortController().signal, progress: () => undefined };
-const put = (root: string, rel: string, content = 'x') => {
+const put = (root: string, rel: string, content: string | Buffer = 'x') => {
   const full = path.join(root, ...rel.split('/'));
   fs.mkdirSync(path.dirname(full), { recursive: true });
   fs.writeFileSync(full, content);
@@ -159,5 +159,65 @@ describe('buildServerPack', () => {
     const b = await buildServerPack({ db, profile, exportsDir, now });
     expect(b.name).toBe(`${a.name}-2`);
     expect(fs.readdirSync(exportsDir).filter((n) => n.endsWith('.partial'))).toEqual([]);
+  });
+
+  describe('sides', () => {
+    const sideJar = (dir: string, id: string, dependencySide?: 'CLIENT' | 'SERVER' | 'BOTH') =>
+      makeJar({ fileName: `${id}-1.0.jar`, loader: 'neoforge', mods: [{ modId: id, version: '1.0', dependencySide }] }).then((b) => put(path.join(dir, 'mods'), `${id}-1.0.jar`, b));
+    async function sidesSetup() {
+      const dir = path.join(tmp, 'server');
+      await sideJar(dir, 'plain');
+      await sideJar(dir, 'declaredclient', 'CLIENT');
+      await sideJar(dir, 'declaredserver', 'SERVER');
+      await sideJar(dir, 'mystery');
+      const profile = createProfile(db, { pack: 'Own', version: 'My pack 2026', side: 'server', state: 'launched', locationKind: 'folder', location: dir });
+      await importModSet(db, { kind: 'folder', path: dir }, profile.id, ctx);
+      db.sqlite.prepare("UPDATE jar_mod SET declared_side = 'unknown' WHERE mod_id = 'mystery'").run();
+      return { profile, exportsDir: path.join(tmp, 'data', 'exports') };
+    }
+    const inPack = (folder: string) => listFiles(path.join(folder, 'mods'));
+
+    it('leaves a jar declared client out and keeps one declared server or both', async () => {
+      const { profile, exportsDir } = await sidesSetup();
+      const res = await buildServerPack({ db, profile, exportsDir, now, includeUnknown: false });
+      expect(inPack(res.folder)).toEqual(['declaredserver-1.0.jar', 'plain-1.0.jar']);
+      expect(res.leftOut).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'mod', key: 'declaredclient', reason: expect.stringMatching(/declared client/) })]));
+    });
+
+    it("lets the user's side decision beat the declared side", async () => {
+      const { profile, exportsDir } = await sidesSetup();
+      setDecision(db, { modId: 'declaredclient', kind: 'side', side: 'both', reason: 'needed on the server' });
+      setDecision(db, { modId: 'declaredserver', kind: 'side', side: 'client', reason: 'client only' });
+      const res = await buildServerPack({ db, profile, exportsDir, now, includeUnknown: false });
+      expect(inPack(res.folder)).toEqual(['declaredclient-1.0.jar', 'plain-1.0.jar']);
+    });
+
+    it('refuses to build while a mod has an unknown side, and lists it', async () => {
+      const { profile, exportsDir } = await sidesSetup();
+      const err = await buildServerPack({ db, profile, exportsDir, now }).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(ServerPackError);
+      expect(err).toMatchObject({ code: 'sides_undecided', undecided: [{ modId: 'mystery', file: 'mystery-1.0.jar' }] });
+      expect(fs.existsSync(exportsDir)).toBe(false);
+    });
+
+    it('includes the unknown ones on includeUnknown true and leaves them out on false, listing them either way', async () => {
+      const { profile, exportsDir } = await sidesSetup();
+      const yes = await buildServerPack({ db, profile, exportsDir, now, includeUnknown: true });
+      expect(inPack(yes.folder)).toContain('mystery-1.0.jar');
+      expect(yes.undecided).toEqual([{ modId: 'mystery', file: 'mystery-1.0.jar' }]);
+      expect(fs.readFileSync(path.join(yes.folder, 'SERVER-PACK.md'), 'utf8')).toMatch(/needs? a (side )?decision/i);
+      const no = await buildServerPack({ db, profile, exportsDir, now, includeUnknown: false });
+      expect(inPack(no.folder)).not.toContain('mystery-1.0.jar');
+      expect(no.undecided).toHaveLength(1);
+      expect(no.leftOut).toEqual(expect.arrayContaining([expect.objectContaining({ key: 'mystery', reason: expect.stringMatching(/unknown/) })]));
+    });
+
+    it('builds without asking once the decision is made', async () => {
+      const { profile, exportsDir } = await sidesSetup();
+      setDecision(db, { modId: 'mystery', kind: 'side', side: 'server', reason: 'ok' });
+      const res = await buildServerPack({ db, profile, exportsDir, now });
+      expect(inPack(res.folder)).toContain('mystery-1.0.jar');
+      expect(res.undecided).toEqual([]);
+    });
   });
 });

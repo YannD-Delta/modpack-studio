@@ -99,6 +99,19 @@ Modpack authors publish a client pack and a server pack. **Base client mods minu
 | pin | Keep an older version; silences only the `older` status |
 | ignore / accept removal | A base mod you deliberately removed stops raising an anomaly |
 
+### Effective side of a mod
+
+The server pack settles each mod's side with one function, `effectiveSide` (`src/server/mods/side-classifier.ts`, on top of `classifySide`). First signal found wins:
+
+1. **Your side decision** (`client`, `server` or `both`).
+2. **The base's derived split**: a mod on the server blacklist (base client minus base server, or your own blacklist row) is `client`.
+3. **The side declared in the jar** (`jar_mod.declared_side`, read at import): NeoForge `neoforge.mods.toml` and Forge `mods.toml` take the `side` of the dependency on `minecraft`, `neoforge` or `forge` (a client flag on a dependency on another mod is ignored; several platform dependencies with different sides give `both`; no `side` means `both`); Fabric takes `environment` from `fabric.mod.json` (`*` or absent is `both`, `client`, `server`, any other value is `unknown`).
+4. Otherwise **`unknown`**.
+
+Quilt and legacy Forge (`mcmod.info`) jars have no readable side. Modrinth lookups are not wired yet.
+
+`server` and `both` go into the server pack, `client` is left out with the reason. An `unknown` mod is never silently put in or left out: the build is refused with `sides_undecided` (409) and the answer lists the mods, unless the request says `includeUnknown: true` or `false` explicitly. See [Update pack](update-pack.md#server-pack).
+
 Decisions are remembered with an editable reason (500 characters at most) and can be undone (Decisions tab); every change is in the audit log. Mod ids are 1 to 100 characters, a new decision refuses blank ids or ids with leading or trailing spaces, and `pin` or `ignore` with a side is a 400.
 
 ## Anomalies

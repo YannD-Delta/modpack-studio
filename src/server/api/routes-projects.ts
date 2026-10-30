@@ -14,7 +14,7 @@ const id = z.coerce.number().int().positive();
 const TriadQuery = z.object({ clean: id, launched: id, candidate: id });
 const CreateBody = z.object({ name: z.string().min(1).max(60), baseVersion: z.string().max(40).optional() });
 const SaveBody = z.object({ clean: id, launched: id, candidate: id, files: z.array(z.string().min(1).max(1024)).max(5000).default([]), mods: z.array(z.string().min(1).max(200)).max(5000).default([]) });
-const ChoicesBody = z.object({ newClean: id, choices: z.record(z.string().min(3).max(1100), z.enum(['mine', 'base', 'skip'] as [string, ...string[]])).refine((c) => Object.keys(c).length <= 5000) });
+const ChoicesBody = z.object({ newClean: id, picks: z.record(z.string().min(3).max(1100), z.record(z.string().min(1).max(1000), z.enum(['mine', 'base']))).default({}), choices: z.record(z.string().min(3).max(1100), z.enum(['mine', 'base', 'skip'] as [string, ...string[]])).refine((c) => Object.keys(c).length <= 5000) });
 const ExportBody = z.object({ newClean: id, target: id.optional(), candidate: id.optional() });
 const PreviewQuery = z.object({ newClean: id, oldClean: id.optional() });
 
@@ -122,7 +122,7 @@ export function registerProjectRoutes(api: FastifyInstance, deps: AppDeps): void
       const newClean = profileOr404(deps, q.data.newClean);
       if (newClean.state !== 'clean') throw new ProjectError(400, `the new base must be a clean profile, not ${newClean.state}`, 'triad_state', { role: 'newClean' });
       const oldClean = q.data.oldClean ? profileOr404(deps, q.data.oldClean) : null;
-      return preview(db, dataDir, p.data.id, newClean, oldClean);
+      return await preview(db, dataDir, p.data.id, newClean, oldClean);
     } catch (err) {
       return fail(reply, err);
     }
@@ -135,9 +135,9 @@ export function registerProjectRoutes(api: FastifyInstance, deps: AppDeps): void
     if (!body.success) return sendBadRequest(reply, body.error);
     try {
       const newClean = newCleanOr400(body.data.newClean);
-      const saved = setChoices(db, p.data.id, newClean.id, body.data.choices as Record<string, 'mine' | 'base' | 'skip'>);
+      const saved = setChoices(db, p.data.id, newClean.id, body.data.choices as Record<string, 'mine' | 'base' | 'skip'>, body.data.picks);
       audit(db, 'project.choices', String(p.data.id), { newClean: newClean.id, saved });
-      return preview(db, dataDir, p.data.id, newClean, null);
+      return await preview(db, dataDir, p.data.id, newClean, null);
     } catch (err) {
       return fail(reply, err);
     }
@@ -150,7 +150,7 @@ export function registerProjectRoutes(api: FastifyInstance, deps: AppDeps): void
     if (!body.success) return sendBadRequest(reply, body.error);
     try {
       const newClean = newCleanOr400(body.data.newClean);
-      const pv = preview(db, dataDir, p.data.id, newClean, null);
+      const pv = await preview(db, dataDir, p.data.id, newClean, null);
       if (pv.missing.scan) throw new ProjectError(409, 'the new version has not been scanned yet: scan it in Configs first', 'not_scanned', { profileId: newClean.id });
       if (pv.missing.import) throw new ProjectError(409, 'the mods of the new version are not imported yet: import them in Profiles first', 'not_imported', { profileId: newClean.id });
       const missing = withoutChoice(pv.items);

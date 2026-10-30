@@ -2,7 +2,7 @@
 export type Fingerprint = { sha256: string; size: number; sizeOnly?: boolean };
 
 export type ReplayStatus = 'safe' | 'already' | 'conflict' | 'warning';
-export type ReplayReason = 'base-unchanged' | 'same-as-mine' | 'base-changed' | 'base-removed' | 'base-now-ships-it' | 'new-file' | 'new-mod' | 'base-updated' | 'already-gone';
+export type ReplayReason = 'base-unchanged' | 'same-as-mine' | 'base-changed' | 'base-removed' | 'base-now-ships-it' | 'new-file' | 'new-mod' | 'base-updated' | 'already-gone' | 'merged-keys' | 'keys-conflict';
 export type Verdict = { status: ReplayStatus; reason: ReplayReason };
 
 /** A size-only fingerprint is never compared with a real hash: only the sizes are. */

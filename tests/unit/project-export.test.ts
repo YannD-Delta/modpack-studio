@@ -48,7 +48,7 @@ describe('buildProjectExport', () => {
     const folder = path.join(tmp, 'exports', r.name);
     expect(fs.readFileSync(path.join(folder, 'files-add/config/a.toml'), 'utf8')).toBe('a = 2\n');
     const ch = JSON.parse(fs.readFileSync(path.join(folder, 'changes.json'), 'utf8'));
-    expect(ch.files).toEqual([{ path: 'config/a.toml', sha256: sha(Buffer.from('a = 2\n')), size: 6 }]);
+    expect(ch.files).toEqual([{ path: 'config/a.toml', sha256: sha(Buffer.from('a = 2\n')), size: 6, how: 'copied' }]);
     expect(ch.items[0]).toMatchObject({ key: 'config/a.toml', choice: 'mine', outcome: 'replayed' });
     expect(fs.readFileSync(path.join(folder, 'apply.ps1'), 'ascii')).toBe(APPLY_PS1);
     expect(fs.readFileSync(path.join(folder, 'CHANGES.md'), 'utf8')).toContain('My pack 2026');

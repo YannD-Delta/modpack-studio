@@ -47,6 +47,30 @@ describe('readJarInfo', () => {
     expect(r.mods[0]).toMatchObject({ modId: 'f', version: '1.5', declaredSide: 'client' });
   });
 
+  it('reads the side of a Forge mods.toml, and mixes several platform dependencies into both', async () => {
+    const dep = (platform: string, side: string) => `[[dependencies.a]]
+modId = "${platform}"
+side = "${side}"
+`;
+    const forge = (deps: string) => makeZip({ 'META-INF/mods.toml': `[[mods]]
+modId = "a"
+version = "1"
+${deps}` });
+    expect((await readJarInfo(await openZip(await forge(dep('minecraft', 'CLIENT'))), 'a.jar')).mods[0]!.declaredSide).toBe('client');
+    expect((await readJarInfo(await openZip(await forge(dep('forge', 'SERVER'))), 'a.jar')).mods[0]!.declaredSide).toBe('server');
+    expect((await readJarInfo(await openZip(await forge(dep('minecraft', 'CLIENT') + dep('forge', 'SERVER'))), 'a.jar')).mods[0]!.declaredSide).toBe('both');
+  });
+
+  it('normalises the fabric environment: absent or * is both, client and server are kept, anything else is unknown', async () => {
+    const fabric = async (env: unknown) => (await readJarInfo(await openZip(await makeZip({ 'fabric.mod.json': JSON.stringify({ id: 'f', version: '1', ...(env === undefined ? {} : { environment: env }) }) })), 'f.jar')).mods[0]!.declaredSide;
+    expect(await fabric(undefined)).toBe('both');
+    expect(await fabric('*')).toBe('both');
+    expect(await fabric('client')).toBe('client');
+    expect(await fabric('server')).toBe('server');
+    expect(await fabric('dedicated')).toBe('unknown');
+    expect(await fabric(42)).toBe('unknown');
+  });
+
   it('treats a jar without mod metadata as a library keyed by module name', async () => {
     const r = await info({ fileName: 'guava-33.jar', loader: 'neoforge', mods: [], library: true });
     expect(r.kind).toBe('library');

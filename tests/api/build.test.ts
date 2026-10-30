@@ -65,6 +65,22 @@ describe('POST /build/server-pack', () => {
     expect(JSON.stringify(db.sqlite.prepare('SELECT action FROM audit_log').all())).toContain('build.server-pack');
   });
 
+  it('answers 409 sides_undecided with the mods to decide, then builds once includeUnknown is explicit', async () => {
+    const dir = path.join(tmp, 'server');
+    await jar(dir, 'alpha');
+    await jar(dir, 'mystery');
+    const p = createProfile(db, { pack: 'Own', version: 'My pack 2026', side: 'server', state: 'launched', locationKind: 'folder', location: dir });
+    await importModSet(db, { kind: 'folder', path: dir }, p.id, ctx);
+    db.sqlite.prepare("UPDATE jar_mod SET declared_side = 'unknown' WHERE mod_id = 'mystery'").run();
+    const refused = await call('POST', '/build/server-pack', { profile: p.id });
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json()).toMatchObject({ code: 'sides_undecided', undecided: [{ modId: 'mystery', file: 'mystery-1.0.jar' }] });
+    const left = await call('POST', '/build/server-pack', { profile: p.id, includeUnknown: false });
+    expect(left.statusCode).toBe(200);
+    expect(left.json()).toMatchObject({ mods: 1, undecided: [{ modId: 'mystery' }] });
+    expect((await call('POST', '/build/server-pack', { profile: p.id, includeUnknown: 'yes' })).statusCode).toBe(400);
+  });
+
   it('answers readable errors', async () => {
     const dir = path.join(tmp, 'server');
     await jar(dir, 'alpha');

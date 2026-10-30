@@ -22,7 +22,7 @@ flowchart LR
 
 | Kept | How |
 |---|---|
-| A config file you changed or added | Its content goes to the blob store (`data/blobs`, content-addressed), so replaying never depends on the old instance. The identity (hash, size) of the base's file at that moment is kept for the three-way check |
+| A config file you changed or added | Its content goes to the blob store (`data/blobs`, content-addressed), so replaying never depends on the old instance. The identity (hash, size) of the base's file at that moment is kept for the three-way check, and so is the base file's own content (`baseBlob` in the stored payload, same size limit and same reader as your file) so that a key-level merge has "the base then". Retouches validated before this was added have no base content and keep the whole-file verdict |
 | A mod you added, replaced or removed | Mod id, your version, the base version at that moment, your file name and, when the candidate is a CurseForge instance, the project and file ids |
 
 Jar bytes are not copied at validation: only the identity of the mod (plus the candidate it came from and the jar's sha256). The export reads the jar from that candidate. Validating the same file or mod again replaces its entry. The tables are `project`, `project_change` (migration 0007) and `project_choice` (migration 0008).
@@ -39,8 +39,18 @@ For each retouch, Studio compares three things: the base as it was when you vali
 | Your file, absent from the base then / absent now | **safe** | `new-file`: nothing to merge |
 | Your file, absent then / the base now ships a different one | **conflict** | `base-now-ships-it` |
 | Edited file, absent from the new base | **warning** | `base-removed` |
+| Different / different / yours edited, and the keys you edited are not the keys the base edited | **safe** | `merged-keys`: the key-level merge is clean; the item says how many keys come from your file and from the base |
+| Same, but some keys were changed on both sides to different values | **conflict** | `keys-conflict`: the item lists each key with the base then, the base now and your value |
 
 Mods follow the same logic with versions: an added mod is safe unless the new base ships it (same version: already; another version: conflict); a replaced mod is safe while the base kept its version, a conflict when the base moved it (`base-updated`), a warning when the base dropped it; a removal applies while the base still ships the mod.
+
+### Key-level merge
+
+When the whole-file verdict is `base-changed`, Studio parses three versions of the file (TOML, JSON with comments and `.properties`/`.cfg`, see [Configs analysis](configs-analysis.md)): the base then (stored blob), your file (stored blob) and the new base's file (read from the new clean copy through the same reader and scan as the other previews), and runs the three-way merge of `src/server/configs/merge.ts`.
+
+- No key changed on both sides: the item becomes **safe** (`merged-keys`) and the merge is checked by rendering it on the new base's text (comments and order kept). If the format cannot express it (for example adding a JSON key), the whole-file verdict stays.
+- Some keys changed on both sides to different values: the item stays a **conflict** (`keys-conflict`) and lists them.
+- A file that is not TOML, JSON or properties, that does not parse (any of the three), that is too large, or a retouch with no stored base content: the whole-file verdict stays, nothing changes for it.
 
 Binary files that were only compared by size (quick scan on one side) are compared by size, never against a real hash.
 
@@ -58,7 +68,7 @@ Tab **Projects**: create the project, pick the three copies (clean, launched, ca
 | `POST /projects/:id/changes` `{clean, launched, candidate, files, mods}` | Validate; 400 `unknown_change` for something that is not a retouch of the candidate |
 | `DELETE /projects/:id/changes/:changeId` | Remove one retouch |
 | `GET /projects/:id/preview?newClean=&oldClean=` | The verdicts, each item with its current `choice`; 409 `not_scanned` is not raised, the answer lists what is `missing` |
-| `PUT /projects/:id/choices` `{newClean, choices: {"<kind>:<key>": "mine"\|"base"\|"skip"}}` | Store choices for one new base version (survive a reload); answers with the updated preview; 400 `unknown_change` for a key that is not a retouch |
+| `PUT /projects/:id/choices` `{newClean, choices: {"<kind>:<key>": "mine"\|"base"\|"skip"}}` | Store choices for one new base version (survive a reload). For a `keys-conflict` file add `picks: {"file:<key>": {"<conflict key>": "mine"\|"base"}}`, your pick per conflicting key (column `picks` of `project_choice`, migration 0009; picks are merged into earlier ones, and an explicit whole-file choice without picks clears them). Answers with the updated preview; 400 `unknown_change` for a key that is not a retouch |
 | `POST /projects/:id/export` `{newClean, target?, candidate?}` | Build the pack; answers `{name, folder, zip, result}`. 409 `not_scanned`, 409 `not_imported`, 400 `choice_missing` (lists the retouches without a choice), 409 `nothing_to_export` |
 
 ## Applying the preview: export a pack
@@ -69,19 +79,21 @@ Each previewed retouch has a **choice**:
 
 | Choice | Effect in the pack |
 |---|---|
-| `mine` | Replay your version: a config file goes to `files-add/` (content from the blob store); a mod you added or replaced goes to `mods-add/` (jar read from the candidate you validated on, sha256 checked) and the new base's jar of that mod goes to `remove.txt`; a mod you removed goes to `remove.txt` |
+| `mine` | Replay your version: a config file goes to `files-add/` (content from the blob store; for a `merged-keys` item, or a `keys-conflict` item with picks, the merged text instead: your edits applied to the new base's text, so the base's other changes are kept); a mod you added or replaced goes to `mods-add/` (jar read from the candidate you validated on, sha256 checked) and the new base's jar of that mod goes to `remove.txt`; a mod you removed goes to `remove.txt` |
 | `base` | Keep the new base's file or mod, drop your retouch for this version |
 | `skip` | Leave it out of the pack |
+
+For a `keys-conflict` file, "keep my version" without any pick copies your whole file as before. With picks, the file is settled once every conflicting key has a pick (the merge then takes your value or the base's for each); the pending counter counts the keys still without a pick. If the merge cannot be rendered at export time, the file is not exported and is listed in the failures.
 
 Defaults: **safe** items are `mine`, **already** items need nothing, **conflict** and **warning** items have no default, and the export is refused (400 `choice_missing`) until each has a choice. Choices are stored per project and per new base version (table `project_choice`), so they survive a page reload; a safe item can be overridden the same way.
 
 `remove.txt` names the file the target really has (a renamed jar is found by size then content, as in the update pack). The target is optional: give any profile (typically the copy you will apply the pack to); without one, names are checked against the new clean copy and a warning says so. A mod whose jar is no longer in the candidate (or changed since validation) is not exported, and nothing is removed for it: it is listed in `CHANGES.md`, `changes.json` and the response (`failures`, `missingJars`).
 
-The pack holds `CHANGES.md` and `changes.json` naming the project, the new base version and each item with its verdict, choice and outcome (`replayed`, `removed`, `kept-base`, `skipped`, `nothing`, `missing`), plus the sha256 of every file. On the page, each conflict or warning row has three buttons (keep my version, keep the base's, ignore), a counter shows how many retouches still need a choice, and "Export the pack" is enabled when none is missing; the result shows the folder, the zip, and how to run `apply.ps1`.
+The pack holds `CHANGES.md` and `changes.json` naming the project, the new base version and each item with its verdict, choice and outcome (`replayed`, `removed`, `kept-base`, `skipped`, `nothing`, `missing`); for a config file, `how` says whether it was copied whole (`copied`), merged (`merged`) or merged with manual picks (`merged-picks`, with `picks`: N), plus the sha256 of every file. On the page, each conflict or warning row has three buttons (keep my version, keep the base's, ignore), a `keys-conflict` row also shows its keys side by side (before, base now, yours) with a button per key (my value, the base's), a counter shows how many retouches still need a choice, and "Export the pack" is enabled when none is missing; the result shows the folder, the zip, and how to run `apply.ps1`.
 
 ## Not built yet
 
-- Key-by-key comparison, so that two edits in different keys of one file are not a conflict (a key-level merge could later resolve conflicts automatically), and an editor ([roadmap](roadmap.md)).
+- An editor to type a third value for a conflicting key ([roadmap](roadmap.md)).
 - Reading the client's logs after a test run.
 
 Source: `src/server/projects/` (`replay.ts` for the verdicts and choices, `service.ts` for storage, preview and choices, `export.ts` for the pack) and `src/server/api/routes-projects.ts`.

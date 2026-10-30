@@ -119,7 +119,7 @@ describe('projects', () => {
     const by = Object.fromEntries(prev.items.map((i: { key: string; status: string; reason: string }) => [i.key, `${i.status}:${i.reason}`]));
     expect(by).toEqual({
       'config/a.toml': 'safe:base-unchanged',
-      'config/c.toml': 'conflict:base-changed',
+      'config/c.toml': 'conflict:keys-conflict',
       'config/mine.toml': 'safe:new-file',
     });
     expect(prev.summary).toEqual({ safe: 2, already: 0, conflict: 1, warning: 0 });
@@ -253,6 +253,98 @@ describe('projects', () => {
       expect(fs.readFileSync(path.join(folder, 'remove.txt'), 'utf8')).toBe('x-1.5.jar\r\n');
       expect(res.result.missingJars).toEqual(['mine']);
       expect(fs.readFileSync(path.join(folder, 'CHANGES.md'), 'utf8')).toContain('mine');
+    });
+  });
+
+  describe('key-level merge', () => {
+    const put = (dir: string, rel: string, content: string) => {
+      fs.mkdirSync(path.dirname(path.join(tmp, dir, rel)), { recursive: true });
+      fs.writeFileSync(path.join(tmp, dir, rel), content);
+    };
+    const exportsDir = () => path.join(dataDir, 'exports');
+    /** Same file in the four trees: the base edits `y`, you edit `x` (merge), both edit `p` (conflict), the new base breaks `bad.toml` (unparsable). */
+    async function seed(): Promise<void> {
+      for (const d of ['clean', 'launched']) {
+        put(d, 'config/m.toml', 'x = 1\ny = 1\nz = 1\n');
+        put(d, 'config/u.toml', 'p = 1\nq = 1\nr = 1\n');
+        put(d, 'config/bad.toml', 'a = 1\n');
+      }
+      put('candidate', 'config/m.toml', 'x = 2\ny = 1\nz = 1\n');
+      put('candidate', 'config/u.toml', 'p = 2\nq = 2\nr = 1\n');
+      put('candidate', 'config/bad.toml', 'a = 2\n');
+      put('new', 'config/m.toml', 'x = 1\ny = 5\nz = 1\n');
+      put('new', 'config/u.toml', 'p = 3\nq = 1\nr = 9\n');
+      put('new', 'config/bad.toml', 'a = [\n');
+      for (const id of [clean, launched, candidate, newClean]) expect(await scan(id)).toBe('done');
+      const saved = await call('POST', `/projects/${projectId}/changes`, { clean, launched, candidate, files: ['config/m.toml', 'config/u.toml', 'config/bad.toml'] });
+      expect(saved.statusCode, saved.body).toBe(200);
+    }
+    const getPreview = async () => (await call('GET', `/projects/${projectId}/preview?newClean=${newClean}`)).json();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const item = (pv: { items: { key: string }[] }, key: string) => pv.items.find((i) => i.key === key) as Record<string, any>;
+
+    it('merges two edits in different keys of one file instead of flagging a conflict', async () => {
+      await seed();
+      const m = item(await getPreview(), 'config/m.toml');
+      expect(m).toMatchObject({ status: 'safe', reason: 'merged-keys', choice: 'mine', merge: { fromMine: 1, fromBase: 1 } });
+      // u.toml and bad.toml still need a choice
+      expect((await call('POST', `/projects/${projectId}/export`, { newClean })).statusCode).toBe(400);
+      await call('PUT', `/projects/${projectId}/choices`, { newClean, choices: { 'file:config/u.toml': 'skip', 'file:config/bad.toml': 'skip' } });
+      const ok = await call('POST', `/projects/${projectId}/export`, { newClean });
+      expect(ok.statusCode, ok.body).toBe(200);
+      const folder = path.join(exportsDir(), ok.json().name);
+      expect(fs.readFileSync(path.join(folder, 'files-add/config/m.toml'), 'utf8')).toBe('x = 2\ny = 5\nz = 1\n');
+      const changes = JSON.parse(fs.readFileSync(path.join(folder, 'changes.json'), 'utf8'));
+      expect(changes.items.find((i: { key: string }) => i.key === 'config/m.toml')).toMatchObject({ outcome: 'replayed', how: 'merged' });
+      expect(fs.readFileSync(path.join(folder, 'CHANGES.md'), 'utf8')).toContain('merged');
+    });
+
+    it('lists the keys both sides changed and exports the merge with your pick per key', async () => {
+      await seed();
+      const u = item(await getPreview(), 'config/u.toml');
+      expect(u).toMatchObject({ status: 'conflict', reason: 'keys-conflict', choice: null, unresolvedKeys: 1 });
+      expect(u.keyConflicts).toEqual([{ key: 'p', then: '1', now: '3', mine: '2', pick: null }]);
+      expect(u.merge).toMatchObject({ fromMine: 1, fromBase: 1 });
+      await call('PUT', `/projects/${projectId}/choices`, { newClean, choices: { 'file:config/bad.toml': 'skip' } });
+      expect((await call('POST', `/projects/${projectId}/export`, { newClean })).json()).toMatchObject({ code: 'choice_missing', missing: [{ key: 'config/u.toml' }] });
+
+      const put1 = await call('PUT', `/projects/${projectId}/choices`, { newClean, choices: {}, picks: { 'file:config/u.toml': { p: 'mine' } } });
+      expect(put1.statusCode, put1.body).toBe(200);
+      const again = item(put1.json(), 'config/u.toml');
+      expect(again).toMatchObject({ choice: 'mine', unresolvedKeys: 0 });
+      expect(again.keyConflicts[0].pick).toBe('mine');
+      // the pick survives a reload
+      expect(item(await getPreview(), 'config/u.toml').keyConflicts[0].pick).toBe('mine');
+
+      const ok = await call('POST', `/projects/${projectId}/export`, { newClean });
+      expect(ok.statusCode, ok.body).toBe(200);
+      const folder = path.join(exportsDir(), ok.json().name);
+      expect(fs.readFileSync(path.join(folder, 'files-add/config/u.toml'), 'utf8')).toBe('p = 2\nq = 2\nr = 9\n');
+      expect(JSON.parse(fs.readFileSync(path.join(folder, 'changes.json'), 'utf8')).items.find((i: { key: string }) => i.key === 'config/u.toml')).toMatchObject({ how: 'merged-picks', picks: 1 });
+
+      await call('PUT', `/projects/${projectId}/choices`, { newClean, choices: {}, picks: { 'file:config/u.toml': { p: 'base' } } });
+      const second = (await call('POST', `/projects/${projectId}/export`, { newClean })).json();
+      expect(fs.readFileSync(path.join(exportsDir(), second.name, 'files-add/config/u.toml'), 'utf8')).toBe('p = 3\nq = 2\nr = 9\n');
+    });
+
+    it('rejects a pick for something that is not a file retouch, or a bad side', async () => {
+      await seed();
+      expect((await call('PUT', `/projects/${projectId}/choices`, { newClean, choices: {}, picks: { 'file:config/nope.toml': { p: 'mine' } } })).json()).toMatchObject({ code: 'unknown_change' });
+      expect((await call('PUT', `/projects/${projectId}/choices`, { newClean, choices: {}, picks: { 'file:config/u.toml': { p: 'skip' } } })).statusCode).toBe(400);
+    });
+
+    it('keeps the whole-file verdict when the new base file cannot be parsed, or when the retouch has no base content', async () => {
+      await seed();
+      const pv = await getPreview();
+      expect(item(pv, 'config/bad.toml')).toMatchObject({ status: 'conflict', reason: 'base-changed' });
+      expect(item(pv, 'config/bad.toml').keyConflicts).toBeUndefined();
+      // a retouch validated before this feature has no base content
+      const row = db.sqlite.prepare("SELECT id, payload FROM project_change WHERE key = 'config/m.toml'").get() as { id: number; payload: string };
+      const payload = JSON.parse(row.payload);
+      expect(typeof payload.baseBlob).toBe('string');
+      delete payload.baseBlob;
+      db.sqlite.prepare('UPDATE project_change SET payload = ? WHERE id = ?').run(JSON.stringify(payload), row.id);
+      expect(item(await getPreview(), 'config/m.toml')).toMatchObject({ status: 'conflict', reason: 'base-changed' });
     });
   });
 });

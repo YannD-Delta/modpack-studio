@@ -58,6 +58,12 @@ function declaredSidesFor(toml: string, modId: string): string[] {
   return out;
 }
 
+/** fabric.mod.json "environment": absent or "*" runs on both; any other value is not understood, so the side stays unknown. */
+function fabricSide(environment: unknown): DeclaredSide {
+  if (environment === undefined || environment === '*') return 'both';
+  return environment === 'client' || environment === 'server' ? environment : 'unknown';
+}
+
 function parseToml(toml: string): { modId: string; version: string | null }[] {
   const mods: { modId: string; version: string | null }[] = [];
   for (const b of toml.matchAll(/^\s*\[\[mods\]\]([\s\S]*?)(?=^\s*\[\[|$(?![\s\S]))/gm)) {
@@ -138,7 +144,7 @@ export async function readJarInfo(zip: ZipHandle, fileName: string): Promise<Jar
         const j = JSON.parse(fabric ?? '') as { id?: unknown; version?: unknown; environment?: unknown } | null;
         if (typeof j?.id === 'string' && j.id !== '') {
           loader = 'fabric';
-          const side: DeclaredSide = j.environment === 'client' ? 'client' : j.environment === 'server' ? 'server' : 'both';
+          const side = fabricSide(j.environment);
           mods = [{ modId: j.id, version: await resolveVersion(zip, typeof j.version === 'string' ? j.version : null, fileName), declaredSide: side }];
         } else broken.push('fabric.mod.json has no usable string "id"');
       } catch {

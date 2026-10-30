@@ -1,0 +1,1 @@
+ALTER TABLE `project_choice` ADD `picks` text;

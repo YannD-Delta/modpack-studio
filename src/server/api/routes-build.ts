@@ -11,11 +11,11 @@ import { ClientLogsError, readClientLogs } from '../testbench/client-logs.js';
 import type { AppDeps } from './app.js';
 import { sendBadRequest } from './routes-profiles.js';
 
-const PackBody = z.object({ profile: z.number().int().positive() });
+const PackBody = z.object({ profile: z.number().int().positive(), includeUnknown: z.boolean().optional() });
 const LogsQuery = z.object({ profile: z.coerce.number().int().positive() });
 const PromptBody = z.object({ profile: z.number().int().positive(), mode: z.enum(['chat', 'api']).default('chat') });
 
-const PACK_STATUS: Record<ServerPackError['code'], number> = { not_a_server: 400, not_a_folder: 400, inside_source: 400, not_imported: 409, folder_missing: 409 };
+const PACK_STATUS: Record<ServerPackError['code'], number> = { not_a_server: 400, not_a_folder: 400, inside_source: 400, not_imported: 409, sides_undecided: 409, folder_missing: 409 };
 const LOGS_STATUS: Record<ClientLogsError['code'], number> = { not_a_client: 400, wrong_state: 400, not_a_folder: 400, folder_missing: 409 };
 
 /** Server pack zip, and the summary of the logs of a client run by hand. Both only read the profile folder. */
@@ -38,11 +38,11 @@ export function registerBuildRoutes(api: FastifyInstance, deps: AppDeps): void {
     const profile = profileOr404(body.data.profile, reply);
     if (!profile) return reply;
     try {
-      const r = await buildServerPack({ db, profile, exportsDir: path.join(dataDir, 'exports') });
+      const r = await buildServerPack({ db, profile, exportsDir: path.join(dataDir, 'exports'), includeUnknown: body.data.includeUnknown });
       audit(db, 'build.server-pack', String(profile.id), { name: r.name, mods: r.mods, leftOut: r.leftOut.length });
-      return { name: r.name, folder: r.folder, zip: r.zipPath, zipBytes: r.zipBytes, mods: r.mods, files: r.files, leftOut: r.leftOut, unlisted: r.unlisted };
+      return { name: r.name, folder: r.folder, zip: r.zipPath, zipBytes: r.zipBytes, mods: r.mods, files: r.files, leftOut: r.leftOut, unlisted: r.unlisted, undecided: r.undecided };
     } catch (err) {
-      if (err instanceof ServerPackError) return reply.code(PACK_STATUS[err.code]).send({ error: err.message, code: err.code });
+      if (err instanceof ServerPackError) return reply.code(PACK_STATUS[err.code]).send({ error: err.message, code: err.code, ...(err.code === 'sides_undecided' ? { undecided: err.undecided } : {}) });
       throw err;
     }
   });

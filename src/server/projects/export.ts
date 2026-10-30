@@ -10,11 +10,13 @@ import { APPLY_PS1 } from '../plan/apply-script.js';
 import { isSafePlanFileKey } from '../plan/plan-keys.js';
 import type { Profile } from '../profiles/profile-service.js';
 import type { Choice, ReplayReason, ReplayStatus } from './replay.js';
-import { ProjectError, listChanges, type Preview, type PreviewItem } from './service.js';
+import { ProjectError, getPicks, listChanges, renderFileMerge, type Preview, type PreviewItem } from './service.js';
 
 /** What happened to one retouch in the pack. */
 export type ExportOutcome = 'replayed' | 'removed' | 'kept-base' | 'skipped' | 'nothing' | 'missing';
-export type ExportItem = { kind: 'file' | 'mod'; key: string; status: ReplayStatus; reason: ReplayReason; choice: Choice | null; outcome: ExportOutcome };
+/** For a config file: copied whole, merged key by key, or merged with `picks` manual picks for the keys both sides changed. */
+export type ExportHow = 'copied' | 'merged' | 'merged-picks';
+export type ExportItem = { kind: 'file' | 'mod'; key: string; status: ReplayStatus; reason: ReplayReason; choice: Choice | null; outcome: ExportOutcome; how?: ExportHow; picks?: number };
 export type ProjectExportResult = ExportResult & { project: { id: number; name: string }; newBase: { id: number; label: string }; items: ExportItem[]; missingJars: string[] };
 
 export type ProjectExportOptions = {
@@ -40,7 +42,7 @@ const plainName = (f: string) => !!f && !/[\\/]/.test(f) && f !== '.' && f !== '
 function changesMarkdown(c: ChangesJson): string {
   const lines = [`# Project pack ${c.name}`, '', `- Project: ${c.project.name}`, `- New base version: ${c.newBase.label}`, `- Target: ${c.other.label}`, `- Created: ${c.createdAt}`, ''];
   lines.push(`## Retouches (${c.items.length})`, '', '| Kind | Item | Verdict | Choice | Result |', '| --- | --- | --- | --- | --- |');
-  for (const i of c.items) lines.push(`| ${i.kind} | ${mdCell(i.key)} | ${i.status} (${i.reason}) | ${i.choice ?? '-'} | ${i.outcome} |`);
+  for (const i of c.items) lines.push(`| ${i.kind} | ${mdCell(i.key)} | ${i.status} (${i.reason}) | ${i.choice ?? '-'} | ${i.outcome}${i.how ? ` (${i.how === 'copied' ? 'copied whole' : i.how === 'merged' ? 'merged' : `merged with ${i.picks ?? 0} manual picks`})` : ''} |`);
   lines.push('', `## Mods to add or replace (${c.jars.length})`, '');
   if (c.jars.length) {
     lines.push('| Jar | Mods | sha256 |', '| --- | --- | --- |');
@@ -92,7 +94,7 @@ type ChangesJson = {
   items: ExportItem[];
   jars: ModJar[];
   remove: { file: string; modIds: string[] }[];
-  files: { path: string; sha256: string; size: number }[];
+  files: { path: string; sha256: string; size: number; how?: ExportHow; picks?: number }[];
   failures: ExportFailure[];
   warnings: string[];
 };
@@ -171,7 +173,7 @@ export async function buildProjectExport(opts: ProjectExportOptions): Promise<Pr
   try {
     for (const it of preview.items as PreviewItem[]) {
       const c = changes.get(`${it.kind}:${it.key}`);
-      const rec = (outcome: ExportOutcome): void => void items.push({ kind: it.kind, key: it.key, status: it.status, reason: it.reason, choice: it.choice, outcome });
+      const rec = (outcome: ExportOutcome, extra: Pick<ExportItem, 'how' | 'picks'> = {}): void => void items.push({ kind: it.kind, key: it.key, status: it.status, reason: it.reason, choice: it.choice, outcome, ...extra });
       if (!c || it.choice === null) {
         rec('nothing');
         continue;
@@ -191,7 +193,28 @@ export async function buildProjectExport(opts: ProjectExportOptions): Promise<Pr
           continue;
         }
         let buf: Buffer;
+        let how: ExportHow = 'copied';
+        let picked = 0;
         try {
+          const picks = getPicks(db, preview.project.id, newClean.id).get(`file:${c.key}`) ?? {};
+          if (it.reason === 'merged-keys' || (it.reason === 'keys-conflict' && Object.keys(picks).length > 0)) {
+            // key-level merge: your edits on the new base's text, with your picks for the keys both sides changed
+            const m = await renderFileMerge(db, opts.dataDir, c, newClean, picks);
+            if (!m || !m.clean) {
+              failures.push({ kind: 'file', key: c.key, reason: `merge impossible: ${m ? m.problems.slice(0, 3).join('; ') : 'the three versions cannot be read or parsed anymore'}` });
+              rec('missing');
+              continue;
+            }
+            buf = Buffer.from(m.text, 'utf8');
+            how = m.picks > 0 ? 'merged-picks' : 'merged';
+            picked = m.picks;
+            const dest = safeResolve(staging, `files-add/${c.key}`);
+            await fsp.mkdir(path.dirname(dest), { recursive: true });
+            await fsp.writeFile(dest, buf);
+            files.push({ path: c.key, sha256: sha256Hex(buf), size: buf.length, how, ...(how === 'merged-picks' ? { picks: picked } : {}) });
+            rec('replayed', { how, ...(how === 'merged-picks' ? { picks: picked } : {}) });
+            continue;
+          }
           buf = await readBlob(blobs, c.payload.sha256);
         } catch (err) {
           failures.push({ kind: 'file', key: c.key, reason: `stored content unreadable: ${err instanceof Error ? err.message : String(err)}` });
@@ -206,8 +229,8 @@ export async function buildProjectExport(opts: ProjectExportOptions): Promise<Pr
         const dest = safeResolve(staging, `files-add/${c.key}`);
         await fsp.mkdir(path.dirname(dest), { recursive: true });
         await fsp.writeFile(dest, buf);
-        files.push({ path: c.key, sha256: c.payload.sha256, size: buf.length });
-        rec('replayed');
+        files.push({ path: c.key, sha256: c.payload.sha256, size: buf.length, how });
+        rec('replayed', { how });
         continue;
       }
       // mods

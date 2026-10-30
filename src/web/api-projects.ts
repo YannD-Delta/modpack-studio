@@ -7,6 +7,9 @@ export type ProposedMod = { modId: string; action: 'add' | 'update' | 'remove'; 
 export type Proposal = { files: ProposedFile[]; mods: ProposedMod[] };
 export type ReplayStatus = 'safe' | 'already' | 'conflict' | 'warning';
 export type Choice = 'mine' | 'base' | 'skip';
+export type PickSide = 'mine' | 'base';
+/** A key both sides changed (file retouches whose reason is keys-conflict); `pick` is your decision for it. */
+export type KeyConflict = { key: string; then: string | null; now: string | null; mine: string | null; pick: PickSide | null };
 export type PreviewItem = {
   id: number;
   kind: 'file' | 'mod';
@@ -18,6 +21,11 @@ export type PreviewItem = {
   newBase: { version?: string; size?: number } | null;
   /** What the export will do: your choice, else the default (safe = mine); null = no decision yet or nothing to do. */
   choice: Choice | null;
+  /** merged-keys and keys-conflict: keys taken from your file and from the new base. */
+  merge?: { fromMine: number; fromBase: number };
+  keyConflicts?: KeyConflict[];
+  /** Conflicting keys still without a pick. */
+  unresolvedKeys?: number;
 };
 export type Preview = {
   project: Project;
@@ -52,6 +60,6 @@ export const projectsApi = {
   save: (id: number, t: Triad, files: string[], mods: string[]) => api<{ ok: boolean; files: number; mods: number; changes: StoredChange[] }>(`/projects/${id}/changes`, { method: 'POST', body: { ...t, files, mods } }),
   removeChange: (id: number, changeId: number) => api(`/projects/${id}/changes/${changeId}`, { method: 'DELETE' }),
   preview: (id: number, newClean: number, oldClean?: number) => api<Preview>(`/projects/${id}/preview?newClean=${newClean}${oldClean ? `&oldClean=${oldClean}` : ''}`),
-  setChoices: (id: number, newClean: number, choices: Record<string, Choice>) => api<Preview>(`/projects/${id}/choices`, { method: 'PUT', body: { newClean, choices } }),
+  setChoices: (id: number, newClean: number, choices: Record<string, Choice>, picks?: Record<string, Record<string, PickSide>>) => api<Preview>(`/projects/${id}/choices`, { method: 'PUT', body: { newClean, choices, ...(picks ? { picks } : {}) } }),
   exportPack: (id: number, newClean: number, target?: number) => api<ProjectExport>(`/projects/${id}/export`, { method: 'POST', body: { newClean, ...(target ? { target } : {}) } }),
 };
