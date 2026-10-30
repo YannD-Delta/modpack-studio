@@ -49,6 +49,8 @@ export const jarMod = sqliteTable('jar_mod', {
   isJij: integer('is_jij').notNull().default(0),
   parentJar: text('parent_jar'),
   libraryKey: text('library_key'),
+  /** The name this profile has for the jar (the same bytes can carry another name elsewhere); null on rows imported before it existed. */
+  fileName: text('file_name'),
 });
 
 export const importIssue = sqliteTable('import_issue', {

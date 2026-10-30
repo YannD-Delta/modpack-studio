@@ -1,8 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState, type FormEvent } from 'react';
-import { api, CELL_KEYS, type MatrixRow, type Profile } from '../api.js';
+import { api, CELL_KEYS, type LoaderCheck, type MatrixRow, type Profile } from '../api.js';
 import { ErrorNotice, errorText } from '../components/ErrorNotice.js';
-import { t, tf, getPackNames } from '../i18n/index.js';
+import { t, tf, tOr, getPackNames } from '../i18n/index.js';
 
 const STATE_STYLE: Record<string, string> = {
   clean: 'border-emerald-700/60 bg-emerald-950/50 text-emerald-300',
@@ -26,6 +26,24 @@ function useJobEvents() {
 
 const field = 'rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-sm text-slate-100 outline-none focus:border-violet-500';
 
+function LoaderResult(props: { result: LoaderCheck | 'loading' | { error: string } | undefined }) {
+  const r = props.result;
+  if (!r) return null;
+  if (r === 'loading') return <p className="mt-1 text-[11px] font-normal text-slate-400">{t('profiles.loaderChecking')}</p>;
+  if ('error' in r) return <p className="mt-1 text-[11px] font-normal text-rose-300">{r.error}</p>;
+  const fields = [...new Set(r.mismatches.map((m) => m.field))].map((f) => tOr(`profiles.loaderField.${f}`, f)).join(', ');
+  return (
+    <div className="mt-1 space-y-0.5 text-[11px] font-normal text-slate-300" data-testid="loader-result">
+      {r.profiles.map((p) => (
+        <p key={p.id}>
+          {p.label} : {p.loader ? `${p.loader.loader} ${p.loader.loaderVersion} · Minecraft ${p.loader.mcVersion ?? '?'}` : p.error ?? t('profiles.loaderUnknown')}
+        </p>
+      ))}
+      <p className={r.ok ? 'text-emerald-400' : 'text-amber-300'}>{r.ok ? t('profiles.loaderOk') : tf('profiles.loaderDiff', { fields })}</p>
+    </div>
+  );
+}
+
 export function Profiles() {
   const qc = useQueryClient();
   const matrix = useQuery({ queryKey: ['matrix'], queryFn: () => api<MatrixRow[]>('/profiles/matrix') });
@@ -35,6 +53,15 @@ export function Profiles() {
   const [notice, setNotice] = useState<string | null>(null);
   const [editing, setEditing] = useState<{ id: number; location: string } | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState<number | null>(null);
+  const [loaderChecks, setLoaderChecks] = useState<Record<string, LoaderCheck | 'loading' | { error: string }>>({});
+  const checkLoader = (row: MatrixRow) => {
+    const key = `${row.pack}-${row.version}`;
+    const ids = Object.values(row.cells).filter((c): c is Profile => c !== null).map((c) => c.id);
+    setLoaderChecks((prev) => ({ ...prev, [key]: 'loading' }));
+    api<LoaderCheck>(`/loader/check?profiles=${ids.join(',')}`)
+      .then((res) => setLoaderChecks((prev) => ({ ...prev, [key]: res })))
+      .catch((e: Error) => setLoaderChecks((prev) => ({ ...prev, [key]: { error: errorText(e) } })));
+  };
   const names = getPackNames();
 
   const create = useMutation({
@@ -99,7 +126,11 @@ export function Profiles() {
               )}
               {matrix.data?.map((row) => (
                 <tr key={`${row.pack}-${row.version}`} className="hover:bg-slate-900/60">
-                  <th scope="row" className="whitespace-nowrap px-4 py-3 text-left font-semibold text-slate-100">{row.pack} {row.version}</th>
+                  <th scope="row" className="px-4 py-3 text-left align-top font-semibold text-slate-100">
+                    <div className="whitespace-nowrap">{row.pack} {row.version}</div>
+                    <button onClick={() => checkLoader(row)} className="mt-1 rounded bg-slate-800 px-1.5 py-0.5 text-[11px] font-normal text-slate-200 hover:bg-slate-700">{t('profiles.checkLoader')}</button>
+                    <LoaderResult result={loaderChecks[`${row.pack}-${row.version}`]} />
+                  </th>
                   {CELL_KEYS.map((k) => {
                     const p = row.cells[k];
                     return p ? (

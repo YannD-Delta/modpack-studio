@@ -133,6 +133,30 @@ describe('Profiles actions', () => {
   const fresh = { ...profile(2, 'Base', '8.3', 'client', 'clean'), location: '/data/base-client', importedAt: null, importIssueCount: 0 };
   const m = [{ pack: 'Base', version: '8.3', cells: { 'server-clean': imported, 'client-clean': fresh, 'client-launched': null, 'client-run': null, 'server-launched': null, 'server-run': null } }];
 
+  it('checks the loader and Minecraft version of a row and warns about a difference', async () => {
+    mockApi((url) =>
+      url.includes('/loader/check')
+        ? {
+            body: {
+              ok: false,
+              mismatches: [{ a: 'Base 8.3 server clean', b: 'Base 8.3 client clean', field: 'loaderVersion' }],
+              profiles: [
+                { id: 1, label: 'Base 8.3 server clean', loader: { loader: 'neoforge', loaderVersion: '21.1.259', mcVersion: '1.21.1' }, error: null },
+                { id: 2, label: 'Base 8.3 client clean', loader: { loader: 'neoforge', loaderVersion: '21.1.251', mcVersion: '1.21.1' }, error: null },
+              ],
+            },
+          }
+        : { body: url.includes('/profiles/matrix') ? m : [] },
+    );
+    wrap(<Profiles />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Vérifier les versions' }));
+    const result = await screen.findByTestId('loader-result');
+    expect(result.textContent).toContain('neoforge 21.1.259 · Minecraft 1.21.1');
+    expect(result.textContent).toContain('neoforge 21.1.251');
+    expect(result.textContent).toContain('⚠ Différence : version du loader');
+    expect(calls.find((c) => c.url.includes('/loader/check'))!.url).toContain('profiles=1,2');
+  });
+
   it('creates a profile under the configured pack name, not the built-in default', async () => {
     setPackNames({ upstream: 'Alpha Pack', own: 'Beta Pack' });
     mockApi(() => ({ body: [] }));

@@ -81,6 +81,19 @@ async function pick() {
 }
 
 describe('Configs page', () => {
+  it('warns when some binary files were only compared by size, and says nothing otherwise', async () => {
+    mockApi(standard((url) => (url.includes('/configs/diff') ? { body: { ...diff, sizeOnlyIdentical: 3 } } : undefined)));
+    wrap(<Configs />);
+    await pick();
+    expect((await screen.findByRole('note')).textContent).toContain('3 fichiers binaires');
+    cleanup();
+    mockApi(standard());
+    wrap(<Configs />);
+    await pick();
+    await screen.findByText('Le fichier existe dans Base 8.3 mais pas dans Own 1.0.');
+    expect(screen.queryByRole('note')).toBeNull();
+  });
+
   it('shows French statuses, reasons and states, hiding identical files by default', async () => {
     mockApi(standard());
     wrap(<Configs />);

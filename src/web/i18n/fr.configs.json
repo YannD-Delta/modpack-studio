@@ -145,5 +145,6 @@
   "custom.search": "Filtrer par chemin",
   "custom.details": "Détails",
   "custom.launchedSize": "lancé",
-  "custom.playedSize": "joué"
+  "custom.playedSize": "joué",
+  "configs.sizeOnlyNote": "{n} fichiers binaires sont comptés identiques d'après leur taille seulement (une des deux analyses est rapide). Lance une analyse approfondie des deux profils pour les vérifier octet par octet."
 }

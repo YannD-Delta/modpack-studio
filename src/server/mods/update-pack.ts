@@ -327,7 +327,7 @@ export async function buildUpdatePack(opts: UpdatePackOptions): Promise<ExportRe
   const dupOther = new Map(findDuplicateIds(db, other.id).map((d) => [d.modId, d.files]));
   const jarRow = db.sqlite.prepare('SELECT j.sha256 AS sha256, j.size AS size FROM jar j WHERE j.sha256 = ?');
   const jarSize = (sha?: string) => (sha ? (jarRow.get(sha) as { size: number } | undefined)?.size : undefined);
-  const shaOfFile = db.sqlite.prepare('SELECT j.sha256 AS sha256 FROM jar_mod m JOIN jar j ON j.sha256 = m.jar_sha256 WHERE m.profile_id = ? AND m.mod_id = ? AND j.filename = ? AND m.is_jij = 0 LIMIT 1');
+  const shaOfFile = db.sqlite.prepare('SELECT j.sha256 AS sha256 FROM jar_mod m JOIN jar j ON j.sha256 = m.jar_sha256 WHERE m.profile_id = ? AND m.mod_id = ? AND COALESCE(m.file_name, j.filename) = ? AND m.is_jij = 0 LIMIT 1');
   const source = await openSource(base);
   const locateBase = makeJarLocator(source);
   try {

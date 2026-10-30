@@ -127,16 +127,20 @@ export function registerModRoutes(api: FastifyInstance, deps: AppDeps): void {
     const q = LoaderCheckQuerySchema.safeParse(req.query);
     if (!q.success) return sendBadRequest(reply, q.error);
     const infos: Record<string, LoaderInfo> = {};
+    const profiles: { id: number; label: string; loader: LoaderInfo | null; error: string | null }[] = [];
     for (const id of q.data.profiles.split(',').map(Number)) {
       const p = profileOr404(db, id);
+      const label = `${p.pack} ${p.version} ${p.side} ${p.state}`;
       try {
         const info = await loaderOf(p);
-        if (info) infos[`${p.pack} ${p.version} ${p.side} ${p.state}`] = info; // unknown loader: nothing to compare
+        if (info) infos[label] = info; // unknown loader: nothing to compare
+        profiles.push({ id, label, loader: info, error: null });
       } catch (err) {
-        throw new HttpError(409, `cannot read the loader of profile ${id}: ${err instanceof Error ? err.message : String(err)}`);
+        // one unreadable profile is reported on its own line; the others are still compared
+        profiles.push({ id, label, loader: null, error: err instanceof Error ? err.message : String(err) });
       }
     }
-    return checkLoaderAgreement(infos);
+    return { ...checkLoaderAgreement(infos), profiles };
   });
 
   api.get(`${API_PREFIX}/build/blockers`, async (req, reply) => {

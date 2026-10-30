@@ -206,6 +206,18 @@ describe('phase 1 api', () => {
     expect(check.json().ok).toBe(true);
   });
 
+  it('lists the loader of each profile next to the agreement, and reports an unknown one instead of failing', async () => {
+    const { s, c } = await scenario();
+    const bare = path.join(tmp, 'bare-for-list');
+    fs.mkdirSync(bare);
+    const u = await mkProfile({ pack: 'Base', version: '8.3', side: 'server', state: 'run', locationKind: 'folder', location: bare });
+    const check = (await call('GET', `/loader/check?profiles=${s},${c},${u}`)).json();
+    expect(check.ok).toBe(true);
+    expect(check.profiles).toHaveLength(3);
+    expect(check.profiles[0]).toMatchObject({ id: s, label: 'Base 8.3 server clean', loader: { loader: 'neoforge', loaderVersion: '21.1.259', mcVersion: '1.21.1' }, error: null });
+    expect(check.profiles[2]).toMatchObject({ id: u, loader: null, error: null });
+  });
+
   it('rejects a side decision that carries no side', async () => {
     expect((await call('PUT', '/mods/x/decision', { kind: 'side', reason: 'oops' })).statusCode).toBe(400);
   });

@@ -115,7 +115,7 @@ export async function importModSet(db: Db, source: ModSetSource, profileId: numb
   const insertIssue = db.sqlite.prepare('INSERT INTO import_issue (profile_id, file, reason) VALUES (?, ?, ?)');
   const insertJar = db.sqlite.prepare('INSERT INTO jar (sha256, filename, size) VALUES (?, ?, ?) ON CONFLICT(sha256) DO NOTHING');
   const insertMod = db.sqlite.prepare(
-    'INSERT INTO jar_mod (jar_sha256, profile_id, mod_id, version, declared_side, is_jij, parent_jar, library_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+    'INSERT INTO jar_mod (jar_sha256, profile_id, mod_id, version, declared_side, is_jij, parent_jar, library_key, file_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
   );
   const idToFiles = new Map<string, string[]>();
 
@@ -126,16 +126,16 @@ export async function importModSet(db: Db, source: ModSetSource, profileId: numb
     for (const s of scanned) {
       insertJar.run(s.sha256, s.fileName, s.size);
       if (s.info.kind === 'library') {
-        insertMod.run(s.sha256, profileId, s.info.libraryKey!, '', 'unknown', 0, null, s.info.libraryKey);
+        insertMod.run(s.sha256, profileId, s.info.libraryKey!, '', 'unknown', 0, null, s.info.libraryKey, s.fileName);
         continue;
       }
       for (const m of s.info.mods) {
-        insertMod.run(s.sha256, profileId, m.modId, m.version, m.declaredSide, 0, null, null);
+        insertMod.run(s.sha256, profileId, m.modId, m.version, m.declaredSide, 0, null, null, s.fileName);
         idToFiles.set(m.modId, [...(idToFiles.get(m.modId) ?? []), s.fileName]);
       }
       // jar-in-jar entries are informational: recorded, never counted as top-level mods
       for (const n of s.info.nested) {
-        for (const m of n.mods) insertMod.run(s.sha256, profileId, m.modId, m.version, m.declaredSide, 1, s.sha256, null);
+        for (const m of n.mods) insertMod.run(s.sha256, profileId, m.modId, m.version, m.declaredSide, 1, s.sha256, null, s.fileName);
       }
     }
   })();

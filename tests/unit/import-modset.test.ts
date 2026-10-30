@@ -7,6 +7,7 @@ import { openDb, type Db } from '../../src/server/db/open.js';
 import { closePool } from '../../src/server/jobs/pool.js';
 import { getSources } from '../../src/server/mods/curseforge-sources.js';
 import { importModSet } from '../../src/server/mods/import-modset.js';
+import { loadModSet } from '../../src/server/mods/modset-store.js';
 import { createProfile } from '../../src/server/profiles/profile-service.js';
 import { makeJar, makeZip, type JarSpec } from '../fixtures-gen/jar.js';
 import { writeBasePack } from '../fixtures-gen/packs.js';
@@ -37,6 +38,22 @@ describe('importModSet', () => {
     const r = await importModSet(db, { kind: 'zip', path: serverZip }, p.id, ctx);
     expect(r.imported).toBe(5);
     expect(modRows(p.id)).toBe(5);
+  });
+
+  it('keeps the file name each profile really has when two profiles hold the same jar under different names', async () => {
+    const first = path.join(tmp, 'first');
+    const second = path.join(tmp, 'second');
+    fs.mkdirSync(path.join(first, 'mods'), { recursive: true });
+    fs.mkdirSync(path.join(second, 'mods'), { recursive: true });
+    const bytes = await makeJar({ fileName: 'a-1.0.jar', loader: 'neoforge', mods: [{ modId: 'a', version: '1.0' }] });
+    fs.writeFileSync(path.join(first, 'mods', 'a-1.0.jar'), bytes);
+    fs.writeFileSync(path.join(second, 'mods', 'a-1.0-renamed.jar'), bytes);
+    const p1 = profile();
+    const p2 = createProfile(db, { pack: 'Own', version: '1.0', side: 'server', state: 'clean', locationKind: 'folder', location: second });
+    await importModSet(db, { kind: 'folder', path: first }, p1.id, ctx);
+    await importModSet(db, { kind: 'folder', path: second }, p2.id, ctx);
+    expect(loadModSet(db, p1.id).get('a')?.file).toBe('a-1.0.jar');
+    expect(loadModSet(db, p2.id).get('a')?.file).toBe('a-1.0-renamed.jar');
   });
 
   it('finds mods/ inside a wrapper folder too', async () => {

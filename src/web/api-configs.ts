@@ -24,6 +24,8 @@ export type ConfigDiff = {
   other: ConfigProfileInfo;
   summary: { perStatus: Record<FileStatus, number>; perRoot: Record<string, Record<FileStatus, number>> };
   files: ConfigDiffFile[];
+  /** Binary files counted identical from their size alone (one side came from a quick scan): a deep scan settles them. */
+  sizeOnlyIdentical?: number;
   total: number;
   truncated: boolean;
 };

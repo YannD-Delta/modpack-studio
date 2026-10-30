@@ -5,10 +5,10 @@ import type { ModEntry, ModSet } from './diff.js';
 export function loadModSet(db: Db, profileId: number): ModSet {
   const rows = db.sqlite
     .prepare(
-      `SELECT m.mod_id, m.version, m.jar_sha256, j.filename
+      `SELECT m.mod_id, m.version, m.jar_sha256, COALESCE(m.file_name, j.filename) AS filename
        FROM jar_mod m JOIN jar j ON j.sha256 = m.jar_sha256
        WHERE m.profile_id = ? AND m.is_jij = 0 AND m.library_key IS NULL
-       ORDER BY j.filename`,
+       ORDER BY filename`,
     )
     .all(profileId) as { mod_id: string; version: string; jar_sha256: string; filename: string }[];
   const set: ModSet = new Map();
@@ -22,10 +22,10 @@ export function loadModSet(db: Db, profileId: number): ModSet {
 export function findDuplicateIds(db: Db, profileId: number): { modId: string; files: string[] }[] {
   const rows = db.sqlite
     .prepare(
-      `SELECT m.mod_id, j.filename
+      `SELECT m.mod_id, COALESCE(m.file_name, j.filename) AS filename
        FROM jar_mod m JOIN jar j ON j.sha256 = m.jar_sha256
        WHERE m.profile_id = ? AND m.is_jij = 0 AND m.library_key IS NULL
-       ORDER BY m.mod_id, j.filename`,
+       ORDER BY m.mod_id, filename`,
     )
     .all(profileId) as { mod_id: string; filename: string }[];
   const byId = new Map<string, string[]>();

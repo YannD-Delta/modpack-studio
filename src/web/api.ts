@@ -47,6 +47,12 @@ export type Profile = { id: number; pack: string; version: string; side: string;
   importIssueCount?: number;
 };
 export type MatrixRow = { pack: string; version: string; cells: Record<string, Profile | null> };
+export type LoaderInfo = { loader: string; loaderVersion: string; mcVersion: string | null };
+export type LoaderCheck = {
+  ok: boolean;
+  mismatches: { a: string; b: string; field: 'loader' | 'loaderVersion' | 'mcVersion' }[];
+  profiles: { id: number; label: string; loader: LoaderInfo | null; error: string | null }[];
+};
 export type ModEntry = { modId: string; version: string; sha256: string; file: string };
 export type ModDiff = {
   added: ModEntry[];

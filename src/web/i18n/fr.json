@@ -85,5 +85,13 @@
   "mods.tip.refCol": "Version du mod dans {a} (la référence) et nom du jar.",
   "mods.tip.cmpCol": "Version du mod dans {b} (le profil comparé) et nom du jar.",
   "nav.configs": "Configs",
-  "nav.decisions": "Décisions"
+  "nav.decisions": "Décisions",
+  "profiles.checkLoader": "Vérifier les versions",
+  "profiles.loaderChecking": "Lecture des versions…",
+  "profiles.loaderOk": "✓ Même loader et même version de Minecraft",
+  "profiles.loaderDiff": "⚠ Différence : {fields}",
+  "profiles.loaderUnknown": "loader non détecté",
+  "profiles.loaderField.loader": "loader",
+  "profiles.loaderField.loaderVersion": "version du loader",
+  "profiles.loaderField.mcVersion": "version de Minecraft"
 }
