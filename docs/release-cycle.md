@@ -18,7 +18,7 @@ flowchart TD
   E --> F["Temporary server and client tests"]
   F --> G{"Valid?"}
   G -- no --> E
-  G -- yes --> H["Push to your clean<br/>+ CurseForge zips + server pack"]
+  G -- yes --> H["Push to your clean<br/>+ player zip (CurseForge app)<br/>+ server pack (Studio)"]
   H --> I["Copy clean to launched<br/>(start the copy once)"]
   I --> J["Publish on CurseForge,<br/>wait for approval"]
   J --> K["Update the played<br/>server and client"]
@@ -37,7 +37,7 @@ flowchart TD
 2. **Extract the base twice.** The *clean* copy is never started. Only the second copy is started once to become *launched* ([Concepts](concepts.md)). Studio imports both as profiles; the extraction itself is done by you.
 3. **Build the candidate**: base clean + your mods + your config changes replayed ([Config analysis](configs-analysis.md)) + your own mods updated ([Mod analysis](mods-analysis.md)). The comparisons and the update plan exist today; an automated build is planned.
 4. **Test** on throwaway copies: server today ([Test bench](test-bench.md)), client planned.
-5. **Validate** (you decide), then push the result to your clean profile and produce the CurseForge zips and the server pack. Update packs exist today ([Update packs](update-pack.md)); the full CurseForge zips and the server pack builder are planned.
+5. **Validate** (you decide), then push the result to your clean profile and export the player zip with the CurseForge app and build the server pack with Studio. Update packs exist today ([Update packs](update-pack.md)); the full CurseForge zips and the server pack builder are planned.
 6. **Copy clean to launched** and start the copy once, so the reference pair for the next cycle exists. Done by you.
 7. **Publish** on CurseForge and wait for the approval. Done by you.
 8. **Update the played copies**: the server (through your panel) and the client (through the CurseForge app). Done by you.

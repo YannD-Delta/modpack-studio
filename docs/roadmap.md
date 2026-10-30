@@ -36,7 +36,7 @@ No item is in progress at the moment.
 | Base-release detection | planned |
 | Candidate build: base clean + your mods + replayed config changes | planned |
 | Copy clean to launched | planned |
-| Full CurseForge zips and server pack builder | planned |
+| Server pack zip builder (mods without the blacklist, configs, start scripts). The player zip is exported with the CurseForge app, not built by Studio | planned |
 | Client test without a paid account (spike: launcher choice and offline accounts) | planned |
 | CurseForge API client: fingerprints, newer files, changelogs ([CurseForge](curseforge.md)) | planned |
 | Side detection from jar metadata and Modrinth: the code exists but is not wired into the comparison yet | planned |
