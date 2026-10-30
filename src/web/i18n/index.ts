@@ -20,6 +20,12 @@ export const setPackNames = (n: PackNames): void => {
 };
 const fill = (text: string) => text.replaceAll('{upstream}', packNames.upstream).replaceAll('{own}', packNames.own);
 
+/** Looks up a key that is only known at run time (a limit registered by the server); falls back to the given text. */
+export function tOr(key: string, fallback: string): string {
+  const text = (messages as Record<string, string>)[key];
+  return text === undefined ? fallback : fill(text);
+}
+
 export function t(key: MessageKey): string {
   return fill(messages[key]);
 }

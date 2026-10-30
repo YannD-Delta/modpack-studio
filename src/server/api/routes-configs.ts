@@ -6,9 +6,9 @@ import { analyzeCustomizations, INCLUDE_STATUSES } from '../configs/customizatio
 import { compareProfiles, inventoryOrThrow, NotScannedError, pairLoader, sourceOf } from '../configs/compare.js';
 import { diffInventories, PLANNABLE, type FileStatus } from '../configs/diff.js';
 import { needsScan, readInventoryCache, writeInventoryCache } from '../configs/inventory-cache.js';
-import { rootOf, scanInstanceTree, TRACKED_ROOTS } from '../configs/inventory.js';
+import { rootOf, scanInstanceTree, trackedRoots } from '../configs/inventory.js';
 import { buildHunks, diffLines, splitLines } from '../configs/line-diff.js';
-import { decodeText, NORMALIZE_MAX_BYTES } from '../configs/normalize.js';
+import { decodeText, normalizeMaxBytes } from '../configs/normalize.js';
 import { findInInventory, InvalidRelPathError, validateRelPath } from '../configs/profile-files.js';
 import { audit } from '../db/audit.js';
 import type { Db } from '../db/open.js';
@@ -17,11 +17,14 @@ import { getPlanItems, setPlanItems } from '../plan/plan-store.js';
 import { getProfile, type Profile } from '../profiles/profile-service.js';
 import type { AppDeps } from './app.js';
 import { sendBadRequest } from './routes-profiles.js';
+import { defineLimit, getNumberLimit } from '../settings/limits.js';
 
 /** Text files above this are shown truncated and not line-diffed. */
-const MAX_VIEW_BYTES = 1024 * 1024;
+defineLimit({ key: 'configs.maxViewKb', kind: 'number', default: 1024, min: 64, max: 65536, unit: 'kilobytes', group: 'configs', label: 'Largest config file shown in the viewer' });
+const maxViewBytes = (): number => getNumberLimit('configs.maxViewKb') * 1024;
 /** Line cap per side for the structured diff. */
-const MAX_DIFF_LINES = 5000;
+defineLimit({ key: 'configs.maxDiffLines', kind: 'number', default: 5000, min: 100, max: 100000, unit: 'lines', group: 'configs', label: 'Most lines compared in a file diff' });
+const maxDiffLines = (): number => getNumberLimit('configs.maxDiffLines');
 const MAX_ISSUES_SHOWN = 200;
 
 /** Machine-readable `code` of the errors of this area (the web client reads `error` and `code`). */
@@ -147,7 +150,7 @@ export function registerConfigsRoutes(api: FastifyInstance, deps: AppDeps): void
     if (!q.success) return sendBadRequest(reply, q.error);
     const profile = profileOr404(db, q.data.profile);
     const inv = inventoryOrThrow(dataDir, profile);
-    const perRoot: Record<string, { files: number; bytes: number }> = Object.fromEntries(TRACKED_ROOTS.map((r) => [r, { files: 0, bytes: 0 }]));
+    const perRoot: Record<string, { files: number; bytes: number }> = Object.fromEntries(trackedRoots().map((r) => [r, { files: 0, bytes: 0 }]));
     let bytes = 0;
     for (const [p, e] of Object.entries(inv.files)) {
       const r = perRoot[rootOf(p) ?? p.split('/')[0]!] ??= { files: 0, bytes: 0 };
@@ -190,8 +193,8 @@ export function registerConfigsRoutes(api: FastifyInstance, deps: AppDeps): void
     if (entry.kind === 'binary') return reply.code(415).send({ error: `${p} is a binary or too large file`, path: p, kind: entry.kind, size: entry.size, tooLarge: !!entry.tooLarge });
     const loader = pairLoader({ profile, inv }, { profile, inv });
     try {
-      const { buf, stale } = await loader.readRaw('base', p, MAX_VIEW_BYTES);
-      return { path: p, kind: entry.kind, size: entry.size, truncated: entry.size > MAX_VIEW_BYTES, stale, content: decodeText(buf) };
+      const { buf, stale } = await loader.readRaw('base', p, maxViewBytes());
+      return { path: p, kind: entry.kind, size: entry.size, truncated: entry.size > maxViewBytes(), stale, content: decodeText(buf) };
     } catch (err) {
       if (err instanceof PathEscapeError) throw err;
       throw new ConfigsHttpError(404, `cannot read ${p}: ${err instanceof Error ? err.message : String(err)}`);
@@ -219,14 +222,14 @@ export function registerConfigsRoutes(api: FastifyInstance, deps: AppDeps): void
       const head = { path: a?.path ?? b!.path, status: f.status as FileStatus, kind: f.kind, baseSize: a?.entry.size ?? null, otherSize: b?.entry.size ?? null };
       const empty = { truncated: false, coarse: false, stale: false, added: 0, removed: 0, lines: [], hunks: [] };
       if (f.kind === 'binary') return { ...head, ...empty, binary: true, tooLarge: f.status === 'tooLarge' || !!a?.entry.tooLarge || !!b?.entry.tooLarge };
-      if ((a?.entry.size ?? 0) > NORMALIZE_MAX_BYTES || (b?.entry.size ?? 0) > NORMALIZE_MAX_BYTES) return { ...head, ...empty, binary: false, tooLarge: true };
+      if ((a?.entry.size ?? 0) > normalizeMaxBytes() || (b?.entry.size ?? 0) > normalizeMaxBytes()) return { ...head, ...empty, binary: false, tooLarge: true };
 
-      const read = async (side: 'base' | 'other', hit: typeof a) => (hit ? await loader.readRaw(side, hit.path, NORMALIZE_MAX_BYTES) : { buf: Buffer.alloc(0), stale: false });
+      const read = async (side: 'base' | 'other', hit: typeof a) => (hit ? await loader.readRaw(side, hit.path, normalizeMaxBytes()) : { buf: Buffer.alloc(0), stale: false });
       const [ra, rb] = await Promise.all([read('base', a), read('other', b)]);
       const la = splitLines(decodeText(ra.buf));
       const lb = splitLines(decodeText(rb.buf));
-      const truncated = la.length > MAX_DIFF_LINES || lb.length > MAX_DIFF_LINES;
-      const { ops, coarse } = diffLines(la.slice(0, MAX_DIFF_LINES), lb.slice(0, MAX_DIFF_LINES));
+      const truncated = la.length > maxDiffLines() || lb.length > maxDiffLines();
+      const { ops, coarse } = diffLines(la.slice(0, maxDiffLines()), lb.slice(0, maxDiffLines()));
       return {
         ...head,
         binary: false,

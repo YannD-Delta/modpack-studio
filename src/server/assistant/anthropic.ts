@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { Effort } from '../settings/secrets-store.js';
+import { defineLimit, getNumberLimit } from '../settings/limits.js';
 
 /** The only host the key and the prompts are ever sent to. ANTHROPIC_BASE_URL from the environment is deliberately ignored. */
 export const ANTHROPIC_API_URL = 'https://api.anthropic.com';
@@ -9,13 +10,15 @@ export const CLAUDE_TIMEOUT_MS = 5 * 60 * 1000;
 
 /** Output budget of one answer, shared by thinking and visible text. */
 export const CLAUDE_MAX_TOKENS = 16000;
+defineLimit({ key: 'claude.timeoutSeconds', kind: 'number', default: CLAUDE_TIMEOUT_MS / 1000, min: 10, max: 1800, unit: 'seconds', group: 'claude', label: 'Claude answer timeout' });
+defineLimit({ key: 'claude.maxTokens', kind: 'number', default: CLAUDE_MAX_TOKENS, min: 1000, max: 64000, unit: 'count', group: 'claude', label: 'Claude output budget' });
 
 /**
  * One client per call: the key is read from the settings file each time, so a changed key applies at once.
  * No automatic retry by default: a slow paid call must not be sent twice behind the user's back.
  */
 export function makeClient(apiKey: string, opts: { fetchImpl?: typeof fetch; maxRetries?: number } = {}): Anthropic {
-  return new Anthropic({ apiKey, authToken: null, baseURL: ANTHROPIC_API_URL, fetch: opts.fetchImpl, maxRetries: opts.maxRetries ?? 0, timeout: CLAUDE_TIMEOUT_MS });
+  return new Anthropic({ apiKey, authToken: null, baseURL: ANTHROPIC_API_URL, fetch: opts.fetchImpl, maxRetries: opts.maxRetries ?? 0, timeout: getNumberLimit('claude.timeoutSeconds') * 1000 });
 }
 
 export class RefusedError extends Error {
@@ -30,7 +33,7 @@ export type RunResult = { text: string; model: string; stopReason: string | null
 /** Sends one ready-made prompt and returns the text of the answer (thinking blocks are left out). */
 export async function runPrompt(client: Anthropic, args: { model: string; effort: Effort; prompt: string; signal?: AbortSignal }): Promise<RunResult> {
   const message = await client.messages.create(
-    { model: args.model, max_tokens: CLAUDE_MAX_TOKENS, output_config: { effort: args.effort }, messages: [{ role: 'user', content: args.prompt }] },
+    { model: args.model, max_tokens: getNumberLimit('claude.maxTokens'), output_config: { effort: args.effort }, messages: [{ role: 'user', content: args.prompt }] },
     { signal: args.signal },
   );
   if (message.stop_reason === 'refusal') throw new RefusedError();

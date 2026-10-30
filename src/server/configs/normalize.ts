@@ -1,8 +1,11 @@
 import { isUtf8 } from 'node:buffer';
 import { extOf } from './inventory.js';
+import { defineLimit, getNumberLimit } from '../settings/limits.js';
 
 /** Files above this size are never normalised: a differing hash then simply means `modified`. */
 export const NORMALIZE_MAX_BYTES = 1024 * 1024;
+defineLimit({ key: 'configs.normalizeMaxKb', kind: 'number', default: NORMALIZE_MAX_BYTES / 1024, min: 64, max: 65536, unit: 'kilobytes', group: 'configs', label: 'Largest config file compared as text' });
+export const normalizeMaxBytes = (): number => getNumberLimit('configs.normalizeMaxKb') * 1024;
 
 const JSON_EXT = new Set(['json', 'json5', 'jsonc', 'mcmeta']);
 

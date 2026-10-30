@@ -1,5 +1,6 @@
 import { extOf, rootOf, type FileKind, type InventoryEntry } from './inventory.js';
-import { NORMALIZE_MAX_BYTES, normalizeForCompare } from './normalize.js';
+import { normalizeMaxBytes, normalizeForCompare } from './normalize.js';
+import { defineLimit, getNumberLimit } from '../settings/limits.js';
 
 export type FileStatus = 'onlyInBase' | 'modified' | 'binaryDiffers' | 'tooLarge' | 'onlyInOther' | 'cosmetic' | 'identical';
 
@@ -33,6 +34,7 @@ export type ContentLoader = (side: 'base' | 'other', path: string) => Promise<Bu
 export type DiffOptions = { load?: ContentLoader; concurrency?: number; maxFiles?: number };
 
 export const MAX_DIFF_FILES = 20000;
+defineLimit({ key: 'configs.maxDiffFiles', kind: 'number', default: MAX_DIFF_FILES, min: 100, max: 200000, unit: 'count', group: 'configs', label: 'Most config files compared in one analysis' });
 
 // Normalised equality only depends on the two contents (and the format): remember it across requests.
 const equalityCache = new Map<string, boolean>();
@@ -93,7 +95,7 @@ export async function diffInventories(base: InventoryFiles, other: InventoryFile
     } else {
       const file = { ...mk(path, a, 'modified', a.size, b.size), kind };
       files.push(file);
-      if (opts.load && a.size <= NORMALIZE_MAX_BYTES && b.size <= NORMALIZE_MAX_BYTES) pending.push({ file, otherPath, a, b });
+      if (opts.load && a.size <= normalizeMaxBytes() && b.size <= normalizeMaxBytes()) pending.push({ file, otherPath, a, b });
     }
   }
   for (const [path, b] of Object.entries(other)) {
@@ -119,7 +121,7 @@ export async function diffInventories(base: InventoryFiles, other: InventoryFile
     (perRoot[f.root] ??= emptyCounts())[f.status]++;
   }
   files.sort((x, y) => STATUS_ORDER.indexOf(x.status) - STATUS_ORDER.indexOf(y.status) || (x.path < y.path ? -1 : x.path > y.path ? 1 : 0));
-  const max = opts.maxFiles ?? MAX_DIFF_FILES;
+  const max = opts.maxFiles ?? getNumberLimit('configs.maxDiffFiles');
   const sizeOnlyIdentical = files.filter((f) => f.sizeOnly).length;
   return { summary: { perStatus, perRoot }, files: files.slice(0, max), total: files.length, truncated: files.length > max, sizeOnlyIdentical };
 }

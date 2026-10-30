@@ -31,7 +31,7 @@ No item is in progress at the moment.
 | Config comparison, normalisation, three-copy customization analysis | done |
 | Update plan, export folder and zip, safe `apply.ps1` with rollback ([Update packs](update-pack.md)) | done |
 | Server test bench with kept logs and result ([Test bench](test-bench.md)) | done |
-| Claude actions (API and copy-paste), settings (keys, model, pack names) | done |
+| Claude actions (API and copy-paste), settings (keys, model, pack names, 21 tunable limits, lists and patterns) | done |
 | CurseForge links read from instances | done |
 | Base-release detection | planned |
 | Candidate build: base clean + your mods + replayed config changes | planned |

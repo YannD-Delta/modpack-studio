@@ -1,8 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { ApiError } from '../api.js';
-import { settingsApi, type Effort, type KeyStatus, type Provider } from '../api-settings.js';
-import { t, tf, type MessageKey } from '../i18n/index.js';
+import { settingsApi, type Effort, type KeyStatus, type LimitView, type Provider } from '../api-settings.js';
+import { t, tf, tOr, type MessageKey } from '../i18n/index.js';
 
 const field = 'rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-sm text-slate-100 outline-none focus:border-violet-500';
 const action = 'rounded-md border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-200 hover:bg-slate-700 disabled:opacity-50';
@@ -163,6 +163,67 @@ function PacksCard(props: { upstream: string; own: string }) {
   );
 }
 
+const limitText = (v: LimitView['value']): string => (Array.isArray(v) ? v.join('\n') : String(v));
+
+/** Every limit, list and pattern the server registers, grouped; saving sends only what changed (a value equal to the default resets it). */
+function LimitsCard(props: { limits: LimitView[] }) {
+  const qc = useQueryClient();
+  const [draft, setDraft] = useState<Record<string, string>>({});
+  const [note, setNote] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+  const shown = (l: LimitView) => draft[l.key] ?? limitText(l.value);
+  const parse = (l: LimitView, text: string): unknown =>
+    l.kind === 'number' ? Number(text) : l.kind === 'list' ? text.split('\n').map((s) => s.trim()).filter(Boolean) : text.trim();
+  const changed = props.limits.filter((l) => draft[l.key] !== undefined && draft[l.key] !== limitText(l.value));
+  const save = useMutation({
+    mutationFn: () => {
+      const values: Record<string, unknown> = {};
+      for (const l of changed) {
+        const next = parse(l, draft[l.key]!);
+        values[l.key] = JSON.stringify(next) === JSON.stringify(l.default) ? null : next;
+      }
+      return settingsApi.setLimits(values);
+    },
+    onSuccess: () => {
+      setDraft({});
+      setNote({ kind: 'ok', text: t('settings.limits.saved') });
+      void qc.invalidateQueries({ queryKey: ['settings'] });
+    },
+    onError: (e: Error) => setNote({ kind: 'err', text: e.message }),
+  });
+  const groups = [...new Set(props.limits.map((l) => l.group))];
+  return (
+    <section className={card}>
+      <h3 className="font-semibold text-slate-100">{t('settings.limits.title')}</h3>
+      <p className="text-sm text-slate-400">{t('settings.limits.help')}</p>
+      {groups.map((g) => (
+        <div key={g} className="space-y-2">
+          <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-400">{tOr(`settings.limits.group.${g}`, g)}</h4>
+          <div className="grid gap-3 md:grid-cols-2">
+            {props.limits.filter((l) => l.group === g).map((l) => (
+              <label key={l.key} className="text-sm text-slate-300">
+                {tOr(`settings.limits.${l.key}`, l.label)}
+                {l.kind === 'list' ? (
+                  <textarea rows={4} value={shown(l)} onChange={(e) => setDraft({ ...draft, [l.key]: e.target.value })} className={`${field} mt-1 block w-full font-mono text-xs`} />
+                ) : (
+                  <input type={l.kind === 'number' ? 'number' : 'text'} min={l.min} max={l.max} value={shown(l)} onChange={(e) => setDraft({ ...draft, [l.key]: e.target.value })} className={`${field} mt-1 block w-full`} />
+                )}
+                <span className="mt-1 flex items-center gap-2 text-xs text-slate-500">
+                  {tf('settings.limits.default', { value: limitText(l.default).replace(/\n/g, ', ') })}
+                  {shown(l) !== limitText(l.default) && (
+                    <button type="button" className="text-violet-300 hover:underline" onClick={() => setDraft({ ...draft, [l.key]: limitText(l.default) })}>{t('settings.limits.reset')}</button>
+                  )}
+                </span>
+              </label>
+            ))}
+          </div>
+        </div>
+      ))}
+      <button className={primary} disabled={save.isPending || changed.length === 0} onClick={() => save.mutate()}>{t('settings.limits.save')}</button>
+      {note && <p role="status" className={`text-xs ${note.kind === 'ok' ? 'text-emerald-400' : 'text-rose-300'}`}>{note.text}</p>}
+    </section>
+  );
+}
+
 export function Settings() {
   const settings = useQuery({ queryKey: ['settings'], queryFn: settingsApi.get });
   if (settings.isLoading) return <p className="text-slate-400">{t('common.loading')}</p>;
@@ -177,6 +238,7 @@ export function Settings() {
         <KeyCard provider="curseforge" status={s.keys.curseforge} />
       </div>
       <PacksCard upstream={s.packs?.upstream ?? 'Base'} own={s.packs?.own ?? 'Own'} />
+      {s.limits && s.limits.length > 0 && <LimitsCard key={JSON.stringify(s.limits.map((l) => l.value))} limits={s.limits} />}
       <AssistantCard model={s.assistant.model} effort={s.assistant.effort} models={s.models} efforts={s.efforts} />
     </section>
   );

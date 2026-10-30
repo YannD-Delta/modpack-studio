@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { defineLimit, getNumberLimit } from '../settings/limits.js';
 
 /**
  * Current scrypt cost (OWASP-listed trade: N=2^15, r=8, p=3, 32 MiB). It is written into every hash string,
@@ -59,7 +60,7 @@ export function needsRehash(stored: string): boolean {
   return !!parsed && (parsed.cost.N < PASSWORD_COST.N || parsed.cost.r < PASSWORD_COST.r || parsed.cost.p < PASSWORD_COST.p);
 }
 
-const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+defineLimit({ key: 'session.ttlHours', kind: 'number', default: 12, min: 1, max: 720, unit: 'hours', group: 'security', label: 'Session lifetime' });
 
 /** In-memory sessions: a restart logs everyone out, which is fine for a single-user LAN tool. */
 export class SessionStore {
@@ -67,7 +68,7 @@ export class SessionStore {
 
   create(): string {
     const token = crypto.randomBytes(32).toString('hex');
-    this.sessions.set(token, Date.now() + SESSION_TTL_MS);
+    this.sessions.set(token, Date.now() + getNumberLimit('session.ttlHours') * 3_600_000);
     return token;
   }
 

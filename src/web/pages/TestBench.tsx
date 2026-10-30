@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { api, flattenProfiles, profileLabel, type MatrixRow } from '../api.js';
+import { settingsApi } from '../api-settings.js';
 import { FINAL_STATES, testbenchApi, type RunState, type StopOutcome } from '../api-testbench.js';
 import { ClaudeActions } from '../components/ClaudeActions.js';
 import { t, tf, type MessageKey } from '../i18n/index.js';
@@ -104,9 +105,17 @@ export function TestBench() {
   const servers = useMemo(() => flattenProfiles(matrix.data ?? []).filter((p) => p.side === 'server' && (p.locationKind === 'folder' || p.locationKind === 'smb')), [matrix.data]);
 
   const [profile, setProfile] = useState('');
-  const [memoryMb, setMemoryMb] = useState(8192);
-  const [port, setPort] = useState(25570);
-  const [timeoutMin, setTimeoutMin] = useState(10);
+  const settings = useQuery({ queryKey: ['settings'], queryFn: settingsApi.get });
+  const preset = (key: string, fallback: number): number => {
+    const v = settings.data?.limits?.find((l) => l.key === key)?.value;
+    return typeof v === 'number' ? v : fallback;
+  };
+  const [memoryEdit, setMemoryMb] = useState<number | null>(null);
+  const [portEdit, setPort] = useState<number | null>(null);
+  const [timeoutEdit, setTimeoutMin] = useState<number | null>(null);
+  const memoryMb = memoryEdit ?? preset('testbench.defaultMemoryMb', 8192);
+  const port = portEdit ?? preset('testbench.defaultPort', 25570);
+  const timeoutMin = timeoutEdit ?? preset('testbench.defaultTimeoutMinutes', 10);
   const [acceptEula, setAcceptEula] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [note, setNote] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);

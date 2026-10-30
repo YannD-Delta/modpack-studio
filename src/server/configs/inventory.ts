@@ -3,13 +3,17 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { READ_ONLY_ZIP_LIMITS, openZip } from '../zip/zip-reader.js';
+import { defineLimit, getListLimit, getNumberLimit } from '../settings/limits.js';
 
 /** Folders of an instance or server pack whose files are compared. Everything else (mods, saves, logs, options.txt) is ignored. */
 export const TRACKED_ROOTS = ['config', 'defaultconfigs', 'kubejs', 'scripts', 'datapacks', 'global_packs'] as const;
-export type TrackedRoot = (typeof TRACKED_ROOTS)[number];
+export type TrackedRoot = string;
+defineLimit({ key: 'configs.trackedRoots', kind: 'list', default: TRACKED_ROOTS, maxItems: 30, group: 'configs', label: 'Tracked config folders (next scan)' });
+export const trackedRoots = (): string[] => getListLimit('configs.trackedRoots');
 
 /** Above this size a file is only hashed (streamed), never read as text. */
 export const MAX_TEXT_BYTES = 5 * 1024 * 1024;
+defineLimit({ key: 'configs.maxTextMb', kind: 'number', default: MAX_TEXT_BYTES / (1024 * 1024), min: 1, max: 256, unit: 'megabytes', group: 'configs', label: 'Largest config file read as text' });
 
 export type FileKind = 'text' | 'binary';
 /** `sizeOnly`: a known binary file (texture, nbt...) whose content was not read; its `sha256` is `size:<bytes>`, so equal sizes count as equal. */
@@ -39,18 +43,24 @@ const BINARY_EXT = new Set([
 ]);
 const SNIFF_BYTES = 8192;
 
-const TRACKED = new Set<string>(TRACKED_ROOTS);
+let trackedMemo: { key: string; set: Set<string> } | null = null;
+function trackedSet(): Set<string> {
+  const list = trackedRoots();
+  const key = list.join('\n');
+  if (trackedMemo?.key !== key) trackedMemo = { key, set: new Set(list) };
+  return trackedMemo.set;
+}
 
 /** An entry name that is a directory (trailing slash or backslash), which is never a file. */
 export const isDirectoryEntry = (name: string): boolean => name.endsWith('/') || name.endsWith('\\');
 
 /** Reason of the `.` issue raised when none of the tracked folders exists: a mistyped location must fail, not scan as an empty pack. */
-const noRootReason = (where: string): string => `none of ${TRACKED_ROOTS.join(', ')} found in ${where}`;
+const noRootReason = (where: string): string => `none of ${trackedRoots().join(', ')} found in ${where}`;
 
 /** Canonical (lowercase) tracked root of a relative path, or null. */
 export function rootOf(rel: string): TrackedRoot | null {
   const first = rel.split('/')[0]!.toLowerCase();
-  return TRACKED.has(first) ? (first as TrackedRoot) : null;
+  return trackedSet().has(first) ? (first as TrackedRoot) : null;
 }
 
 export function extOf(rel: string): string {
@@ -120,7 +130,7 @@ async function listFolder(
   let level: { abs: string; rel: string }[] = [];
   for (const e of top) {
     const root = e.name.toLowerCase();
-    if (!TRACKED.has(root)) continue;
+    if (!trackedSet().has(root)) continue;
     opts.onRoot?.();
     if (e.isSymbolicLink()) issues.push({ path: root, reason: 'symbolic link or junction, not followed' });
     else if (e.isDirectory()) level.push({ abs: path.join(base, e.name), rel: root });
@@ -159,7 +169,7 @@ async function listFolder(
 export function detectZipPrefix(names: string[]): string {
   if (names.length === 0) return '';
   const first = names[0]!.split('/')[0]!;
-  if (TRACKED.has(first.toLowerCase())) return '';
+  if (trackedSet().has(first.toLowerCase())) return '';
   return names.every((n) => n.includes('/') && n.split('/')[0] === first) ? `${first}/` : '';
 }
 
@@ -189,7 +199,7 @@ async function runLimited<T>(items: T[], limit: number, fn: (item: T) => Promise
  * Never throws for one bad file: unreadable entries go to `issues` and the scan continues.
  */
 export async function scanInstanceTree(source: ScanSource, opts: ScanOptions = {}): Promise<Inventory> {
-  const maxText = opts.maxTextBytes ?? MAX_TEXT_BYTES;
+  const maxText = opts.maxTextBytes ?? getNumberLimit('configs.maxTextMb') * 1024 * 1024;
   const files = new Map<string, InventoryEntry>();
   const issues: ScanIssue[] = [];
   const checkAbort = () => {

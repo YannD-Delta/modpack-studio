@@ -9,13 +9,18 @@ import { listRuns, markRunInterrupted, readLogTail, readRun, runDir, validRunId,
 import { runServerTest } from '../testbench/server-test.js';
 import type { AppDeps } from './app.js';
 import { sendBadRequest } from './routes-profiles.js';
+import { defineLimit, getNumberLimit } from '../settings/limits.js';
+
+defineLimit({ key: 'testbench.defaultMemoryMb', kind: 'number', default: 8192, min: 1024, max: 65536, unit: 'megabytes', group: 'testbench', label: 'Default test server memory' });
+defineLimit({ key: 'testbench.defaultPort', kind: 'number', default: 25570, min: 1024, max: 65535, unit: 'port', group: 'testbench', label: 'Default test server port' });
+defineLimit({ key: 'testbench.defaultTimeoutMinutes', kind: 'number', default: 10, min: 1, max: 60, unit: 'minutes', group: 'testbench', label: 'Default wait for the server to start' });
 
 const StartBody = z.object({
   profile: z.number().int().positive(),
   acceptEula: z.boolean().default(false),
-  memoryMb: z.number().int().min(1024).max(65536).default(8192),
-  port: z.number().int().min(1024).max(65535).default(25570),
-  timeoutMin: z.number().int().min(1).max(60).default(10),
+  memoryMb: z.number().int().min(1024).max(65536).default(() => getNumberLimit('testbench.defaultMemoryMb')),
+  port: z.number().int().min(1024).max(65535).default(() => getNumberLimit('testbench.defaultPort')),
+  timeoutMin: z.number().int().min(1).max(60).default(() => getNumberLimit('testbench.defaultTimeoutMinutes')),
   /** Keep the full server copy after the run (default: remove it, only the small result and log files stay). */
   keepCopy: z.boolean().default(false),
 });

@@ -5,6 +5,7 @@ import path from 'node:path';
 import { buildApp } from './api/app.js';
 import { loadConfig } from './config.js';
 import { openDb } from './db/open.js';
+import { configureLimits } from './settings/limits.js';
 import { JobRunner } from './jobs/runner.js';
 import { listenLan } from './lan.js';
 import { removeStaleExportLeftovers } from './mods/update-pack.js';
@@ -12,6 +13,7 @@ import { markOrphanRuns } from './testbench/runs.js';
 
 const dataDir = process.env.STUDIO_DATA ?? path.resolve('data');
 fs.mkdirSync(dataDir, { recursive: true });
+configureLimits(dataDir); // before the database opens: the backup policy is a limit
 
 // A damaged settings file or database stops the start with one readable line, not a stack trace.
 function startupFailure(err: unknown): never {

@@ -113,3 +113,30 @@ describe('Settings page', () => {
     expect(await screen.findByText('Noms enregistrés')).toBeTruthy();
   });
 });
+
+describe('limits editor', () => {
+  const limits = [
+    { key: 'testbench.defaultPort', kind: 'number', group: 'testbench', label: 'Default port', default: 25570, value: 25570, overridden: false, min: 1024, max: 65535 },
+    { key: 'configs.trackedRoots', kind: 'list', group: 'configs', label: 'Tracked folders', default: ['config', 'kubejs'], value: ['config', 'kubejs'], overridden: false, maxItems: 30 },
+  ];
+
+  it('shows the limits grouped, saves only what changed, and sends null for a value put back to its default', async () => {
+    mockApi((url, init) => {
+      const method = init?.method ?? 'GET';
+      if (url.endsWith('/settings') && method === 'GET') return { body: { ...state, models, efforts: ['low', 'medium', 'high'], limits } };
+      if (url.endsWith('/settings/limits') && method === 'PUT') return { body: { ok: true, limits } };
+      return { body: {} };
+    });
+    wrap(<Settings />);
+    expect(await screen.findByText('Limites et listes')).toBeTruthy();
+    const port = (await screen.findByLabelText(/Port par défaut du serveur de test/)) as HTMLInputElement;
+    expect(port.value).toBe('25570');
+    const user = userEvent.setup();
+    await user.clear(port);
+    await user.type(port, '26000');
+    await user.click(screen.getByRole('button', { name: 'Enregistrer les limites' }));
+    await waitFor(() => expect(calls.some((c) => c.url.endsWith('/settings/limits'))).toBe(true));
+    expect(JSON.parse(calls.find((c) => c.url.endsWith('/settings/limits'))!.body!)).toEqual({ values: { 'testbench.defaultPort': 26000 } });
+    expect(await screen.findByText('Limites enregistrées.')).toBeTruthy();
+  });
+});

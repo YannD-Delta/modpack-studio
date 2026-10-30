@@ -1,8 +1,10 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { JobRunner } from '../jobs/runner.js';
+import { defineLimit, getNumberLimit } from '../settings/limits.js';
 
 /** How often an open stream re-checks that its session is still valid (also the heartbeat). */
 export const SSE_RECHECK_MS = 15000;
+defineLimit({ key: 'sse.recheckSeconds', kind: 'number', default: SSE_RECHECK_MS / 1000, min: 1, max: 600, unit: 'seconds', group: 'security', label: 'Live stream session re-check' });
 
 /**
  * One SSE stream carrying every job event; reconnecting browsers resume on the live stream.
@@ -32,7 +34,7 @@ export function registerEvents(app: FastifyInstance, jobs: JobRunner, stillValid
     });
     heartbeat = setInterval(() => {
       if (alive()) res.write(': ping\n\n');
-    }, SSE_RECHECK_MS);
+    }, getNumberLimit('sse.recheckSeconds') * 1000);
     req.raw.on('close', stop);
   });
 }

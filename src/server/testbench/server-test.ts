@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
+import { defineLimit, getLimit, getNumberLimit } from '../settings/limits.js';
 
 export type StartCommand = { command: string; args: string[] };
 /** `interrupted`: the run's job ended without writing a result (cancelled while queued, Studio restarted, unexpected crash of the job). */
@@ -63,16 +64,21 @@ const SKIP_TOP_LEVEL = new Set(['logs', 'crash-reports', 'backups', 'cache', '.g
  * Jars renamed to `.jar.disabled` in the copy only. A test server must not post to the real Discord channel with the real bot,
  * and the map mods open a web port the real server already uses.
  */
-const DISABLE_IN_TEST = /discord|dcintegration|dynmap|bluemap/i;
+defineLimit({ key: 'testbench.disabledJarPattern', kind: 'pattern', default: 'discord|dcintegration|dynmap|bluemap', group: 'testbench', label: 'Jars switched off in the test copy (pattern)' });
+const disabledJarRe = (): RegExp => new RegExp(getLimit('testbench.disabledJarPattern') as string, 'i');
 const MAX_FIRST_ERRORS = 20;
 const DONE = /Done \((\d+(?:[.,]\d+)?)s\)!/;
 
 /** Largest console.log kept per run (head of the output, then a truncation marker). The summary still counts every line. */
 export const MAX_CONSOLE_LOG_BYTES = 64 * 1024 * 1024;
+defineLimit({ key: 'testbench.maxConsoleLogMb', kind: 'number', default: MAX_CONSOLE_LOG_BYTES / (1024 * 1024), min: 1, max: 1024, unit: 'megabytes', group: 'testbench', label: 'Largest console log kept per test' });
 /** Free space that must remain on the data disk after the copy, for the world the test server generates and its logs. */
 export const FREE_SPACE_MARGIN_BYTES = 512 * 1024 * 1024;
 /** Crash reports kept per run in `<run>/crash-reports` (the newest ones) and the size kept of each one. */
 export const MAX_KEPT_CRASH_REPORTS = 20;
+defineLimit({ key: 'testbench.maxKeptCrashReports', kind: 'number', default: MAX_KEPT_CRASH_REPORTS, min: 0, max: 200, unit: 'count', group: 'testbench', label: 'Crash reports kept per test' });
+defineLimit({ key: 'testbench.freeSpaceMarginMb', kind: 'number', default: FREE_SPACE_MARGIN_BYTES / (1024 * 1024), min: 0, max: 102400, unit: 'megabytes', group: 'testbench', label: 'Free space to keep after the copy' });
+const freeSpaceMargin = (): number => getNumberLimit('testbench.freeSpaceMarginMb') * 1024 * 1024;
 export const MAX_KEPT_CRASH_REPORT_BYTES = 512 * 1024;
 /** How long to wait for the process to be gone after the tree kill, before giving up on it. */
 const KILL_WAIT_MS = 10_000;
@@ -180,7 +186,7 @@ export async function prepareServerDir(opts: PrepareOptions): Promise<{ disabled
   const needed = await measureCopy(sourceDir, include, opts.signal);
   fs.mkdirSync(path.dirname(destDir), { recursive: true });
   const free = await (opts.getFreeBytes ?? freeBytesOf)(path.dirname(destDir));
-  if (free < needed + FREE_SPACE_MARGIN_BYTES) throw new NotEnoughSpaceError(needed + FREE_SPACE_MARGIN_BYTES, free);
+  if (free < needed + freeSpaceMargin()) throw new NotEnoughSpaceError(needed + freeSpaceMargin(), free);
 
   const skippedLinks: string[] = [];
   await fsp.cp(sourceDir, destDir, {
@@ -218,7 +224,7 @@ export async function prepareServerDir(opts: PrepareOptions): Promise<{ disabled
   const modsDir = path.join(destDir, 'mods');
   if (fs.existsSync(modsDir)) {
     for (const f of fs.readdirSync(modsDir)) {
-      if (f.toLowerCase().endsWith('.jar') && DISABLE_IN_TEST.test(f)) {
+      if (f.toLowerCase().endsWith('.jar') && disabledJarRe().test(f)) {
         fs.renameSync(path.join(modsDir, f), path.join(modsDir, `${f}.disabled`));
         disabledMods.push(f);
       }
@@ -309,7 +315,7 @@ function keepCrashReports(serverDir: string, runDir: string): string[] {
   if (!fs.existsSync(src)) return [];
   const names = fs.readdirSync(src).filter((f) => f.endsWith('.txt')).sort();
   const dest = path.join(runDir, 'crash-reports');
-  for (const name of names.slice(-MAX_KEPT_CRASH_REPORTS)) {
+  for (const name of names.slice(-getNumberLimit('testbench.maxKeptCrashReports'))) {
     try {
       fs.mkdirSync(dest, { recursive: true });
       const fd = fs.openSync(path.join(src, name), 'r');
@@ -400,7 +406,7 @@ export async function runServerTest(opts: ServerTestOptions): Promise<ServerTest
   let logStream: fs.WriteStream | undefined;
   try {
     emit('starting');
-    const maxLogBytes = opts.maxLogBytes ?? MAX_CONSOLE_LOG_BYTES;
+    const maxLogBytes = opts.maxLogBytes ?? getNumberLimit('testbench.maxConsoleLogMb') * 1024 * 1024;
     const log = fs.createWriteStream(consoleFile);
     logStream = log;
     let logOk = true;

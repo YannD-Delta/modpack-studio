@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { API_PREFIX } from '../../shared/constants.js';
 import { checkClaudeKey } from '../assistant/anthropic.js';
+import { LimitError, listLimits, setLimits } from '../settings/limits.js';
 import { PackNamesError, readPackNames, writePackNames } from '../settings/packs.js';
 import { audit } from '../db/audit.js';
 import { EFFORTS, getSecret, isValidKey, keyStatus, MODELS, PROVIDERS, readPrefs, setSecret, writePrefs } from '../settings/secrets-store.js';
@@ -16,6 +17,7 @@ const PacksBody = z.object({ upstream: z.string().min(1).max(40), own: z.string(
 const AssistantBody = z.object({ model: z.enum(MODELS.map((m) => m.id) as [string, ...string[]]), effort: z.enum(EFFORTS) });
 
 const TEST_TIMEOUT_MS = 10_000;
+const LimitsBody = z.object({ values: z.record(z.string(), z.union([z.number(), z.string(), z.array(z.string()), z.null()])) });
 
 const CURSEFORGE_TEST_URL = 'https://api.curseforge.com/v1/games?index=0&pageSize=1';
 
@@ -32,6 +34,7 @@ export function registerSettingsRoutes(api: FastifyInstance, deps: AppDeps): voi
     keys: { claude: keyStatus(dataDir, 'claude'), curseforge: keyStatus(dataDir, 'curseforge') },
     assistant: readPrefs(dataDir),
     packs: readPackNames(dataDir),
+    limits: listLimits(),
     models: MODELS,
     efforts: EFFORTS,
   }));
@@ -76,6 +79,20 @@ export function registerSettingsRoutes(api: FastifyInstance, deps: AppDeps): voi
     writePrefs(dataDir, body.data);
     audit(db, 'settings.assistant', 'assistant', body.data);
     return { ok: true, assistant: readPrefs(dataDir) };
+  });
+
+  /** Saves tunable limits, lists and patterns; a null value puts one back to its default. Nothing is saved when one entry is refused. */
+  api.put(`${API_PREFIX}/settings/limits`, async (req, reply) => {
+    const body = LimitsBody.safeParse(req.body);
+    if (!body.success) return sendBadRequest(reply, body.error);
+    try {
+      setLimits(dataDir, body.data.values);
+      audit(db, 'settings.limits', 'limits', { keys: Object.keys(body.data.values) });
+      return { ok: true, limits: listLimits() };
+    } catch (err) {
+      if (err instanceof LimitError) return reply.code(400).send({ error: err.message, code: 'invalid_limit' });
+      throw err;
+    }
   });
 
   /** Renames the two packs everywhere: the settings and every profile already stored follow. */

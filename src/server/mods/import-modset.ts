@@ -7,6 +7,7 @@ import type { JobContext } from '../jobs/runner.js';
 import { READ_ONLY_ZIP_LIMITS, openZip } from '../zip/zip-reader.js';
 import { countSources, readInstanceSourcesChecked, storeSources } from './curseforge-sources.js';
 import { readJarInfo, type JarInfo } from './jar-meta.js';
+import { defineLimit, getNumberLimit } from '../settings/limits.js';
 
 export type ModSetSource = { kind: 'zip'; path: string } | { kind: 'folder'; path: string };
 export type ImportResult = {
@@ -19,6 +20,7 @@ type Scanned = { fileName: string; sha256: string; size: number; info: JarInfo }
 
 /** How many jars are read, hashed and parsed at the same time during an import (each one is held in memory while scanned). */
 export const IMPORT_SCAN_CONCURRENCY = 4;
+defineLimit({ key: 'import.scanConcurrency', kind: 'number', default: IMPORT_SCAN_CONCURRENCY, min: 1, max: 32, unit: 'count', group: 'import', label: 'Jars read at the same time' });
 
 async function parseJar(fileName: string, buf: Buffer): Promise<JarInfo> {
   // Jars are only read, never extracted: tolerate case-colliding class names and large asset counts.
@@ -63,7 +65,7 @@ export async function importModSet(db: Db, source: ModSetSource, profileId: numb
 
   let done = 0;
   const scanAll = async (items: { name: string; load: () => Promise<Buffer> }[]) => {
-    const results = await mapLimited(items, IMPORT_SCAN_CONCURRENCY, async (item) => {
+    const results = await mapLimited(items, getNumberLimit('import.scanConcurrency'), async (item) => {
       if (ctx.signal.aborted) throw new Error('aborted');
       let result: Scanned | { file: string; reason: string };
       try {

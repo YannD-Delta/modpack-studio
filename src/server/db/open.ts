@@ -5,6 +5,7 @@ import Database from 'better-sqlite3';
 import { drizzle, type BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import * as schema from './schema.js';
+import { defineLimit, getNumberLimit } from '../settings/limits.js';
 
 export type Db = {
   sqlite: Database.Database;
@@ -16,6 +17,8 @@ export type Db = {
 export const BACKUP_KEEP = 5;
 /** No second automatic backup within this delay, so a restart loop (watch mode) does not push the good copies out. */
 export const BACKUP_MIN_INTERVAL_MS = 60 * 60 * 1000;
+defineLimit({ key: 'backup.keep', kind: 'number', default: BACKUP_KEEP, min: 1, max: 50, unit: 'count', group: 'database', label: 'Database backups kept' });
+defineLimit({ key: 'backup.minIntervalMinutes', kind: 'number', default: BACKUP_MIN_INTERVAL_MS / 60_000, min: 0, max: 1440, unit: 'minutes', group: 'database', label: 'Minimum time between two backups' });
 
 export type OpenDbOptions = { backupDir?: string; migrationsFolder?: string; backupKeep?: number; backupMinIntervalMs?: number };
 
@@ -68,7 +71,7 @@ export function openDb(file: string, opts: OpenDbOptions = {}): Db {
 
     const pending = journalEntryCount(folder) - appliedMigrationCount(sqlite);
     if (existed && opts.backupDir) {
-      backupBeforeMigrations(sqlite, file, opts.backupDir, { keep: opts.backupKeep ?? BACKUP_KEEP, minIntervalMs: opts.backupMinIntervalMs ?? BACKUP_MIN_INTERVAL_MS, force: pending > 0 });
+      backupBeforeMigrations(sqlite, file, opts.backupDir, { keep: opts.backupKeep ?? getNumberLimit('backup.keep'), minIntervalMs: opts.backupMinIntervalMs ?? getNumberLimit('backup.minIntervalMinutes') * 60_000, force: pending > 0 });
     }
 
     const orm = drizzle(sqlite, { schema });

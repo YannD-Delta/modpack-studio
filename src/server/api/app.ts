@@ -15,6 +15,7 @@ import { registerConfigsRoutes } from './routes-configs.js';
 import { registerDecisionsRoutes } from './routes-decisions.js';
 import { registerModRoutes } from './routes-mods.js';
 import { registerPlanRoutes } from './routes-plan.js';
+import { configureLimits } from '../settings/limits.js';
 import { registerSettingsRoutes } from './routes-settings.js';
 import { registerTestbenchRoutes } from './routes-testbench.js';
 import { registerProfileRoutes } from './routes-profiles.js';
@@ -41,6 +42,7 @@ function hostName(hostHeader: string | undefined): string {
 
 export function buildApp(given: AppDeps): FastifyInstance {
   const deps: AppDeps = { ...given, dataDir: given.dataDir ?? path.resolve(process.env.STUDIO_DATA ?? 'data') };
+  configureLimits(deps.dataDir!);
   const { config } = deps;
   // Browsers share cookies across ports of one host: the port keeps two instances (real and demo) apart.
   const COOKIE = `studio_session_${config.port}`;

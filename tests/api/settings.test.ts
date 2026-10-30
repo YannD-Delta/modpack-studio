@@ -238,4 +238,30 @@ describe('settings api', () => {
     const matrix = (await call('GET', '/profiles/matrix')).json() as { pack: string }[];
     expect(matrix.map((m) => m.pack)).toEqual(['Followed', 'Mine']);
   });
+  it('lists the tunable limits with their defaults and saves changes, keeping the other preferences', async () => {
+    fs.writeFileSync(path.join(dataDir, 'preferences.json'), JSON.stringify({ assistant: { model: 'claude-opus-5-5', effort: 'high' } }));
+    const before = (await call('GET', '/settings')).json().limits as { key: string; value: unknown; default: unknown; overridden: boolean }[];
+    const port = before.find((l) => l.key === 'testbench.defaultPort')!;
+    expect(port).toMatchObject({ value: 25570, default: 25570, overridden: false });
+    expect(before.map((l) => l.key)).toEqual(expect.arrayContaining(['session.ttlHours', 'configs.trackedRoots', 'testbench.disabledJarPattern']));
+
+    const saved = await call('PUT', '/settings/limits', { values: { 'testbench.defaultPort': 26000, 'configs.trackedRoots': ['config', 'mods-config'] } });
+    expect(saved.statusCode).toBe(200);
+    const limits = saved.json().limits as { key: string; value: unknown; overridden: boolean }[];
+    expect(limits.find((l) => l.key === 'testbench.defaultPort')).toMatchObject({ value: 26000, overridden: true });
+    expect(limits.find((l) => l.key === 'configs.trackedRoots')?.value).toEqual(['config', 'mods-config']);
+    expect(JSON.parse(fs.readFileSync(path.join(dataDir, 'preferences.json'), 'utf8')).assistant).toEqual({ model: 'claude-opus-5-5', effort: 'high' });
+
+    const reset = await call('PUT', '/settings/limits', { values: { 'testbench.defaultPort': null, 'configs.trackedRoots': null } });
+    expect((reset.json().limits as { key: string; overridden: boolean }[]).some((l) => l.overridden)).toBe(false);
+  });
+
+  it('refuses a limit that is unknown, out of range or an invalid pattern, and saves nothing', async () => {
+    for (const values of [{ 'no.such': 1 }, { 'testbench.defaultPort': 80 }, { 'testbench.disabledJarPattern': '(' }]) {
+      const res = await call('PUT', '/settings/limits', { values: { 'session.ttlHours': 24, ...values } });
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toMatchObject({ code: 'invalid_limit' });
+    }
+    expect(fs.existsSync(path.join(dataDir, 'preferences.json'))).toBe(false);
+  });
 });

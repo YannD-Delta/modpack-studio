@@ -10,6 +10,7 @@ What this page covers: every setting that exists today and where it lives, the k
 |---|---|---|
 | Claude API key, CurseForge API key | `data/secrets.json` | **Write-only**: the UI shows only the last 4 characters; the API never returns a key. Stored as plain JSON (see [Security](security.md)) |
 | Assistant model and effort | `data/preferences.json` | Settings tab. Models and effort levels (`low`, `medium`, `high`) are the lists in `src/server/settings/secrets-store.ts`. Defaults: `claude-sonnet-5-5`, `medium` |
+| Limits, lists and patterns | `data/preferences.json`, section `limits` | Settings tab, card "Limits and lists" (see below). Neutral defaults; a value put back to its default is removed from the file |
 | Pack names (base, yours) | `data/preferences.json` | Settings tab. Roles `upstream` and `own`; defaults `Base` and `Own` until you set your names |
 | Password | `data/settings.json` | scrypt hash, set with `npm run set-password` (at least 8 characters, asked twice, hidden on a terminal; restart Studio afterwards) or by the launcher |
 | `port` | `data/settings.json` | Default `8480` |
@@ -18,9 +19,9 @@ What this page covers: every setting that exists today and where it lives, the k
 | `allowedHosts` | `data/settings.json` | Extra `Host` names accepted besides `localhost`, `127.0.0.1`, `[::1]` and `lanIp`. Default empty |
 | `STUDIO_DATA` | environment variable | Moves the whole data folder (default `./data`) |
 
-The Settings tab has three cards: API keys, assistant (model and effort), and pack names. The keys in `settings.json` are not shown in the UI; you edit the file by hand and restart Studio.
+The Settings tab has four cards: API keys, assistant (model and effort), pack names, and limits and lists. The keys in `settings.json` are not shown in the UI; you edit the file by hand and restart Studio.
 
-`GET /settings` returns the key status, the assistant preferences, the pack names and the model and effort lists. Writers: `PUT /settings/keys`, `PUT /settings/assistant`, `PUT /settings/packs`.
+`GET /settings` returns the key status, the assistant preferences, the pack names, the limits (with default, range and whether each is overridden) and the model and effort lists. Writers: `PUT /settings/keys`, `PUT /settings/assistant`, `PUT /settings/packs`, `PUT /settings/limits` (`{ "values": { "<key>": value | null } }`; `null` resets one; an unknown key, an out-of-range number, a bad list or an invalid pattern answers 400 `invalid_limit` and saves nothing).
 
 ### Server address keys
 
@@ -40,31 +41,49 @@ The two names (up to 40 characters; letters, digits, space, `. _ + -`; must star
 - `settings.json`: a broken file stops startup with one line naming the file; there are no silent defaults.
 - `studio.db` gets a rolling backup in `data/backups` at startup (last 5 kept).
 
+## Limits and lists
+
+Every module registers its own limits with a neutral default (the value that used to be a constant). The Settings tab edits them; they apply at once, except the tracked config folders, which apply from the next scan. A damaged or out-of-range value in the file falls back to the default.
+
+| Key | Default | Range | Effect |
+|---|---|---|---|
+| `session.ttlHours` | 12 | 1 to 720 | Login session lifetime |
+| `sse.recheckSeconds` | 15 | 1 to 600 | How often a live stream re-checks its session |
+| `claude.timeoutSeconds` | 300 | 10 to 1800 | Wait for one Claude answer |
+| `claude.maxTokens` | 16000 | 1000 to 64000 | Output budget of one answer |
+| `backup.keep` | 5 | 1 to 50 | Database backups kept |
+| `backup.minIntervalMinutes` | 60 | 0 to 1440 | Minimum time between two backups |
+| `import.scanConcurrency` | 4 | 1 to 32 | Jars read at the same time during an import |
+| `configs.maxTextMb` | 5 | 1 to 256 | Largest config file read as text (hash only above) |
+| `configs.normalizeMaxKb` | 1024 | 64 to 65536 | Largest file compared as normalised text |
+| `configs.maxViewKb` | 1024 | 64 to 65536 | Largest file shown in the viewer |
+| `configs.maxDiffLines` | 5000 | 100 to 100000 | Lines compared in one file diff |
+| `configs.maxDiffFiles` | 20000 | 100 to 200000 | Files compared in one analysis |
+| `configs.trackedRoots` | `config`, `defaultconfigs`, `kubejs`, `scripts`, `datapacks`, `global_packs` | up to 30 folders | Folders scanned for configs |
+| `testbench.maxConsoleLogMb` | 64 | 1 to 1024 | Console log kept per test |
+| `testbench.freeSpaceMarginMb` | 512 | 0 to 102400 | Free space that must remain after the copy |
+| `testbench.maxKeptCrashReports` | 20 | 0 to 200 | Crash reports kept per test |
+| `testbench.defaultMemoryMb` | 8192 | 1024 to 65536 | Memory preset of the test form |
+| `testbench.defaultPort` | 25570 | 1024 to 65535 | Port preset of the test form |
+| `testbench.defaultTimeoutMinutes` | 10 | 1 to 60 | Wait for "Done" preset of the test form |
+| `testbench.disabledJarPattern` | `discord|dcintegration|dynmap|bluemap` | regular expression | Jars renamed to `.jar.disabled` in the test copy |
+
 ## Limits that are still code constants
 
-These values are compiled in today. The project rule is that anything a user may want to change becomes a setting with a neutral default; these are **planned** to move to the Settings tab as a typed preferences layer (design proposed, not built; see the [roadmap](roadmap.md) for what is scheduled). Until then, changing one means editing the code.
+These values are compiled in today and are **planned** to join the table above (see the [roadmap](roadmap.md)).
 
 | Area | Constant | Default today |
 |---|---|---|
-| Sessions | Session lifetime | 12 hours |
 | Sessions | Login attempts | 5 per minute |
 | Jobs | Jobs running at once | 4 |
 | Performance | libuv thread pool (set by the launcher) | 32 |
-| Config scan | Tracked folders | `config`, `defaultconfigs`, `kubejs`, `scripts`, `datapacks`, `global_packs` |
-| Config scan | Text read for comparison | 5 MiB, hash only above |
-| Config scan | Normalised comparison and file viewer | 1 MiB each (two separate constants) |
-| Config scan | Lines in one diff view | 5000 |
-| Config scan | Files in one diff | 20000 |
 | Config scan | Parallel reads, parallel diff reads | 16, 8 |
 | Zip safety | Zip readers (import, loader check, export, config scan) | 500000 entries, compression ratio 1000 (shared constant); other zip uses 20000 entries, ratio 200 |
 | Mods plan | Entries per plan request | 5000 |
 | Assistant | Rows, log lines, crash lines per prompt | 400, 150, 120 |
-| Assistant | Answer budget, timeout | 16000 tokens, 5 minutes |
-| Test bench | Memory, port, timeout (per run, set in the form) | 8192 MB, 25570, 10 minutes |
-| Test bench | Mods disabled in the test copy | names matching discord, dcintegration, dynmap, bluemap |
 | Lists | Test runs and exports shown | 50 each |
 | Retention | Test runs, exports, audit rows | never pruned |
 
-The test bench memory, port and timeout are form fields of each run, not stored settings. Retention has no setting: test run copies and exports stay on disk until you delete them.
+Retention has no setting: test run copies and exports stay on disk until you delete them.
 
-Kept as constants on purpose: the Anthropic and CurseForge URLs, input size bounds, the version-ordering tables, the SSE heartbeat (15 s) and UI layout tuning.
+Kept as constants on purpose: the Anthropic and CurseForge URLs, input size bounds, the version-ordering tables and UI layout tuning.

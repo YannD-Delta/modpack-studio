@@ -1,10 +1,11 @@
 import crypto from 'node:crypto';
 import type { Profile } from '../profiles/profile-service.js';
-import { diffInventories, MAX_DIFF_FILES, type ConfigDiff } from './diff.js';
+import { diffInventories, type ConfigDiff } from './diff.js';
 import { readInventoryCache, type CachedInventory } from './inventory-cache.js';
 import type { ScanSource } from './inventory.js';
-import { NORMALIZE_MAX_BYTES } from './normalize.js';
+import { normalizeMaxBytes } from './normalize.js';
 import { openProfileReader, type ProfileFileReader } from './profile-files.js';
+import { getNumberLimit } from '../settings/limits.js';
 
 export class NotScannedError extends Error {
   constructor(public readonly profileId: number) {
@@ -43,7 +44,7 @@ export function pairLoader(base: { profile: Profile; inv: CachedInventory }, oth
     const stale = !!entry && entry.size <= maxBytes && (buf.length !== entry.size || (!entry.sizeOnly && sha256(buf) !== entry.sha256));
     return { buf, stale };
   };
-  const load = async (side: 'base' | 'other', path: string, maxBytes = NORMALIZE_MAX_BYTES): Promise<Buffer> => {
+  const load = async (side: 'base' | 'other', path: string, maxBytes = normalizeMaxBytes()): Promise<Buffer> => {
     const { buf, stale } = await readRaw(side, path, maxBytes);
     if (stale) throw new Error(`${path} changed since the scan`);
     return buf;
@@ -59,7 +60,7 @@ export async function compareProfiles(dataDir: string, base: Profile, other: Pro
   const otherInv = inventoryOrThrow(dataDir, other);
   const loader = pairLoader({ profile: base, inv: baseInv }, { profile: other, inv: otherInv });
   try {
-    const diff = await diffInventories(baseInv.files, otherInv.files, { load: (side, p) => loader.load(side, p), maxFiles: opts.maxFiles ?? MAX_DIFF_FILES });
+    const diff = await diffInventories(baseInv.files, otherInv.files, { load: (side, p) => loader.load(side, p), maxFiles: opts.maxFiles ?? getNumberLimit('configs.maxDiffFiles') });
     return { diff, baseInv, otherInv };
   } finally {
     await loader.close();
