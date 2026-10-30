@@ -73,7 +73,7 @@ beforeEach(async () => {
   candidate = await profile('Own', 'test-1', 'candidate', candidateDir);
   newClean = await profile('Base', '8.5', 'clean', newDir);
   for (const id of [clean, launched, candidate]) expect(await scan(id)).toBe('done');
-  const created = await call('POST', '/projects', { name: 'LMP 2026' });
+  const created = await call('POST', '/projects', { name: 'My pack 2026' });
   expect(created.statusCode).toBe(201);
   projectId = created.json().id;
 });
@@ -86,10 +86,10 @@ afterAll(() => closePool());
 
 describe('projects', () => {
   it('creates a named project once', async () => {
-    expect((await call('POST', '/projects', { name: 'lmp 2026' })).statusCode).toBe(409);
+    expect((await call('POST', '/projects', { name: 'my pack 2026' })).statusCode).toBe(409);
     expect((await call('POST', '/projects', { name: '   ' })).statusCode).toBe(400);
     const list = (await call('GET', '/projects')).json().projects as { name: string; changes: number }[];
-    expect(list).toEqual([expect.objectContaining({ name: 'LMP 2026', changes: 0 })]);
+    expect(list).toEqual([expect.objectContaining({ name: 'My pack 2026', changes: 0 })]);
   });
 
   it('proposes the config files you changed and the mods that differ, then keeps what you validate', async () => {

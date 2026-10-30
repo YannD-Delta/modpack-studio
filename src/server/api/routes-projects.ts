@@ -43,7 +43,7 @@ function fail(reply: FastifyReply, err: unknown) {
   throw err;
 }
 
-/** Projects: a release line (for example "LMP 2026") that keeps the retouches you validated and shows what replaying them on a new base version would do. */
+/** Projects: a release line (for example "My pack 2026") that keeps the retouches you validated and shows what replaying them on a new base version would do. */
 export function registerProjectRoutes(api: FastifyInstance, deps: AppDeps): void {
   const { db } = deps;
   const dataDir = deps.dataDir ?? path.resolve('data');

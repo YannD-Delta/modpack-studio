@@ -162,7 +162,7 @@ export const jarSource = sqliteTable(
   (t) => [primaryKey({ columns: [t.profileId, t.fileName] })],
 );
 
-/** A release line you maintain (for example "LMP 2026"): the retouches you validated are kept here and replayed on each new base version. */
+/** A release line you maintain (for example "My pack 2026"): the retouches you validated are kept here and replayed on each new base version. */
 export const project = sqliteTable(
   'project',
   {

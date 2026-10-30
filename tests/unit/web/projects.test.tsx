@@ -23,7 +23,7 @@ function mockApi() {
     calls.push({ url, method, body: init?.body as string | undefined });
     const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
     if (url.endsWith('/profiles/matrix')) return json(matrix);
-    if (url.endsWith('/projects') && method === 'GET') return json({ projects: [{ id: 7, name: 'LMP 2026', baseVersion: null, createdAt: 'x', changes: validated ? 2 : 0 }] });
+    if (url.endsWith('/projects') && method === 'GET') return json({ projects: [{ id: 7, name: 'My pack 2026', baseVersion: null, createdAt: 'x', changes: validated ? 2 : 0 }] });
     if (url.includes('/projects/7/proposal')) {
       return json({
         files: [{ path: 'config/a.toml', status: 'modifiedShipped', validated: false, playedSize: 5 }, { path: 'config/mine.toml', status: 'added', validated: false, playedSize: 9 }],
@@ -34,10 +34,10 @@ function mockApi() {
       validated = true;
       return json({ ok: true, files: 1, mods: 1, changes: [] });
     }
-    if (url.endsWith('/projects/7') && method === 'GET') return json({ project: { id: 7, name: 'LMP 2026', baseVersion: validated ? '8.4' : null, createdAt: 'x' }, changes: [] });
+    if (url.endsWith('/projects/7') && method === 'GET') return json({ project: { id: 7, name: 'My pack 2026', baseVersion: validated ? '8.4' : null, createdAt: 'x' }, changes: [] });
     if (url.includes('/projects/7/preview')) {
       return json({
-        project: { id: 7, name: 'LMP 2026', baseVersion: '8.4', createdAt: 'x' },
+        project: { id: 7, name: 'My pack 2026', baseVersion: '8.4', createdAt: 'x' },
         newClean: { id: 4, label: 'Base 8.5' },
         missing: { scan: false, import: false },
         summary: { safe: 1, already: 0, conflict: 1, warning: 0 },
