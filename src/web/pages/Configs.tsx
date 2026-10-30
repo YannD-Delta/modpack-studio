@@ -38,8 +38,8 @@ const field = 'rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1.5 tex
 const action = 'rounded-md border border-slate-700 bg-slate-800 px-2 py-0.5 text-xs text-slate-200 hover:bg-slate-700 disabled:opacity-50';
 const chip = (active: boolean) => `rounded-full border px-3 py-1 text-xs ${active ? 'border-violet-500 bg-violet-950/60 text-violet-200' : 'border-slate-700 text-slate-300 hover:bg-slate-800'}`;
 
-const stateLabel = (s: string) => (['clean', 'launched', 'run'].includes(s) ? t(`configs.state.${s}` as MessageKey) : s);
-const stateTip = (s: string) => (['clean', 'launched', 'run'].includes(s) ? t(`configs.stateTip.${s}` as MessageKey) : s);
+const stateLabel = (s: string) => (['clean', 'launched', 'candidate', 'run'].includes(s) ? t(`configs.state.${s}` as MessageKey) : s);
+const stateTip = (s: string) => (['clean', 'launched', 'candidate', 'run'].includes(s) ? t(`configs.stateTip.${s}` as MessageKey) : s);
 const shortName = (p: Profile | undefined) => (p ? `${p.pack} ${p.version}` : '');
 const fmtDate = (iso: string) => new Date(iso).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' });
 

@@ -52,6 +52,7 @@ flowchart LR
 |---|---|---|
 | `clean` | The pack exactly as shipped. Never started, no generated file | The "what the authors intended" reference. Immutable snapshot |
 | `launched` | The clean pack started once: the game and the mods wrote their own config files | The "what the game regenerates by itself" reference. Immutable snapshot |
+| `candidate` | Your custom test copy: the base plus your mods and your configs, started and played to check that additions and updates work, with a test server next to it. It is not the version you really use | Mutable like `run`. Give it its own version label (for example `test-1`). Use it to compare your configs before building the final pack |
 | `run` (played) | The instance really in use (client on a gaming PC, server on the host, read over SMB) | Mutable: it changes under your feet, so a scan request always re-reads it (never answered from the cache). Diff and My changes use the **last scan** and never rescan: scan it again first when the player has edited files |
 
 **Studio does not detect the state.** You declare it when you create the profile. It enforces these checks:

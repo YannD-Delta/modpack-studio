@@ -63,7 +63,7 @@ export type ModDiff = {
 };
 export type BlacklistEntry = { modId: string; origin: 'upstream_derived' | 'user'; stale: boolean };
 
-export const CELL_KEYS = ['client-clean', 'client-launched', 'client-run', 'server-clean', 'server-launched', 'server-run'] as const;
+export const CELL_KEYS = ['client-clean', 'client-launched', 'client-candidate', 'client-run', 'server-clean', 'server-launched', 'server-candidate', 'server-run'] as const;
 
 export const profileLabel = (p: Profile) => `${p.pack} ${p.version} · ${p.side} · ${p.state}`;
 

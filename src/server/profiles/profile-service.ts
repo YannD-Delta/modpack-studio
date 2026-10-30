@@ -5,7 +5,8 @@ import type { Db } from '../db/open.js';
 /** A pack name is a setting (see settings/packs.ts): the followed pack, Base by default, and the player's own, Own by default. */
 export type Pack = string;
 export type Side = 'client' | 'server';
-export type State = 'clean' | 'launched' | 'run';
+/** clean = never started, launched = started once (both immutable); candidate = your custom test copy and run = the copy really in use (both change under your feet). */
+export type State = 'clean' | 'launched' | 'candidate' | 'run';
 export type LocationKind = 'zip' | 'folder' | 'smb' | 'agent';
 
 export type NewProfile = { pack: Pack; version: string; side: Side; state: State; locationKind: LocationKind; location: string };
@@ -116,7 +117,7 @@ export function createProfile(db: Db, input: NewProfile, deps: { isProcessRunnin
   const dup = db.sqlite.prepare('SELECT 1 FROM profile WHERE pack_version_id = ? AND side = ? AND state = ?').get(pv.id, input.side, input.state);
   if (dup) throw new DuplicateProfileError(input);
 
-  const immutable = input.state === 'run' ? 0 : 1;
+  const immutable = input.state === 'run' || input.state === 'candidate' ? 0 : 1;
   const r = db.sqlite
     .prepare('INSERT INTO profile (pack_version_id, side, state, location_kind, location, captured_at, immutable) VALUES (?, ?, ?, ?, ?, ?, ?)')
     .run(pv.id, input.side, input.state, input.locationKind, input.location, new Date().toISOString(), immutable);
@@ -172,7 +173,7 @@ export function deleteProfile(db: Db, id: number): void {
 export type MatrixProfile = Profile & { importedAt: string | null; importIssueCount: number };
 export type MatrixRow = { pack: Pack; version: string; cells: Record<string, MatrixProfile | null> };
 
-const CELL_KEYS = (['client', 'server'] as const).flatMap((s) => (['clean', 'launched', 'run'] as const).map((st) => `${s}-${st}`));
+const CELL_KEYS = (['client', 'server'] as const).flatMap((s) => (['clean', 'launched', 'candidate', 'run'] as const).map((st) => `${s}-${st}`));
 
 function withImportInfo(db: Db, p: Profile): MatrixProfile {
   const st = importStatus(db, p.id);

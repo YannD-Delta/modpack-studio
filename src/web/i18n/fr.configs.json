@@ -146,5 +146,7 @@
   "custom.details": "Détails",
   "custom.launchedSize": "lancé",
   "custom.playedSize": "joué",
-  "configs.sizeOnlyNote": "{n} fichiers binaires sont comptés identiques d'après leur taille seulement (une des deux analyses est rapide). Lance une analyse approfondie des deux profils pour les vérifier octet par octet."
+  "configs.sizeOnlyNote": "{n} fichiers binaires sont comptés identiques d'après leur taille seulement (une des deux analyses est rapide). Lance une analyse approfondie des deux profils pour les vérifier octet par octet.",
+  "configs.state.candidate": "candidat",
+  "configs.stateTip.candidate": "Profil candidat : ta copie custom de test (tes mods et tes configs sur la base), lancée et jouée pour vérifier que les ajouts et mises à jour fonctionnent. Ce n'est pas la version réellement utilisée."
 }

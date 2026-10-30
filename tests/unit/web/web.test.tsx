@@ -51,7 +51,7 @@ describe('Profiles', () => {
     wrap(<Profiles />);
     expect(await screen.findByText('Base 8.3')).toBeTruthy();
     expect(screen.getAllByTestId('cell-filled').length).toBe(3);
-    expect(screen.getAllByTestId('cell-empty').length).toBe(9);
+    expect(screen.getAllByTestId('cell-empty').length).toBe(13); // 2 rows x 8 cells (client and server: clean, launched, candidate, run), 3 filled
   });
 });
 

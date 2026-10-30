@@ -21,7 +21,7 @@ export const profile = sqliteTable('profile', {
     .notNull()
     .references(() => packVersion.id),
   side: text('side').notNull(), // 'client' | 'server'
-  state: text('state').notNull(), // 'clean' | 'launched' | 'run'
+  state: text('state').notNull(), // 'clean' | 'launched' | 'candidate' | 'run'
   locationKind: text('location_kind').notNull(), // 'zip' | 'folder' | 'smb' | 'agent'
   location: text('location').notNull(),
   capturedAt: text('captured_at'),

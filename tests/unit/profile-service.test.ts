@@ -85,6 +85,18 @@ describe('createProfile', () => {
     expect(createProfile(db, input, { isProcessRunning: () => false }).immutable).toBe(false);
   });
 
+  it('keeps a candidate (the custom test copy) mutable, in its own matrix cell, next to the clean and launched copies', () => {
+    const base = { pack: 'Own' as const, version: 'test-1', side: 'client' as const, locationKind: 'folder' as const, location: tmp };
+    const clean = createProfile(db, { ...base, state: 'clean' }, { isProcessRunning: () => false });
+    const candidate = createProfile(db, { ...base, state: 'candidate' }, { isProcessRunning: () => false });
+    expect(clean.immutable).toBe(true);
+    expect(candidate.immutable).toBe(false);
+    const row = listMatrix(db).find((r) => r.version === 'test-1')!;
+    expect(Object.keys(row.cells)).toEqual(['client-clean', 'client-launched', 'client-candidate', 'client-run', 'server-clean', 'server-launched', 'server-candidate', 'server-run']);
+    expect(row.cells['client-candidate']?.id).toBe(candidate.id);
+    expect(() => createProfile(db, { ...base, state: 'candidate' }, { isProcessRunning: () => false })).toThrow(/already exists/);
+  });
+
   it('rejects a second profile in the same matrix cell', () => {
     createProfile(db, { ...base, location: folder('a') });
     expect(() => createProfile(db, { ...base, location: folder('b') })).toThrow(DuplicateProfileError);

@@ -7,6 +7,7 @@ import { t, tf, tOr, getPackNames } from '../i18n/index.js';
 const STATE_STYLE: Record<string, string> = {
   clean: 'border-emerald-700/60 bg-emerald-950/50 text-emerald-300',
   launched: 'border-sky-700/60 bg-sky-950/50 text-sky-300',
+  candidate: 'border-fuchsia-700/60 bg-fuchsia-950/40 text-fuchsia-300',
   run: 'border-amber-700/60 bg-amber-950/50 text-amber-300',
 };
 
@@ -120,9 +121,9 @@ export function Profiles() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800">
-              {matrix.isError && <tr><td colSpan={7} className="px-4 py-6"><ErrorNotice error={matrix.error} /></td></tr>}
+              {matrix.isError && <tr><td colSpan={9} className="px-4 py-6"><ErrorNotice error={matrix.error} /></td></tr>}
               {matrix.data?.length === 0 && (
-                <tr><td colSpan={7} className="px-4 py-6 text-slate-400">{t('profiles.empty')}</td></tr>
+                <tr><td colSpan={9} className="px-4 py-6 text-slate-400">{t('profiles.empty')}</td></tr>
               )}
               {matrix.data?.map((row) => (
                 <tr key={`${row.pack}-${row.version}`} className="hover:bg-slate-900/60">
@@ -194,7 +195,7 @@ export function Profiles() {
           <option value="server">server</option><option value="client">client</option>
         </select>
         <select aria-label="État" value={form.state} onChange={(e) => setForm({ ...form, state: e.target.value })} className={field}>
-          <option>clean</option><option>launched</option><option>run</option>
+          <option>clean</option><option>launched</option><option>candidate</option><option>run</option>
         </select>
         <select aria-label="Type" value={form.locationKind} onChange={(e) => setForm({ ...form, locationKind: e.target.value })} className={field}>
           <option>zip</option><option>folder</option><option>smb</option>
