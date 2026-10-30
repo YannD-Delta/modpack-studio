@@ -122,3 +122,15 @@ The **Analyse with Claude** button builds a prompt from the run (result, crash r
 ## Not yet
 
 A **client** test needs a launcher and a Minecraft account, which are not part of Studio. Options (offline accounts, headless launchers) are still a spike; see the [roadmap](roadmap.md).
+
+## Client logs
+
+For a client you run by hand, the **Client logs** card (bottom of this tab) reads a **candidate** or **run** client profile folder and never writes to it:
+
+- `logs/latest.log`: only the end of the file, up to `testbench.clientLogTailKb` KB (the summary then says it is partial). It counts `ERROR`/`FATAL` and `WARN` lines and lists the first distinct errors (`testbench.clientLogMaxErrors`).
+- `crash-reports/`: the newest reports (`testbench.clientLogMaxCrashReports`), each with a headline made of the `Description:` line and the first exception line.
+- `mods/`: the jar list against the imported mod set of the profile, in both directions (in the folder but not imported, imported but gone).
+
+A client log has no server `Done (x s)!` line. Studio looks instead for lines that show the game got through loading, listed in `testbench.clientStartMarkers` (patterns, in loading order). The defaults are: `Setting user:`, `Backend library:`, `Reloading ResourceManager:` and the stitching of the `blocks.png` texture atlas. They are heuristics: they were not checked against a real NeoForge log of every version, so adjust them in Settings if a healthy launch reports missing markers. The card shows which markers it found and on which line; it never repeats the lines themselves (they can contain the player name).
+
+API: `GET /api/v1/testbench/client-logs?profile=<id>` returns the summary; `POST /api/v1/testbench/client-logs/prompt` with `{ "profile": <id> }` returns the `analyze-client-run` prompt for Claude (copy it into claude.ai). That action is not in the assistant's action list or in `/assistant/run` yet.

@@ -7,6 +7,7 @@ import { Projects } from '../../../src/web/pages/Projects.js';
 
 type Call = { url: string; method: string; body?: string };
 let calls: Call[] = [];
+let chosen: string | null = null;
 
 const profile = (id: number, pack: string, version: string, state: string) => ({ id, packVersionId: 1, pack, version, side: 'client', state, locationKind: 'folder', location: 'x', immutable: state !== 'candidate' });
 const matrix = [
@@ -17,6 +18,7 @@ const matrix = [
 
 function mockApi() {
   calls = [];
+  chosen = null;
   let validated = false;
   vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
     const method = init?.method ?? 'GET';
@@ -35,21 +37,30 @@ function mockApi() {
       return json({ ok: true, files: 1, mods: 1, changes: [] });
     }
     if (url.endsWith('/projects/7') && method === 'GET') return json({ project: { id: 7, name: 'My pack 2026', baseVersion: validated ? '8.4' : null, createdAt: 'x' }, changes: [] });
-    if (url.includes('/projects/7/preview')) {
-      return json({
-        project: { id: 7, name: 'My pack 2026', baseVersion: '8.4', createdAt: 'x' },
+    if (url.includes('/projects/7/choices') && method === 'PUT') {
+      chosen = (Object.values(JSON.parse(init!.body as string).choices)[0] as string) ?? null;
+      return json(previewBody());
+    }
+    if (url.endsWith('/projects/7/export') && method === 'POST') {
+      return json({ name: 'update-project-x', folder: 'C:/exports/update-project-x', zip: 'update-project-x.zip', result: { counts: { modsUpdated: 1, modsRestored: 0, jarsToRemove: 1, files: 1, failures: 0 }, failures: [], warnings: [], missingJars: [], items: [] } });
+    }
+    if (url.includes('/projects/7/preview')) return json(previewBody());
+    return json({});
+  });
+}
+
+function previewBody() {
+  return {
+    project: { id: 7, name: 'My pack 2026', baseVersion: '8.4', createdAt: 'x' },
         newClean: { id: 4, label: 'Base 8.5' },
         missing: { scan: false, import: false },
         summary: { safe: 1, already: 0, conflict: 1, warning: 0 },
         baseDiff: { added: 3, removed: 1, updated: 2 },
         items: [
-          { id: 1, kind: 'file', key: 'config/a.toml', action: 'file', status: 'safe', reason: 'base-unchanged', mine: { size: 5 }, newBase: { size: 5 } },
-          { id: 2, kind: 'mod', key: 'x', action: 'update', status: 'conflict', reason: 'base-updated', mine: { version: '2.0' }, newBase: { version: '1.5' } },
+          { id: 1, kind: 'file', key: 'config/a.toml', action: 'file', status: 'safe', reason: 'base-unchanged', mine: { size: 5 }, newBase: { size: 5 }, choice: 'mine' },
+          { id: 2, kind: 'mod', key: 'x', action: 'update', status: 'conflict', reason: 'base-updated', mine: { version: '2.0' }, newBase: { version: '1.5' }, choice: chosen },
         ],
-      });
-    }
-    return json({});
-  });
+  };
 }
 
 const wrap = () => render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><Projects /></QueryClientProvider>);
@@ -88,5 +99,27 @@ describe('Projects page', () => {
     expect(within(rows[1]!).getByText('le pack de base a mis ce mod à jour (version 1.5)')).toBeTruthy();
     expect(screen.getByText('Le pack de base a changé : 3 mods ajoutés, 1 retirés, 2 mis à jour.')).toBeTruthy();
     expect(calls.find((c) => c.url.includes('/preview'))!.url).toBe('/api/v1/projects/7/preview?newClean=4&oldClean=1');
+  });
+
+  it('asks a choice for each conflict, counts what is left and exports once none is missing', async () => {
+    mockApi();
+    wrap();
+    await userEvent.selectOptions(await screen.findByLabelText('Nouvelle version clean'), '4');
+    await userEvent.click(screen.getByRole('button', { name: "Voir l'aperçu" }));
+    expect((await screen.findByTestId('choice-counter')).textContent).toBe('1 retouches sans choix');
+    const exportBtn = screen.getByRole('button', { name: 'Exporter le pack' }) as HTMLButtonElement;
+    expect(exportBtn.disabled).toBe(true);
+    const group = screen.getByRole('group', { name: 'Choix pour x' });
+    expect(within(group).getAllByRole('button').map((b) => b.textContent)).toEqual(['Garder ma version', 'Garder celle du pack de base', 'Ignorer']);
+    expect(screen.queryByRole('group', { name: 'Choix pour config/a.toml' })).toBeNull(); // safe items have no choice to make
+    await userEvent.click(within(group).getByRole('button', { name: 'Garder ma version' }));
+    await waitFor(() => expect((screen.getByTestId('choice-counter')).textContent).toBe('Tous les conflits ont un choix.'));
+    expect(JSON.parse(calls.find((c) => c.method === 'PUT')!.body!)).toEqual({ newClean: 4, choices: { 'mod:x': 'mine' } });
+    await waitFor(() => expect((screen.getByRole('button', { name: 'Exporter le pack' }) as HTMLButtonElement).disabled).toBe(false));
+    await userEvent.click(screen.getByRole('button', { name: 'Exporter le pack' }));
+    const card = await screen.findByTestId('export-result');
+    expect(within(card).getByText('C:/exports/update-project-x')).toBeTruthy();
+    expect(within(card).getByText('update-project-x.zip')).toBeTruthy();
+    expect(JSON.parse(calls.find((c) => c.url.endsWith('/projects/7/export'))!.body!)).toEqual({ newClean: 4 });
   });
 });

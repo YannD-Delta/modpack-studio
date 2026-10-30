@@ -18,7 +18,7 @@ let cookie: string;
 let tmp: string;
 let dataDir: string;
 
-const call = (method: 'GET' | 'POST' | 'DELETE', url: string, payload?: unknown) => app.inject({ method, url: `/api/v1${url}`, headers: { cookie }, payload: payload as object | undefined });
+const call = (method: 'GET' | 'POST' | 'PUT' | 'DELETE', url: string, payload?: unknown) => app.inject({ method, url: `/api/v1${url}`, headers: { cookie }, payload: payload as object | undefined });
 
 function tree(name: string, files: Record<string, string>): string {
   const root = path.join(tmp, name);
@@ -168,5 +168,91 @@ describe('projects', () => {
     const by = Object.fromEntries(prev.items.map((i: { key: string; status: string; reason: string }) => [i.key, `${i.status}:${i.reason}`]));
     expect(by).toEqual({ x: 'conflict:base-updated', mine: 'safe:new-mod' });
     expect(prev.baseDiff).toEqual({ added: 0, removed: 0, updated: 1 });
+  });
+
+  describe('applying the preview (export)', () => {
+    const exportsDir = () => path.join(dataDir, 'exports');
+    const keep = async (files: string[], mods: string[] = []) => expect((await call('POST', `/projects/${projectId}/changes`, { clean, launched, candidate, files, mods })).statusCode).toBe(200);
+
+    it('refuses until every conflict has a choice, then packs the replay', async () => {
+      await keep(['config/a.toml', 'config/c.toml', 'config/mine.toml']);
+      expect((await call('POST', `/projects/${projectId}/export`, { newClean })).json()).toMatchObject({ code: 'not_scanned' });
+      expect(await scan(newClean)).toBe('done');
+
+      const prev = (await call('GET', `/projects/${projectId}/preview?newClean=${newClean}`)).json();
+      const choiceOf = Object.fromEntries(prev.items.map((i: { key: string; choice: string | null }) => [i.key, i.choice]));
+      expect(choiceOf).toEqual({ 'config/a.toml': 'mine', 'config/c.toml': null, 'config/mine.toml': 'mine' });
+
+      const refused = await call('POST', `/projects/${projectId}/export`, { newClean });
+      expect(refused.statusCode).toBe(400);
+      expect(refused.json()).toMatchObject({ code: 'choice_missing', missing: [{ kind: 'file', key: 'config/c.toml' }] });
+
+      const put = await call('PUT', `/projects/${projectId}/choices`, { newClean, choices: { 'file:config/c.toml': 'mine' } });
+      expect(put.statusCode, put.body).toBe(200);
+      // the choice survives a reload: the next preview carries it
+      const again = (await call('GET', `/projects/${projectId}/preview?newClean=${newClean}`)).json();
+      expect(again.items.find((i: { key: string }) => i.key === 'config/c.toml').choice).toBe('mine');
+
+      const res = await call('POST', `/projects/${projectId}/export`, { newClean });
+      expect(res.statusCode, res.body).toBe(200);
+      const body = res.json();
+      expect(body.zip).toBe(`${body.name}.zip`);
+      const folder = path.join(exportsDir(), body.name);
+      expect(fs.readFileSync(path.join(folder, 'files-add/config/c.toml'), 'utf8')).toBe('c = 5\n');
+      expect(fs.readFileSync(path.join(folder, 'files-add/config/a.toml'), 'utf8')).toBe('a = 2\n');
+      expect(fs.existsSync(path.join(exportsDir(), body.zip))).toBe(true);
+      const changes = JSON.parse(fs.readFileSync(path.join(folder, 'changes.json'), 'utf8'));
+      expect(changes.project.name).toBe('My pack 2026');
+      expect(changes.newBase.label).toContain('8.5');
+      expect(changes.files).toHaveLength(3);
+      expect(fs.readFileSync(path.join(folder, 'CHANGES.md'), 'utf8')).toContain('config/c.toml');
+      expect(fs.existsSync(path.join(folder, 'apply.ps1'))).toBe(true);
+    });
+
+    it('drops a retouch when you keep the base or skip it, and rejects unknown keys', async () => {
+      await keep(['config/a.toml', 'config/c.toml']);
+      expect(await scan(newClean)).toBe('done');
+      expect((await call('PUT', `/projects/${projectId}/choices`, { newClean, choices: { 'file:config/nope.toml': 'mine' } })).json()).toMatchObject({ code: 'unknown_change' });
+      expect((await call('PUT', `/projects/${projectId}/choices`, { newClean, choices: { 'file:config/c.toml': 'maybe' } })).statusCode).toBe(400);
+      await call('PUT', `/projects/${projectId}/choices`, { newClean, choices: { 'file:config/c.toml': 'base', 'file:config/a.toml': 'skip' } });
+      const res = await call('POST', `/projects/${projectId}/export`, { newClean });
+      expect(res.statusCode).toBe(409);
+      expect(res.json()).toMatchObject({ code: 'nothing_to_export' });
+      await call('PUT', `/projects/${projectId}/choices`, { newClean, choices: { 'file:config/a.toml': 'mine' } });
+      const ok = (await call('POST', `/projects/${projectId}/export`, { newClean })).json();
+      const folder = path.join(exportsDir(), ok.name);
+      expect(fs.existsSync(path.join(folder, 'files-add/config/c.toml'))).toBe(false);
+      expect(fs.existsSync(path.join(folder, 'files-add/config/a.toml'))).toBe(true);
+      expect(JSON.parse(fs.readFileSync(path.join(folder, 'changes.json'), 'utf8')).items.find((i: { key: string }) => i.key === 'config/c.toml')).toMatchObject({ choice: 'base', outcome: 'kept-base' });
+    });
+
+    it('exports mods: your jar goes to mods-add, the base jar it replaces to remove.txt, a vanished jar is listed as missing', async () => {
+      const jar = (id: string, version: string) => makeJar({ fileName: `${id}-${version}.jar`, loader: 'neoforge', mods: [{ modId: id, version }] });
+      const modsDir = async (name: string, jars: [string, string][]) => {
+        const dir = path.join(tmp, name);
+        fs.mkdirSync(path.join(dir, 'mods'), { recursive: true });
+        for (const [id, v] of jars) fs.writeFileSync(path.join(dir, 'mods', `${id}-${v}.jar`), await jar(id, v));
+        return dir;
+      };
+      const ctx = { params: null, signal: new AbortController().signal, progress: () => undefined };
+      const imp = async (id: number, dir: string) => importModSet(db, { kind: 'folder', path: dir }, id, ctx);
+      await imp(clean, await modsDir('clean', [['x', '1.0'], ['y', '1.0']]));
+      const candDir = await modsDir('candidate', [['x', '2.0'], ['y', '1.0'], ['mine', '1.0']]);
+      await imp(candidate, candDir);
+      await imp(newClean, await modsDir('new', [['x', '1.5'], ['y', '1.0']]));
+      await keep([], ['x', 'mine']);
+
+      expect((await call('POST', `/projects/${projectId}/export`, { newClean })).json()).toMatchObject({ code: 'choice_missing', missing: [{ kind: 'mod', key: 'x' }] });
+      await call('PUT', `/projects/${projectId}/choices`, { newClean, choices: { 'mod:x': 'mine' } });
+      fs.rmSync(path.join(candDir, 'mods', 'mine-1.0.jar'));
+      const raw = await call('POST', `/projects/${projectId}/export`, { newClean });
+      expect(raw.statusCode, raw.body).toBe(200);
+      const res = raw.json();
+      const folder = path.join(exportsDir(), res.name);
+      expect(fs.readdirSync(path.join(folder, 'mods-add'))).toEqual(['x-2.0.jar']);
+      expect(fs.readFileSync(path.join(folder, 'remove.txt'), 'utf8')).toBe('x-1.5.jar\r\n');
+      expect(res.result.missingJars).toEqual(['mine']);
+      expect(fs.readFileSync(path.join(folder, 'CHANGES.md'), 'utf8')).toContain('mine');
+    });
   });
 });

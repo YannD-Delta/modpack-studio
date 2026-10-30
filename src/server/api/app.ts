@@ -11,7 +11,9 @@ import type { JobRunner } from '../jobs/runner.js';
 import { hashPassword, needsRehash, SessionStore, verifyPassword } from './auth.js';
 import { registerEvents } from './events.js';
 import { registerAssistantRoutes } from './routes-assistant.js';
+import { registerBuildRoutes } from './routes-build.js';
 import { registerConfigsRoutes } from './routes-configs.js';
+import { registerKeysRoutes } from './routes-keys.js';
 import { registerDecisionsRoutes } from './routes-decisions.js';
 import { registerModRoutes } from './routes-mods.js';
 import { registerPlanRoutes } from './routes-plan.js';
@@ -127,12 +129,14 @@ export function buildApp(given: AppDeps): FastifyInstance {
     registerModRoutes(api, deps);
     registerPlanRoutes(api, deps);
     registerConfigsRoutes(api, deps);
+    registerKeysRoutes(api, deps);
     registerDecisionsRoutes(api, deps);
     registerSettingsRoutes(api, deps);
     registerCurseForgeRoutes(api, deps);
     registerProjectRoutes(api, deps);
     registerAssistantRoutes(api, deps);
     registerTestbenchRoutes(api, deps);
+    registerBuildRoutes(api, deps);
   });
   return app;
 }

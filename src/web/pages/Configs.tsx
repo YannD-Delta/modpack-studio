@@ -13,6 +13,8 @@ import {
   type FileStatus,
   type ScanJob,
 } from '../api-configs.js';
+import { KEY_EXTENSIONS } from '../api-keys.js';
+import { KeyDiff } from '../components/KeyDiff.js';
 import { t, tf, type MessageKey } from '../i18n/index.js';
 
 const BADGE: Record<FileStatus, string> = {
@@ -229,6 +231,7 @@ export function FileDiffView(props: { base: string; other: string; path: string;
   const { base, other, path, onCount } = props;
   const q = useQuery({ queryKey: ['configs-filediff', base, other, path], queryFn: () => configsApi.fileDiff(base, other, path), retry: false });
   const [opened, setOpened] = useState<Set<number>>(new Set());
+  const [mode, setMode] = useState<'lines' | 'keys'>('lines');
   const items = useMemo(() => collapseUnchanged(q.data?.lines ?? []), [q.data]);
 
   useEffect(() => {
@@ -253,11 +256,21 @@ export function FileDiffView(props: { base: string; other: string; path: string;
 
   return (
     <div className="mx-4 mb-3 space-y-1">
-      {d.stale && <p className="text-xs text-amber-300">{t('configs.diff.stale')}</p>}
-      {d.truncated && <p className="text-xs text-amber-300">{t('configs.diff.truncated')}</p>}
-      {d.coarse && <p className="text-xs text-amber-300">{t('configs.diff.coarse')}</p>}
-      {d.added + d.removed === 0 && <p className="text-xs text-slate-400">{t('configs.diff.same')}</p>}
-      <div className="max-h-96 overflow-auto rounded-lg border border-slate-800 bg-slate-950 py-1 font-mono text-xs" data-testid="file-diff">
+      {KEY_EXTENSIONS.test(path) && (
+        <div className="flex gap-1 text-xs" role="tablist">
+          {(['lines', 'keys'] as const).map((m) => (
+            <button key={m} role="tab" aria-selected={mode === m} onClick={() => setMode(m)} className={`rounded px-2 py-0.5 ${mode === m ? 'bg-slate-700 text-slate-100' : 'text-slate-400 hover:text-slate-200'}`}>
+              {t(m === 'lines' ? 'keys.tab.lines' : 'keys.tab.keys')}
+            </button>
+          ))}
+        </div>
+      )}
+      {mode === 'keys' && <KeyDiff base={base} other={other} path={path} />}
+      {mode === 'lines' && d.stale && <p className="text-xs text-amber-300">{t('configs.diff.stale')}</p>}
+      {mode === 'lines' && d.truncated && <p className="text-xs text-amber-300">{t('configs.diff.truncated')}</p>}
+      {mode === 'lines' && d.coarse && <p className="text-xs text-amber-300">{t('configs.diff.coarse')}</p>}
+      {mode === 'lines' && d.added + d.removed === 0 && <p className="text-xs text-slate-400">{t('configs.diff.same')}</p>}
+      {mode === 'lines' && <div className="max-h-96 overflow-auto rounded-lg border border-slate-800 bg-slate-950 py-1 font-mono text-xs" data-testid="file-diff">
         {items.map((it) =>
           it.kind === 'gap' && !opened.has(it.from) ? (
             <button
@@ -272,7 +285,7 @@ export function FileDiffView(props: { base: string; other: string; path: string;
             d.lines.slice(it.from, it.to).map((l, k) => line(l, it.from + k))
           ),
         )}
-      </div>
+      </div>}
     </div>
   );
 }

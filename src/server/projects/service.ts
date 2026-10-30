@@ -9,7 +9,7 @@ import { getSources } from '../mods/curseforge-sources.js';
 import { loadModSet } from '../mods/modset-store.js';
 import type { Profile } from '../profiles/profile-service.js';
 import { getNumberLimit } from '../settings/limits.js';
-import { classifyFileChange, classifyModChange, type Fingerprint, type ReplayReason, type ReplayStatus } from './replay.js';
+import { classifyFileChange, classifyModChange, effectiveChoice, parseChoiceKey, type Choice, type Fingerprint, type ReplayReason, type ReplayStatus } from './replay.js';
 
 export class ProjectError extends Error {
   constructor(
@@ -26,7 +26,8 @@ export class ProjectError extends Error {
 export type Project = { id: number; name: string; baseVersion: string | null; createdAt: string };
 
 type FilePayload = { sha256: string; size: number; status: string; base: Fingerprint | null };
-type ModPayload = { version: string | null; file: string | null; baseVersion: string | null; cf: { projectId: number; fileId: number; name: string; url: string } | null };
+/** `candidateId` and `sha256` tell where the jar came from and which bytes were validated (absent on retouches validated before they existed). */
+type ModPayload = { version: string | null; file: string | null; baseVersion: string | null; candidateId?: number; sha256?: string | null; cf: { projectId: number; fileId: number; name: string; url: string } | null };
 export type StoredChange =
   | { id: number; kind: 'file'; key: string; action: 'file'; validatedAt: string; payload: FilePayload }
   | { id: number; kind: 'mod'; key: string; action: 'add' | 'update' | 'remove'; validatedAt: string; payload: ModPayload };
@@ -58,9 +59,10 @@ export function listChanges(db: Db, projectId: number): StoredChange[] {
 }
 
 export function deleteChange(db: Db, dataDir: string, projectId: number, changeId: number): void {
-  const row = db.sqlite.prepare('SELECT kind, payload FROM project_change WHERE id = ? AND project_id = ?').get(changeId, projectId) as { kind: string; payload: string } | undefined;
+  const row = db.sqlite.prepare('SELECT kind, key, payload FROM project_change WHERE id = ? AND project_id = ?').get(changeId, projectId) as { kind: string; key: string; payload: string } | undefined;
   if (!row) throw new ProjectError(404, `change ${changeId} not found in project ${projectId}`, 'change_not_found');
   db.sqlite.prepare('DELETE FROM project_change WHERE id = ?').run(changeId);
+  db.sqlite.prepare('DELETE FROM project_choice WHERE project_id = ? AND kind = ? AND key = ?').run(projectId, row.kind, row.key);
   if (row.kind === 'file') new BlobStore(path.join(dataDir, 'blobs'), db).unref((JSON.parse(row.payload) as FilePayload).sha256);
 }
 
@@ -128,6 +130,7 @@ export async function saveChanges(db: Db, dataDir: string, projectId: number, p:
     }
   }
   const sources = getSources(db, p.candidate.id);
+  const candidateMods = loadModSet(db, p.candidate.id);
   const tx = db.sqlite.transaction(() => {
     db.sqlite.prepare('UPDATE project SET base_version = ? WHERE id = ?').run(p.clean.version, projectId);
   });
@@ -142,7 +145,7 @@ export async function saveChanges(db: Db, dataDir: string, projectId: number, p:
   for (const id of pick.mods) {
     const m = byMod.get(id)!;
     const cf = m.file ? sources.get(m.file) : undefined;
-    const payload: ModPayload = { version: m.version, file: m.file, baseVersion: m.baseVersion, cf: cf ? { projectId: cf.projectId, fileId: cf.fileId, name: cf.name, url: cf.url } : null };
+    const payload: ModPayload = { version: m.version, file: m.file, baseVersion: m.baseVersion, candidateId: p.candidate.id, sha256: candidateMods.get(id)?.sha256 ?? null, cf: cf ? { projectId: cf.projectId, fileId: cf.fileId, name: cf.name, url: cf.url } : null };
     upsert.run(projectId, 'mod', id, m.action, JSON.stringify(payload), now);
   }
   void project;
@@ -158,6 +161,8 @@ export type PreviewItem = {
   reason: ReplayReason;
   mine: { version?: string | null; size?: number };
   newBase: { version?: string; size?: number } | null;
+  /** What will be exported: your stored choice, else the default (safe = mine). null = no decision yet or nothing to do. */
+  choice: Choice | null;
 };
 export type Preview = {
   project: Project;
@@ -181,17 +186,18 @@ export function preview(db: Db, dataDir: string, projectId: number, newClean: Pr
   const mods: ModSet = loadModSet(db, newClean.id);
   const haveMods = mods.size > 0;
   const items: PreviewItem[] = [];
+  const stored = getChoices(db, projectId, newClean.id);
   for (const c of changes) {
     if (c.kind === 'file') {
       if (!inv) continue;
       const hit = findInInventory(inv.files, c.key);
       const v = classifyFileChange({ mine: { sha256: c.payload.sha256, size: c.payload.size }, base: c.payload.base }, hit ? fingerprintOf(hit.entry) : null);
-      items.push({ id: c.id, kind: 'file', key: c.key, action: c.action, ...v, mine: { size: c.payload.size }, newBase: hit ? { size: hit.entry.size } : null });
+      items.push({ id: c.id, kind: 'file', key: c.key, action: c.action, ...v, mine: { size: c.payload.size }, newBase: hit ? { size: hit.entry.size } : null, choice: effectiveChoice(v.status, stored.get(`file:${c.key}`)) });
     } else {
       if (!haveMods) continue;
       const nb = mods.get(c.key) ?? null;
       const v = classifyModChange({ action: c.action, mineVersion: c.payload.version, baseVersion: c.payload.baseVersion }, nb ? { version: nb.version } : null);
-      items.push({ id: c.id, kind: 'mod', key: c.key, action: c.action, ...v, mine: { version: c.payload.version }, newBase: nb ? { version: nb.version } : null });
+      items.push({ id: c.id, kind: 'mod', key: c.key, action: c.action, ...v, mine: { version: c.payload.version }, newBase: nb ? { version: nb.version } : null, choice: effectiveChoice(v.status, stored.get(`mod:${c.key}`)) });
     }
   }
   const summary: Record<ReplayStatus, number> = { safe: 0, already: 0, conflict: 0, warning: 0 };
@@ -210,3 +216,28 @@ export function preview(db: Db, dataDir: string, projectId: number, newClean: Pr
     baseDiff,
   };
 }
+
+/** Stored choices for one project replayed on one new base, keyed "<kind>:<key>". */
+export function getChoices(db: Db, projectId: number, newCleanId: number): Map<string, Choice> {
+  const rows = db.sqlite.prepare('SELECT kind, key, choice FROM project_choice WHERE project_id = ? AND new_clean_id = ?').all(projectId, newCleanId) as { kind: string; key: string; choice: Choice }[];
+  return new Map(rows.map((r) => [`${r.kind}:${r.key}`, r.choice]));
+}
+
+/** Stores your choices (replacing earlier ones for the same retouch). Refuses a key that is not one of the project's retouches. */
+export function setChoices(db: Db, projectId: number, newCleanId: number, choices: Record<string, Choice>): number {
+  getProject(db, projectId);
+  const known = new Set(listChanges(db, projectId).map((c) => `${c.kind}:${c.key}`));
+  const unknown = Object.keys(choices).filter((k) => !parseChoiceKey(k) || !known.has(k));
+  if (unknown.length) throw new ProjectError(400, `not a retouch of this project: ${unknown.join(', ')}`, 'unknown_change', { unknown });
+  const upsert = db.sqlite.prepare('INSERT INTO project_choice (project_id, new_clean_id, kind, key, choice) VALUES (?, ?, ?, ?, ?) ON CONFLICT(project_id, new_clean_id, kind, key) DO UPDATE SET choice = excluded.choice');
+  db.sqlite.transaction(() => {
+    for (const [k, v] of Object.entries(choices)) {
+      const { kind, key } = parseChoiceKey(k)!;
+      upsert.run(projectId, newCleanId, kind, key, v);
+    }
+  })();
+  return Object.keys(choices).length;
+}
+
+/** Retouches that need a decision before an export (conflicts and warnings without a choice). */
+export const withoutChoice = (items: PreviewItem[]): PreviewItem[] => items.filter((i) => (i.status === 'conflict' || i.status === 'warning') && i.choice === null);

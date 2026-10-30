@@ -18,6 +18,7 @@ import {
   type PlanState,
 } from '../api-plan.js';
 import { ClaudeActions } from '../components/ClaudeActions.js';
+import { ServerPack } from '../components/ServerPack.js';
 import { CurseForgeUpdates } from '../components/CurseForgeUpdates.js';
 import { ErrorNotice, QueryGate } from '../components/ErrorNotice.js';
 import { getPackNames, t, tf, type MessageKey } from '../i18n/index.js';
@@ -346,6 +347,8 @@ export function Mods() {
           </div>
         </>
       )}
+
+      <ServerPack />
 
       {barVisible && (
         <div role="region" aria-label={t('plan.bar.label')} className="sticky bottom-0 z-10 -mx-1 space-y-3 rounded-xl border border-violet-800/60 bg-slate-950/95 px-4 py-3 shadow-2xl shadow-black/60 backdrop-blur">

@@ -188,7 +188,7 @@ export type ExportResult = {
 };
 
 const pad = (n: number) => String(n).padStart(2, '0');
-const utcStamp = (d: Date) => `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}-${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}${pad(d.getUTCSeconds())}`;
+export const utcStamp = (d: Date) => `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}-${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}${pad(d.getUTCSeconds())}`;
 
 export const EXPORT_NAME = /^[A-Za-z0-9._-]+$/;
 
@@ -197,7 +197,7 @@ export function exportSafeName(other: Pick<Profile, 'pack' | 'version'>, base: P
   return raw.replace(/[^A-Za-z0-9._-]/g, '_');
 }
 
-const isInside = (parent: string, child: string) => {
+export const isInside = (parent: string, child: string) => {
   const rel = path.relative(path.resolve(parent).toLowerCase(), path.resolve(child).toLowerCase());
   return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
 };
@@ -212,14 +212,14 @@ async function listTree(dir: string, rel = ''): Promise<string[]> {
   return out.sort();
 }
 
-async function writeZip(folder: string, rootName: string, zipPath: string): Promise<void> {
+export async function writeZip(folder: string, rootName: string, zipPath: string): Promise<void> {
   const zip = new yazl.ZipFile();
   for (const rel of await listTree(folder)) zip.addFile(path.join(folder, ...rel.split('/')), `${rootName}/${rel}`);
   zip.end();
   await pipeline(zip.outputStream, fs.createWriteStream(zipPath));
 }
 
-const mdCell = (s: string | null | undefined) => (s ?? '').replace(/\|/g, '\\|');
+export const mdCell = (s: string | null | undefined) => (s ?? '').replace(/\|/g, '\\|');
 
 function changesMarkdown(c: ChangesJson): string {
   const lines = [`# Update pack ${c.name}`, '', `- Reference (source of the files): ${c.base.label}`, `- Target: ${c.other.label}`, `- Created: ${c.createdAt}`, ''];

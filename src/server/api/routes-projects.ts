@@ -5,7 +5,8 @@ import { API_PREFIX } from '../../shared/constants.js';
 import { NotScannedError } from '../configs/compare.js';
 import { audit } from '../db/audit.js';
 import { getProfile, type Profile } from '../profiles/profile-service.js';
-import { createProject, deleteChange, getProject, listChanges, listProjects, preview, proposal, ProjectError, saveChanges, type TriadProfiles } from '../projects/service.js';
+import { buildProjectExport } from '../projects/export.js';
+import { createProject, deleteChange, getProject, listChanges, listProjects, preview, proposal, ProjectError, saveChanges, setChoices, withoutChoice, type TriadProfiles } from '../projects/service.js';
 import type { AppDeps } from './app.js';
 import { sendBadRequest } from './routes-profiles.js';
 
@@ -13,6 +14,8 @@ const id = z.coerce.number().int().positive();
 const TriadQuery = z.object({ clean: id, launched: id, candidate: id });
 const CreateBody = z.object({ name: z.string().min(1).max(60), baseVersion: z.string().max(40).optional() });
 const SaveBody = z.object({ clean: id, launched: id, candidate: id, files: z.array(z.string().min(1).max(1024)).max(5000).default([]), mods: z.array(z.string().min(1).max(200)).max(5000).default([]) });
+const ChoicesBody = z.object({ newClean: id, choices: z.record(z.string().min(3).max(1100), z.enum(['mine', 'base', 'skip'] as [string, ...string[]])).refine((c) => Object.keys(c).length <= 5000) });
+const ExportBody = z.object({ newClean: id, target: id.optional(), candidate: id.optional() });
 const PreviewQuery = z.object({ newClean: id, oldClean: id.optional() });
 
 function profileOr404(deps: AppDeps, profileId: number): Profile {
@@ -124,4 +127,61 @@ export function registerProjectRoutes(api: FastifyInstance, deps: AppDeps): void
       return fail(reply, err);
     }
   });
+
+  api.put(`${API_PREFIX}/projects/:id/choices`, async (req, reply) => {
+    const p = z.object({ id }).safeParse(req.params);
+    const body = ChoicesBody.safeParse(req.body);
+    if (!p.success) return sendBadRequest(reply, p.error);
+    if (!body.success) return sendBadRequest(reply, body.error);
+    try {
+      const newClean = newCleanOr400(body.data.newClean);
+      const saved = setChoices(db, p.data.id, newClean.id, body.data.choices as Record<string, 'mine' | 'base' | 'skip'>);
+      audit(db, 'project.choices', String(p.data.id), { newClean: newClean.id, saved });
+      return preview(db, dataDir, p.data.id, newClean, null);
+    } catch (err) {
+      return fail(reply, err);
+    }
+  });
+
+  api.post(`${API_PREFIX}/projects/:id/export`, async (req, reply) => {
+    const p = z.object({ id }).safeParse(req.params);
+    const body = ExportBody.safeParse(req.body);
+    if (!p.success) return sendBadRequest(reply, p.error);
+    if (!body.success) return sendBadRequest(reply, body.error);
+    try {
+      const newClean = newCleanOr400(body.data.newClean);
+      const pv = preview(db, dataDir, p.data.id, newClean, null);
+      if (pv.missing.scan) throw new ProjectError(409, 'the new version has not been scanned yet: scan it in Configs first', 'not_scanned', { profileId: newClean.id });
+      if (pv.missing.import) throw new ProjectError(409, 'the mods of the new version are not imported yet: import them in Profiles first', 'not_imported', { profileId: newClean.id });
+      const missing = withoutChoice(pv.items);
+      if (missing.length) throw new ProjectError(400, `${missing.length} retouch(es) need a choice before exporting`, 'choice_missing', { missing: missing.map((i) => ({ kind: i.kind, key: i.key, status: i.status })) });
+      const lookup = (pid: number): Profile | null => {
+        try {
+          return getProfile(db, pid);
+        } catch {
+          return null;
+        }
+      };
+      const target = body.data.target ? profileOr404(deps, body.data.target) : null;
+      const result = await buildProjectExport({
+        db,
+        dataDir,
+        exportsDir: path.join(dataDir, 'exports'),
+        preview: pv,
+        target,
+        profileById: lookup,
+        candidateFallback: body.data.candidate ? profileOr404(deps, body.data.candidate) : null,
+      });
+      audit(db, 'project.export', result.name, { project: p.data.id, counts: result.counts });
+      return { result, name: result.name, folder: result.folder, zip: path.basename(result.zipPath) };
+    } catch (err) {
+      return fail(reply, err);
+    }
+  });
+
+  function newCleanOr400(pid: number): Profile {
+    const newClean = profileOr404(deps, pid);
+    if (newClean.state !== 'clean') throw new ProjectError(400, `the new base must be a clean profile, not ${newClean.state}`, 'triad_state', { role: 'newClean' });
+    return newClean;
+  }
 }

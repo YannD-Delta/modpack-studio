@@ -4,6 +4,7 @@ import { api, flattenProfiles, profileLabel, type MatrixRow } from '../api.js';
 import { settingsApi } from '../api-settings.js';
 import { FINAL_STATES, testbenchApi, type RunState, type StopOutcome } from '../api-testbench.js';
 import { ClaudeActions } from '../components/ClaudeActions.js';
+import { ClientLogs } from '../components/ClientLogs.js';
 import { t, tf, type MessageKey } from '../i18n/index.js';
 
 const field = 'rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-sm text-slate-100 outline-none focus:border-violet-500';
@@ -190,6 +191,8 @@ export function TestBench() {
       </div>
 
       {current && <RunDetailPanel key={current} id={current} />}
+
+      <ClientLogs />
     </section>
   );
 }

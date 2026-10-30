@@ -6,6 +6,7 @@ import { diffModSets, type ModEntry } from '../mods/diff.js';
 import { loadModSet } from '../mods/modset-store.js';
 import type { Profile } from '../profiles/profile-service.js';
 import type { PackNames } from '../settings/packs.js';
+import type { ClientLogsResult } from '../testbench/client-logs.js';
 import type { RunDetail } from '../testbench/runs.js';
 
 export const PAIR_ACTIONS = ['review-updates', 'review-added', 'review-missing', 'migrate-old-pack'] as const;
@@ -40,7 +41,7 @@ export const ACTION_INFO: Record<ActionId, { label: string; tip: string }> = {
 /** Fills the `{upstream}` and `{own}` placeholders with the pack names chosen in Settings. */
 export const fillNames = (text: string, names: PackNames): string => text.replaceAll('{upstream}', names.upstream).replaceAll('{own}', names.own);
 
-export type BuiltPrompt = { action: ActionId; title: string; prompt: string; rows: number; shown: number };
+export type BuiltPrompt = { action: ActionId | 'analyze-client-run'; title: string; prompt: string; rows: number; shown: number };
 
 const label = (p: Profile) => `${p.pack} ${p.version} · ${p.side} · ${p.state}`;
 const loaderText = (l: LoaderInfo | null) => (l ? `${l.loader} ${l.loaderVersion}, Minecraft ${l.mcVersion ?? 'inconnu'}` : 'loader non détecté');
@@ -180,4 +181,41 @@ export function buildTestRunPrompt(args: { run: RunDetail; logTail: string[]; cr
     tail,
   ].join('\n'), args.names);
   return { action: 'analyze-test-run', title: fillNames(ACTION_INFO['analyze-test-run'].label, args.names), prompt, rows: r?.summary.errorLines ?? 0, shown: r?.summary.firstErrors.length ?? 0 };
+}
+
+/** Second analysis action, built from a client instance run by hand. It is not in ACTIONS: it takes a profile, not a server test or a pair. */
+export const CLIENT_RUN_ACTION = 'analyze-client-run' as const;
+export const CLIENT_RUN_INFO = {
+  label: 'Analyser ce lancement du client',
+  tip: 'Claude lit le journal et le rapport de plantage du client que tu as lancé à la main : ce qui bloque, ce qui vient de {upstream} et se retrouve chez tout le monde, ce qui est sans importance, et la correction à essayer.',
+};
+
+/** Prompt that asks Claude to read the logs of a client run by hand: counts, first errors, loading markers, crash headlines and mod differences. */
+export function buildClientRunPrompt(args: { logs: ClientLogsResult; mode: PromptMode; names: PackNames }): BuiltPrompt {
+  const { logs, mode } = args;
+  const l = logs.log;
+  const found = l.markers.filter((m) => m.line !== null).length;
+  const facts = [
+    `Client : ${logs.profile.label}, lancé à la main (les journaux ci-dessous viennent de logs/latest.log et de crash-reports/).`,
+    l.present
+      ? `Journal : ${l.lines} lignes lues${l.truncated ? ' (fin du fichier seulement)' : ''} · ${l.errorLines} lignes d’erreur · ${l.warnLines} avertissements.`
+      : 'Journal : logs/latest.log est absent.',
+    `Repères de fin de chargement trouvés : ${found} sur ${l.markers.length}${l.reachedAllMarkers ? ' (chargement terminé)' : ' (le jeu n’est peut-être pas allé jusqu’au menu)'}. Un client n’a pas de ligne « Done » comme un serveur : ces repères sont des motifs de lignes, à relativiser.`,
+    ...l.markers.map((m) => `- ${m.pattern} : ${m.line === null ? 'absent' : `ligne ${m.line}`}`),
+    `Mods : ${logs.mods.count} jars dans mods/.`,
+  ];
+  if (logs.mods.imported && logs.mods.onlyInInstance.length) facts.push(`Dans le dossier mais pas dans l’import : ${logs.mods.onlyInInstance.join(', ')}.`);
+  if (logs.mods.imported && logs.mods.onlyInImport.length) facts.push(`Dans l’import mais plus dans le dossier : ${logs.mods.onlyInImport.join(', ')}.`);
+  const errors = l.firstErrors.length ? l.firstErrors.map((e) => `- ${e}`).join('\n') : '(aucune)';
+  const crashes = logs.crashReports.length
+    ? logs.crashReports.map((c) => `${c.name} (${c.modified}) : ${c.headline ?? 'titre inconnu'}${c.head ? `\n${c.head}` : ''}`).join('\n\n')
+    : '(aucun rapport de plantage)';
+  const task = [
+    'Analyse le lancement d’un client Minecraft modé.',
+    'Dis d’abord s’il est sain. Puis sépare : ce qui bloque, ce qui est hérité de {upstream} (présent chez tout le monde, à ignorer), et ce qui est sans importance.',
+    'Pour chaque problème bloquant : la cause probable (mod, version, dépendance, config, mixin) et la correction à essayer (mettre à jour, épingler, retirer, changer une valeur).',
+    'Termine par les trois actions à faire en premier.',
+  ].join('\n');
+  const prompt = fillNames([intro(mode), '', ...facts, '', task, '', 'Premières erreurs distinctes :', errors, '', 'Rapports de plantage :', crashes].join('\n'), args.names);
+  return { action: CLIENT_RUN_ACTION, title: fillNames(CLIENT_RUN_INFO.label, args.names), prompt, rows: l.errorLines, shown: l.firstErrors.length };
 }

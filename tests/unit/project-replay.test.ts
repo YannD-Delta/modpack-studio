@@ -53,3 +53,20 @@ describe('classifyModChange', () => {
     expect(classifyModChange(c, null)).toMatchObject({ status: 'already', reason: 'already-gone' });
   });
 });
+
+describe('choices', () => {
+  it('defaults safe items to mine, already items to nothing, and leaves conflicts and warnings undecided', async () => {
+    const { defaultChoice, effectiveChoice, parseChoiceKey } = await import('../../src/server/projects/replay.js');
+    expect(defaultChoice('safe')).toBe('mine');
+    expect(defaultChoice('already')).toBeNull();
+    expect(defaultChoice('conflict')).toBeNull();
+    expect(defaultChoice('warning')).toBeNull();
+    expect(effectiveChoice('conflict', 'base')).toBe('base');
+    expect(effectiveChoice('safe', 'skip')).toBe('skip');
+    expect(effectiveChoice('safe', undefined)).toBe('mine');
+    expect(parseChoiceKey('mod:jei')).toEqual({ kind: 'mod', key: 'jei' });
+    expect(parseChoiceKey('file:config/a:b.toml')).toEqual({ kind: 'file', key: 'config/a:b.toml' });
+    expect(parseChoiceKey('nope')).toBeNull();
+    expect(parseChoiceKey('dir:x')).toBeNull();
+  });
+});

@@ -191,3 +191,19 @@ export const projectChange = sqliteTable(
   },
   (t) => [unique().on(t.projectId, t.kind, t.key)],
 );
+
+/** What you decided for one retouch when replaying the project on a given new base version: 'mine', 'base' or 'skip'. */
+export const projectChoice = sqliteTable(
+  'project_choice',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    projectId: integer('project_id')
+      .notNull()
+      .references(() => project.id),
+    newCleanId: integer('new_clean_id').notNull(),
+    kind: text('kind').notNull(), // 'mod' | 'file'
+    key: text('key').notNull(),
+    choice: text('choice').notNull(),
+  },
+  (t) => [unique().on(t.projectId, t.newCleanId, t.kind, t.key)],
+);

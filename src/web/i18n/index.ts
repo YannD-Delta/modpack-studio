@@ -1,6 +1,8 @@
 import frAssistant from './fr.assistant.json';
+import frBuild from './fr.build.json';
 import frConfigs from './fr.configs.json';
 import frDecisions from './fr.decisions.json';
+import frKeys from './fr.keys.json';
 import fr from './fr.json';
 import frPlan from './fr.plan.json';
 import frProjects from './fr.projects.json';
@@ -8,7 +10,7 @@ import frTestbench from './fr.testbench.json';
 import frSettings from './fr.settings.json';
 
 // One JSON file per work stream (core, plan, configs, decisions, settings) so parallel work does not collide.
-const messages = { ...fr, ...frPlan, ...frConfigs, ...frDecisions, ...frSettings, ...frAssistant, ...frTestbench, ...frProjects };
+const messages = { ...fr, ...frPlan, ...frConfigs, ...frDecisions, ...frSettings, ...frAssistant, ...frTestbench, ...frProjects, ...frBuild,...frKeys };
 
 export type MessageKey = keyof typeof messages;
 

@@ -43,3 +43,23 @@ export function classifyModChange(
   }
   return newBase === null ? { status: 'already', reason: 'already-gone' } : { status: 'safe', reason: 'base-unchanged' };
 }
+
+/** What you decide for a retouch whose replay is not automatic: replay your version, keep the new base's, or leave it out. */
+export type Choice = 'mine' | 'base' | 'skip';
+export const CHOICES: readonly Choice[] = ['mine', 'base', 'skip'];
+
+/** Safe items are replayed unless told otherwise, items already in place need nothing, conflicts and warnings need a decision. */
+export function defaultChoice(status: ReplayStatus): Choice | null {
+  return status === 'safe' ? 'mine' : null;
+}
+
+export const effectiveChoice = (status: ReplayStatus, stored: Choice | undefined): Choice | null => stored ?? defaultChoice(status);
+
+/** "<kind>:<key>" as used by the API; the key itself may contain colons. */
+export function parseChoiceKey(raw: string): { kind: 'file' | 'mod'; key: string } | null {
+  const i = raw.indexOf(':');
+  if (i < 0) return null;
+  const kind = raw.slice(0, i);
+  const key = raw.slice(i + 1);
+  return (kind === 'file' || kind === 'mod') && key ? { kind, key } : null;
+}

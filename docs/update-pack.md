@@ -103,3 +103,21 @@ What the script guarantees:
 - **Running-game guard, best effort.** The script lists `java.exe` and `javaw.exe` processes and tests whether their command line contains the instance folder (slashes, case and a trailing separator are normalised, and a sibling such as `MyPack-two` does not match). In a dry run a match only prints a warning. With `-Apply` and without `-Force` a match stops the run. A server started with relative paths does not show the folder in its command line and is not seen by this check, which is why the file-in-use probe backs it up. If the process list cannot be read, the script says so and continues. Close the game and the server yourself before applying.
 
 Studio itself never writes into an instance. See [Security](security.md).
+
+## Server pack
+
+The **Server pack** card on the Mods tab builds a zip to put on a server, from a **server** profile that points at a folder and whose mods were imported (the blacklist is matched by mod id, so a profile without imported mods is refused with `not_imported`).
+
+The result is `data/exports/server-pack-<profile>-<stamp>/` and `server-pack-<profile>-<stamp>.zip` next to it. It is written as `.partial` first and renamed when complete, like an update pack, and nothing is ever written into the server folder (an exports folder inside it is refused).
+
+What goes in:
+
+- `mods/`: every `.jar` except the ones that provide a mod id of the server blacklist (base-derived entries, your own entries and side decisions, see [Mod comparison](mods.md)). A jar the import does not know is copied and listed as "not checked".
+- The tracked config folders (`configs.trackedRoots`, by default `config`, `defaultconfigs`, `kubejs`, `scripts`, `datapacks`, `global_packs`), without the paths banned in `configs.ignoredPaths` and without `.bak`, `.tmp` and `.log` files.
+- At the root only: `run.bat`, `run.sh`, `start*.bat`, `user_jvm_args.txt` and `server.properties`. The `rcon.password` value of `server.properties` is blanked in the copy.
+
+What never goes in: the world, `logs`, `crash-reports`, `backups`, `eula.txt`, `ops.json`, `whitelist.json`, `banned-*.json`, `usercache.json`, and anything else at the root.
+
+`SERVER-PACK.md` inside the pack lists what was left out and why: blacklisted mods by id, ignored paths, and every root item that is not in the allow-list.
+
+API: `POST /api/v1/build/server-pack` with `{ "profile": <id> }` answers `{ name, folder, zip, zipBytes, mods, files, leftOut, unlisted }`.

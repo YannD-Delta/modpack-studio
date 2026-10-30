@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { api, flattenProfiles, profileLabel, type MatrixRow, type Profile } from '../api.js';
-import { projectsApi, type Preview, type PreviewItem, type Proposal, type ReplayStatus, type Triad } from '../api-projects.js';
+import { exportDownloadUrl } from '../api-plan.js';
+import { projectsApi, type Choice, type Preview, type PreviewItem, type Proposal, type ProjectExport, type ReplayStatus, type Triad } from '../api-projects.js';
 import { ErrorNotice } from '../components/ErrorNotice.js';
 import { t, tf, tfOr, tOr } from '../i18n/index.js';
 
@@ -142,12 +143,63 @@ function Kept(props: { projectId: number }) {
   );
 }
 
+const CHOICES: Choice[] = ['mine', 'base', 'skip'];
+const needsChoice = (i: PreviewItem) => (i.status === 'conflict' || i.status === 'warning') && (i.choice ?? null) === null;
+
+function ExportResultCard({ exported, onClose }: { exported: ProjectExport; onClose: () => void }) {
+  const r = exported.result;
+  const dry = `.\\apply.ps1 -InstanceDir "<dossier de l’instance>"`;
+  return (
+    <div className="space-y-2 rounded-lg border border-emerald-700/60 bg-emerald-950/30 p-3 text-sm text-slate-200" data-testid="export-result">
+      <div className="flex items-center gap-3">
+        <span className="font-semibold text-emerald-300">{t('projects.export.title')}</span>
+        <button className={`${action} ml-auto`} onClick={onClose}>{t('plan.result.close')}</button>
+      </div>
+      <p>{t('plan.result.folder')} <code className="select-all break-all rounded bg-slate-900 px-1 font-mono text-xs">{exported.folder}</code></p>
+      <p>{t('projects.export.zip')} <code className="select-all rounded bg-slate-900 px-1 font-mono text-xs">{exported.zip}</code></p>
+      <p>{tf('projects.export.counts', { m: String(r.counts.modsUpdated), x: String(r.counts.jarsToRemove), f: String(r.counts.files) })}</p>
+      {r.failures.length > 0 && (
+        <div>
+          <p className="font-medium text-rose-300">{tf('projects.export.missing', { n: String(r.failures.length) })}</p>
+          <ul className="ml-4 list-disc text-xs text-rose-200">{r.failures.map((f) => <li key={`${f.kind}:${f.key}`}><span className="font-mono">{f.key}</span> — {f.reason}</li>)}</ul>
+        </div>
+      )}
+      {r.warnings.length > 0 && <ul className="ml-4 list-disc text-xs text-amber-200">{r.warnings.map((w) => <li key={w}>{w}</li>)}</ul>}
+      <a className="inline-block rounded-md border border-emerald-600 bg-emerald-700/40 px-2.5 py-1 text-xs font-medium text-emerald-100 hover:bg-emerald-700/60" href={exportDownloadUrl(exported.name)} download>{t('plan.result.download')}</a>
+      <div className="space-y-1 text-xs text-slate-300">
+        <p>{t('plan.result.how')}</p>
+        <p>{t('plan.result.howDry')} <code className="select-all rounded bg-slate-900 px-1 font-mono">{dry}</code></p>
+        <p>{t('plan.result.howApply')} <code className="select-all rounded bg-slate-900 px-1 font-mono">{`${dry} -Apply`}</code></p>
+        <p className="text-slate-400">{t('plan.result.safe')}</p>
+      </div>
+    </div>
+  );
+}
+
 function Update(props: { projectId: number; profiles: Profile[] }) {
   const [newClean, setNewClean] = useState('');
   const [oldClean, setOldClean] = useState('');
-  const run = useMutation({ mutationFn: () => projectsApi.preview(props.projectId, Number(newClean), oldClean ? Number(oldClean) : undefined) });
-  const pv: Preview | undefined = run.data;
+  const [target, setTarget] = useState('');
+  const [pv, setPv] = useState<Preview | undefined>();
+  const [exported, setExported] = useState<ProjectExport | null>(null);
+  const run = useMutation({
+    mutationFn: () => projectsApi.preview(props.projectId, Number(newClean), oldClean ? Number(oldClean) : undefined),
+    onSuccess: (p) => {
+      setPv(p);
+      setExported(null);
+    },
+  });
+  const choose = useMutation({
+    mutationFn: (v: { item: PreviewItem; choice: Choice }) => projectsApi.setChoices(props.projectId, Number(newClean), { [`${v.item.kind}:${v.item.key}`]: v.choice }),
+    // the server answers with the preview as it now stands, so a reload shows the same choices
+    onSuccess: (p) => setPv((old) => (old ? { ...p, baseDiff: old.baseDiff } : p)),
+  });
+  const pack = useMutation({
+    mutationFn: () => projectsApi.exportPack(props.projectId, Number(newClean), target ? Number(target) : undefined),
+    onSuccess: setExported,
+  });
   const label = (i: PreviewItem) => (i.kind === 'mod' ? tfOr(`projects.mod.${i.action}`, { from: '', to: i.mine.version ?? '' }, i.action) : t('projects.kind.file'));
+  const pending = pv ? pv.items.filter(needsChoice).length : 0;
   return (
     <section className={card}>
       <h3 className="font-semibold text-slate-100">{t('projects.update.title')}</h3>
@@ -175,11 +227,30 @@ function Update(props: { projectId: number; profiles: Profile[] }) {
                     <td className="px-3 py-1.5 text-slate-400">{label(i)}</td>
                     <td className="px-3 py-1.5 font-mono">{i.key}</td>
                     <td className="px-3 py-1.5 text-slate-300">{tfOr(`projects.reason.${i.reason}`, { mine: i.mine.version ?? '', base: i.newBase?.version ?? '' }, i.reason)}</td>
+                    <td className="px-3 py-1.5">
+                      {(i.status === 'conflict' || i.status === 'warning') && (
+                        <div role="group" aria-label={tf('projects.choice.label', { key: i.key })} className="flex gap-1">
+                          {CHOICES.map((c) => (
+                            <button key={c} type="button" aria-pressed={i.choice === c} disabled={choose.isPending} onClick={() => choose.mutate({ item: i, choice: c })} className={`rounded border px-2 py-0.5 ${i.choice === c ? 'border-violet-500 bg-violet-600 text-white' : 'border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700'}`}>
+                              {t(`projects.choice.${c}` as 'projects.choice.mine')}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+          {choose.isError && <ErrorNotice error={choose.error} />}
+          <div className="flex flex-wrap items-end gap-3">
+            <ProfilePick label={t('projects.export.target')} value={target} onChange={setTarget} profiles={props.profiles} state={['clean', 'launched', 'candidate', 'run']} />
+            <button className={primary} disabled={pending > 0 || pv.items.length === 0 || pack.isPending} onClick={() => pack.mutate()}>{t('projects.export.run')}</button>
+            <span role="status" data-testid="choice-counter" className={`text-xs ${pending > 0 ? 'text-amber-300' : 'text-emerald-400'}`}>{pending > 0 ? tf('projects.choice.pending', { n: String(pending) }) : t('projects.choice.done')}</span>
+          </div>
+          {pack.isError && <ErrorNotice error={pack.error} />}
+          {exported && <ExportResultCard exported={exported} onClose={() => setExported(null)} />}
         </>
       )}
     </section>

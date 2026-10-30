@@ -87,6 +87,28 @@ Select the files to keep in the **My changes** view (`GET /configs/customization
 
 Both routes answer 400 with a code when the trio is wrong: `triad_state` (a copy is not clean, launched or played), `triad_mismatch` (different pack, version or side) or `triad_distinct` (the same profile twice). A copy that was never scanned answers 409 `not_scanned`.
 
+## Key-level comparison
+
+The line diff of a file has a **Keys** tab next to **Lines** (only for the formats below). It compares the settings themselves instead of the text, so reordering, reformatting, comments and trailing commas are not differences.
+
+`GET /configs/keydiff?base=<profile>&other=<profile>&path=<rel path>` answers `{ format, parsable, diff: { added, removed, changed, moved }, counts }`. It uses the same path validation, size limit and inventory cache as `filediff`, and answers 409 `not_scanned` for a profile that was never scanned. A file present on one side only is all added or all removed.
+
+**Formats understood** (`src/server/configs/keys.ts`):
+
+| Format | Extensions | Flattened to |
+|---|---|---|
+| TOML | `.toml` | `table.key` (dotted and quoted keys, `[[array tables]]` as `name[0].key`) |
+| JSON, with comments and trailing commas | `.json`, `.json5`, `.jsonc`, `.mcmeta` | `object.key` |
+| Properties and Forge `.cfg` | `.properties`, `.cfg`, `.conf` | `key`, or `category.key` inside `name { }` blocks |
+
+Scalars are compared as normalised text (`1_000` and `1000`, `1.0` and `1` are equal; a string `"1"` and a number `1` are not told apart). Arrays and inline tables are one value each, compared as canonical JSON (object keys sorted). A file that cannot be parsed, is not in these formats, or has more keys than `configs.maxKeys` (Settings, default 20000) reports `parsable: false` with a reason and the web falls back to the line diff. Parsing never throws.
+
+**Moved keys.** A key removed in one place and added elsewhere with the same last segment and the same value is reported once as *moved* (`old.section.speed` to `new.section.speed`), not as an addition plus a removal. A move with a changed value stays an addition and a removal.
+
+**Three-way merge (library only).** `src/server/configs/merge.ts` has `threeWayMerge(baseThen, baseNow, mine)`: per key, *equal*, *mine* (only you changed it), *base* (only the new base changed it) or *conflict* (both changed it differently). `renderMerged` then edits the text of the new base minimally (comments and order kept, values replaced in place, your added keys inserted in their table, your removed keys deleted) and re-parses the result to check it. What a format cannot express is reported as a conflict, never invented: adding or removing a JSON key, a key in a TOML array table, a key in an empty TOML table. It is not wired into any screen yet.
+
+**Not done:** there is no key editor, and Studio still never writes into an instance.
+
 ## Limits
 
 Files are viewed, not edited. There is no three-way merge yet ([roadmap](roadmap.md)): nothing relates the old base to the new base, so a shipped file that changed in the new base *and* in your pack is not flagged. Compare the new base with the played profile in the pair view and judge each `modified` file by hand.

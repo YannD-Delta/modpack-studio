@@ -1,0 +1,16 @@
+{
+  "keys.tab.lines": "Lignes",
+  "keys.tab.keys": "Clés",
+  "keys.loading": "Lecture des clés…",
+  "keys.error": "Comparaison par clés impossible : {msg}",
+  "keys.same": "Aucune clé ne diffère.",
+  "keys.stale": "Le fichier a changé depuis le scan : relancez un scan pour être sûr.",
+  "keys.fallback.unsupported": "Ce format n'est pas lu clé par clé : voyez la comparaison par lignes.",
+  "keys.fallback.tooLarge": "Fichier trop gros pour la comparaison par clés : voyez la comparaison par lignes.",
+  "keys.fallback.unparsable": "Fichier illisible clé par clé ({detail}) : voyez la comparaison par lignes.",
+  "keys.section.changed": "Valeur modifiée ({n})",
+  "keys.section.added": "Clé ajoutée ({n})",
+  "keys.section.removed": "Clé retirée ({n})",
+  "keys.section.moved": "Clé déplacée ({n})",
+  "keys.moved.arrow": "→"
+}

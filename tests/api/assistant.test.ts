@@ -5,7 +5,8 @@ import type { FastifyInstance } from 'fastify';
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../../src/server/api/app.js';
 import { hashPassword } from '../../src/server/api/auth.js';
-import { buildPrompt } from '../../src/server/assistant/prompts.js';
+import { buildClientRunPrompt, buildPrompt } from '../../src/server/assistant/prompts.js';
+import { summarizeClientLog } from '../../src/server/testbench/client-logs.js';
 import type { Config } from '../../src/server/config.js';
 import { openDb, type Db } from '../../src/server/db/open.js';
 import { closePool } from '../../src/server/jobs/pool.js';
@@ -338,5 +339,26 @@ describe('assistant api: server test analysis', () => {
     const rows = JSON.stringify(db.sqlite.prepare('SELECT action, target, detail FROM audit_log').all());
     expect(rows).toContain('run-c');
     expect(rows).not.toContain('Failed to load');
+  });
+});
+
+describe('buildClientRunPrompt', () => {
+  it('states the markers used, the errors and the crash headline, and never the log lines of the player', () => {
+    const summary = summarizeClientLog(['[10:00:01] [Render thread/INFO] [Minecraft/]: Setting user: SomePlayer', '[10:00:02] [main/ERROR] [mod_x/]: Failed to load mod_x'].join('\n'));
+    const logs = {
+      profile: { id: 1, label: 'Own My pack 2026 (client, run)' },
+      log: { present: true, truncated: false, bytesRead: 10, lines: 2, ...summary },
+      crashReports: [{ name: 'crash-1.txt', modified: '2026-10-29T10:00:00.000Z', headline: 'Initializing game: java.lang.Error: boom', head: 'Description: Initializing game' }],
+      mods: { count: 3, onlyInInstance: ['extra-1.0.jar'], onlyInImport: [], imported: true },
+      markersUsed: summary.markers.map((m) => m.pattern),
+    };
+    const built = buildClientRunPrompt({ logs, mode: 'chat', names: { upstream: 'Base', own: 'Own' } });
+    expect(built.action).toBe('analyze-client-run');
+    expect(built.prompt).toContain('Setting user:');
+    expect(built.prompt).toContain('Failed to load mod_x');
+    expect(built.prompt).toContain('Initializing game: java.lang.Error: boom');
+    expect(built.prompt).toContain('extra-1.0.jar');
+    expect(built.prompt).not.toContain('SomePlayer');
+    expect(built.prompt).not.toContain('{upstream}');
   });
 });
